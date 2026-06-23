@@ -1,0 +1,102 @@
+import React, { useMemo, useState } from 'react';
+import { Activity } from '../lib/cpm';
+import { SitePhoto, storage } from '../lib/storage';
+
+interface Props {
+  projectId: string;
+  activities: Activity[];
+  reports: any[];
+  currentDate: string;
+  userName: string;
+  onSubmit: (report: any, workItems: any[], materials: any[]) => void;
+  onReload: () => void;
+}
+
+export default function DailyReportingDashboard({ projectId, activities, reports, currentDate, userName, onSubmit, onReload }: Props) {
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
+  const [caption, setCaption] = useState('');
+  const [photos, setPhotos] = useState<SitePhoto[]>(() => storage.getSitePhotos());
+  const [form, setForm] = useState({
+    report_date: currentDate, weather: 'Clear / Sunny', manpower_total: 0, equipment_total: 0,
+    site_instructions: '', obstruction_reasons: '', next_day_plan: '',
+    activity_id: activities[0]?.id || '', quantity_completed: 0, activity_manpower: 0, activity_equipment: 0,
+    delay_reason: '', material_name: '', material_unit: 'Bag', received_qty: 0, consumed_qty: 0, vendor: ''
+  });
+
+  const sortedReports = useMemo(() => [...reports].sort((a,b)=>b.report_date.localeCompare(a.report_date)), [reports]);
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      const reportId = `rep-${Date.now()}`;
+      onSubmit({
+        id: reportId, report_date: form.report_date, weather: form.weather,
+        manpower_total: form.manpower_total, equipment_total: form.equipment_total,
+        site_instructions: form.site_instructions, obstruction_reasons: form.obstruction_reasons,
+        next_day_plan: form.next_day_plan, submitted_by: userName
+      }, form.activity_id ? [{
+        activity_id: form.activity_id, quantity_completed: form.quantity_completed,
+        manpower_count: form.activity_manpower, equipment_count: form.activity_equipment,
+        delay_reason: form.delay_reason
+      }] : [], form.material_name ? [{
+        material_name: form.material_name, unit: form.material_unit, received_qty: form.received_qty,
+        consumed_qty: form.consumed_qty, vendor: form.vendor
+      }] : []);
+      for (const file of files) await storage.uploadSitePhoto(file, reportId, caption);
+      setPhotos(storage.getSitePhotos());
+      setFiles([]);
+      setCaption('');
+      setShowForm(false);
+      onReload();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Could not save daily report.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <div className="space-y-5 text-xs" key={projectId}>
+    <div className="flex justify-between items-center"><div><h2 className="text-base font-semibold">Daily Site Reporting</h2><p className="text-slate-400">Progress quantities, labour, plant, materials, delays, instructions and photographic evidence.</p></div><button onClick={()=>setShowForm(v=>!v)} className="bg-blue-600 px-3 py-2 rounded-lg font-semibold">+ New Daily Report</button></div>
+    {showForm&&<form onSubmit={submit} className="space-y-4 bg-slate-800/60 border border-slate-700 p-4 rounded-xl">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <Field label="Report Date"><input type="date" value={form.report_date} onChange={e=>setForm({...form,report_date:e.target.value})}/></Field>
+        <Field label="Weather"><input value={form.weather} onChange={e=>setForm({...form,weather:e.target.value})}/></Field>
+        <Field label="Total Manpower"><input type="number" value={form.manpower_total} onChange={e=>setForm({...form,manpower_total:Number(e.target.value)})}/></Field>
+        <Field label="Total Equipment"><input type="number" value={form.equipment_total} onChange={e=>setForm({...form,equipment_total:Number(e.target.value)})}/></Field>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <Field label="Site Instructions"><textarea value={form.site_instructions} onChange={e=>setForm({...form,site_instructions:e.target.value})}/></Field>
+        <Field label="Obstruction / Delay Reasons"><textarea value={form.obstruction_reasons} onChange={e=>setForm({...form,obstruction_reasons:e.target.value})}/></Field>
+        <Field label="Next-day Plan"><textarea value={form.next_day_plan} onChange={e=>setForm({...form,next_day_plan:e.target.value})}/></Field>
+        <Field label="Photo Caption"><textarea value={caption} onChange={e=>setCaption(e.target.value)}/></Field>
+      </div>
+      <div className="border-t border-slate-700 pt-3"><h3 className="font-semibold text-slate-200 mb-2">Work Item</h3><div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+        <Field label="Activity"><select value={form.activity_id} onChange={e=>setForm({...form,activity_id:e.target.value})}>{activities.map(activity=><option key={activity.id} value={activity.id}>{activity.wbs_code} — {activity.name}</option>)}</select></Field>
+        <Field label="Quantity Done"><input type="number" value={form.quantity_completed} onChange={e=>setForm({...form,quantity_completed:Number(e.target.value)})}/></Field>
+        <Field label="Manpower"><input type="number" value={form.activity_manpower} onChange={e=>setForm({...form,activity_manpower:Number(e.target.value)})}/></Field>
+        <Field label="Equipment"><input type="number" value={form.activity_equipment} onChange={e=>setForm({...form,activity_equipment:Number(e.target.value)})}/></Field>
+        <Field label="Delay Reason"><input value={form.delay_reason} onChange={e=>setForm({...form,delay_reason:e.target.value})}/></Field>
+      </div></div>
+      <div className="border-t border-slate-700 pt-3"><h3 className="font-semibold text-slate-200 mb-2">Material Movement</h3><div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+        <Field label="Material"><input value={form.material_name} onChange={e=>setForm({...form,material_name:e.target.value})}/></Field>
+        <Field label="Unit"><input value={form.material_unit} onChange={e=>setForm({...form,material_unit:e.target.value})}/></Field>
+        <Field label="Received"><input type="number" value={form.received_qty} onChange={e=>setForm({...form,received_qty:Number(e.target.value)})}/></Field>
+        <Field label="Consumed"><input type="number" value={form.consumed_qty} onChange={e=>setForm({...form,consumed_qty:Number(e.target.value)})}/></Field>
+        <Field label="Vendor"><input value={form.vendor} onChange={e=>setForm({...form,vendor:e.target.value})}/></Field>
+      </div></div>
+      <Field label="Site Photos (small images are stored locally; connected projects upload to Supabase Storage)"><input type="file" accept="image/*" multiple onChange={e=>setFiles(Array.from(e.target.files||[]))}/></Field>
+      {files.length>0&&<div className="text-slate-400">{files.length} photo(s) selected</div>}
+      <button disabled={saving} className="bg-emerald-600 disabled:opacity-50 px-4 py-2 rounded font-semibold">{saving?'Saving report…':'Submit Daily Report'}</button>
+    </form>}
+    <div className="space-y-3">{sortedReports.map(report=>{const reportPhotos=photos.filter(photo=>photo.daily_report_id===report.id);const work=storage.getDailyWorkItems(report.id);const mats=storage.getDailyMaterialLogs(report.id);return <article key={report.id} className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-4 space-y-3">
+      <div className="flex justify-between"><div><h3 className="font-bold text-slate-100">{report.report_date} · {report.weather}</h3><div className="text-slate-500">Submitted by {report.submitted_by}</div></div><div className="text-right"><b>{report.manpower_total}</b> people · <b>{report.equipment_total}</b> plant</div></div>
+      <div className="grid md:grid-cols-3 gap-3"><Info label="Instructions" value={report.site_instructions}/><Info label="Obstructions" value={report.obstruction_reasons}/><Info label="Next Plan" value={report.next_day_plan}/></div>
+      {(work.length>0||mats.length>0)&&<div className="grid md:grid-cols-2 gap-3 text-slate-400"><div><b className="text-slate-200">Work:</b> {work.map((item:any)=>`${item.quantity_completed} on ${activities.find(a=>a.id===item.activity_id)?.name||item.activity_id}`).join(', ')}</div><div><b className="text-slate-200">Materials:</b> {mats.map((item:any)=>`${item.material_name} +${item.received_qty} / -${item.consumed_qty}`).join(', ')}</div></div>}
+      {reportPhotos.length>0&&<div className="grid grid-cols-2 md:grid-cols-4 gap-2">{reportPhotos.map(photo=><figure key={photo.id}><img src={photo.url} alt={photo.caption||photo.name} className="h-28 w-full object-cover rounded-lg border border-slate-700"/><figcaption className="text-[10px] text-slate-500 mt-1">{photo.caption||photo.name}</figcaption></figure>)}</div>}
+    </article>})}</div>
+  </div>;
+}
+function Field({label,children}:{label:string;children:React.ReactNode}){return <label className="text-slate-400 space-y-1"><span className="block">{label}</span><span className="[&_input]:w-full [&_select]:w-full [&_textarea]:w-full [&_input]:bg-slate-950 [&_select]:bg-slate-950 [&_textarea]:bg-slate-950 [&_input]:border [&_select]:border [&_textarea]:border [&_input]:border-slate-700 [&_select]:border-slate-700 [&_textarea]:border-slate-700 [&_input]:p-2 [&_select]:p-2 [&_textarea]:p-2 [&_input]:rounded [&_select]:rounded [&_textarea]:rounded [&_input]:text-slate-200 [&_select]:text-slate-200 [&_textarea]:text-slate-200">{children}</span></label>}
+function Info({label,value}:{label:string;value:string}){return <div className="bg-slate-900/40 rounded p-3"><div className="text-[10px] uppercase text-slate-500 font-bold">{label}</div><div className="mt-1 text-slate-300">{value||'None recorded'}</div></div>}

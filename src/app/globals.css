@@ -1,26 +1,252 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --background: #f4f7fb;
+  --foreground: #172033;
+  --surface: #ffffff;
+  --surface-muted: #f8fafc;
+  --border: #dfe7f1;
+  --muted: #64748b;
+  --primary: #2563eb;
 }
 
 body {
-  background: var(--background);
+  background:
+    radial-gradient(circle at 84% 2%, rgba(37, 99, 235, 0.07), transparent 27rem),
+    var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #edf2f7;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c5d1df;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Custom glow animations */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 5px rgba(59, 130, 246, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.8);
+  }
+}
+
+.animate-glow {
+  animation: pulse-glow 2s infinite ease-in-out;
+}
+
+/* BuildTrack light workspace ------------------------------------------------ */
+.app-shell {
+  background: transparent;
+  color: #172033;
+}
+
+.app-sidebar {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: #dfe7f1;
+  box-shadow: 12px 0 32px rgba(30, 64, 175, 0.05);
+}
+
+.app-header {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: #dfe7f1;
+  box-shadow: 0 1px 12px rgba(15, 23, 42, 0.04);
+  backdrop-filter: blur(16px);
+}
+
+.app-main {
+  background: transparent;
+}
+
+/* Translate the original slate cockpit palette into a consistent light UI. */
+[class~="bg-slate-950"] { background-color: #f4f7fb !important; }
+[class~="bg-slate-900"],
+[class~="bg-slate-900/80"],
+[class~="bg-slate-900/60"],
+[class~="bg-slate-900/40"],
+[class~="bg-slate-900/30"],
+[class~="bg-slate-900/20"] { background-color: #f8fafc !important; }
+[class~="bg-slate-850"] { background-color: #f8fafc !important; }
+[class~="bg-slate-800"],
+[class~="bg-slate-800/80"],
+[class~="bg-slate-800/60"],
+[class~="bg-slate-800/50"],
+[class~="bg-slate-800/40"],
+[class~="bg-slate-800/20"],
+[class~="bg-slate-800/10"] {
+  background-color: #ffffff !important;
+}
+[class~="bg-slate-750"],
+[class~="bg-slate-700"],
+[class~="bg-slate-700/40"],
+[class~="bg-slate-700/30"] { background-color: #eef3f8 !important; }
+
+[class~="text-slate-100"] { color: #0f172a !important; }
+[class~="text-slate-200"] { color: #1e293b !important; }
+[class~="text-slate-300"] { color: #334155 !important; }
+[class~="text-slate-400"] { color: #52637a !important; }
+[class~="text-slate-500"] { color: #64748b !important; }
+[class~="text-slate-600"] { color: #475569 !important; }
+
+/* Stronger status/link contrast for the light workspace. */
+[class~="text-blue-300"],
+[class~="text-blue-400"] { color: #1d4ed8 !important; }
+[class~="text-sky-400"] { color: #0369a1 !important; }
+[class~="text-emerald-300"],
+[class~="text-emerald-400"],
+[class~="text-emerald-500"] { color: #047857 !important; }
+[class~="text-amber-300"],
+[class~="text-amber-400"],
+[class~="text-amber-500"] { color: #a16207 !important; }
+[class~="text-rose-200"],
+[class~="text-rose-300"],
+[class~="text-rose-400"],
+[class~="text-rose-500"] { color: #be123c !important; }
+[class~="text-purple-300"],
+[class~="text-purple-400"] { color: #7e22ce !important; }
+
+[class~="border-slate-850"],
+[class~="border-slate-800"],
+[class~="border-slate-800/80"],
+[class~="border-slate-800/50"],
+[class~="border-slate-800/40"],
+[class~="border-slate-800/30"],
+[class~="border-slate-700"],
+[class~="border-slate-700/80"],
+[class~="border-slate-700/50"],
+[class~="border-slate-700/40"],
+[class~="border-slate-700/30"],
+[class~="border-slate-750"] { border-color: #dfe7f1 !important; }
+
+[class~="divide-slate-800"] > :not(:last-child),
+[class~="divide-slate-800/50"] > :not(:last-child) {
+  border-color: #e8eef5 !important;
+}
+
+[class~="fill-slate-300"] { fill: #475569 !important; }
+[class~="fill-slate-500"] { fill: #94a3b8 !important; }
+[class~="stroke-slate-900"] { stroke: #ffffff !important; }
+
+/* Card and data-grid polish */
+[class*="bg-slate-800/"][class*="rounded"],
+[class~="bg-slate-800"][class*="rounded"] {
+  box-shadow: 0 8px 24px rgba(30, 64, 175, 0.055);
+}
+
+table thead {
+  background: #f8fafc;
+}
+
+table tbody tr {
+  transition: background-color 150ms ease;
+}
+
+table tbody tr:hover {
+  background: #f8fbff !important;
+}
+
+input,
+select,
+textarea {
+  background-color: #ffffff !important;
+  color: #172033 !important;
+  border: 1px solid #cbd7e5;
+  color-scheme: light;
+  caret-color: #2563eb;
+  min-height: 40px;
+  font-size: 0.875rem;
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  background-color: #eef3f8 !important;
+  color: #7c8ba1 !important;
+  cursor: not-allowed;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 0.65;
+}
+
+select option {
+  background: #ffffff;
+  color: #172033;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #94a3b8 !important;
+  opacity: 1;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #60a5fa !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+button {
+  transition: transform 150ms ease, box-shadow 150ms ease, background-color 150ms ease, color 150ms ease;
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid rgba(59, 130, 246, 0.28);
+  outline-offset: 2px;
+}
+
+/* The original control-room UI leaned heavily on tiny labels. Keep the dense
+   layout, but make every tier comfortably readable in the light theme. */
+.app-shell [class~="text-xs"] { font-size: 0.84rem !important; line-height: 1.35rem !important; }
+.app-shell [class~="text-sm"] { font-size: 0.96rem !important; line-height: 1.45rem !important; }
+.app-shell [class~="text-[9px]"] { font-size: 0.70rem !important; line-height: 1rem !important; }
+.app-shell [class~="text-[10px]"] { font-size: 0.76rem !important; line-height: 1.1rem !important; }
+.app-shell [class~="text-[11px]"] { font-size: 0.80rem !important; line-height: 1.15rem !important; }
+
+.app-sidebar nav button {
+  min-height: 38px;
+}
+
+.app-main table th,
+.app-main table td {
+  line-height: 1.35;
+}
+
+/* Keep action buttons legible after light palette translation. */
+[class*="bg-blue-"],
+[class*="bg-emerald-"],
+[class*="bg-purple-"],
+[class*="bg-rose-"] {
+  --tw-shadow-color: rgba(15, 23, 42, 0.12);
+}
+
+@media (max-width: 767px) {
+  .app-sidebar nav {
+    max-height: 44vh;
+  }
 }

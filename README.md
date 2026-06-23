@@ -1,4 +1,22 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BuildTrack D&B Project Control System
+
+A browser-ready Design & Build project controls workspace built with Next.js 16, Tailwind CSS, local persistence, and optional Supabase connectivity.
+
+Included modules:
+
+- Signup and role-based onboarding
+- Multi-project project controls
+- WBS/CPM scheduling and AI tender scanning
+- Manual WBS/activity entry with predecessor logic
+- Earned value, budgets, IPCs, claims, QA/QC, safety, and handover
+- Expandable finance model with cash-flow charts
+- Project-scoped document status register
+- Procurement, delivery and stores ledger
+- Daily expense register with WBS, vendor and approval tracking
+- Contract obligations and expiry/deadline control
+- Daily site reporting with progress photos
+- Printable/CSV/JSON report and evidence packs
+- Browser-based Supabase Auth, Storage and project synchronization
 
 ## Getting Started
 
@@ -16,7 +34,26 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The app starts in local sandbox mode. Data is saved in browser local storage.
+
+## Optional configuration
+
+For AI-assisted analysis, create `.env.local`:
+
+```bash
+OPENAI_API_KEY=your_key
+OPENAI_MODEL=gpt-4o-mini
+```
+
+To use OpenRouter or another OpenAI-compatible provider, also set `OPENAI_BASE_URL` and the provider-specific model name.
+
+For Supabase:
+
+1. Run `supabase_schema.sql` in the Supabase SQL editor.
+2. Enable Email authentication and optionally configure the Google provider.
+3. Paste the project URL and anon/publishable key into **System Settings → Supabase Integration Status**.
+4. Sign out and create/sign into a Supabase-backed account.
+5. Use **Push Project to Cloud** for the first upload. Later changes synchronize automatically; **Pull Project from Cloud** restores the cloud copy into the browser.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
