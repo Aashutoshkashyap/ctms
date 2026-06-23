@@ -1406,7 +1406,14 @@ export const storage = {
   },
 
   // 2. Users
-  getUsers: () => getLocalItem('bt_users', MOCK_USERS),
+  getUsers: () => {
+    const users = getLocalItem<any[]>('bt_users', MOCK_USERS);
+    const uniqueUsers = [...new Map(users.map(user => [user.email.toLowerCase(), user])).values()];
+    if (typeof window !== 'undefined' && uniqueUsers.length !== users.length) {
+      localStorage.setItem('bt_users', JSON.stringify(uniqueUsers));
+    }
+    return uniqueUsers;
+  },
   addUser: (user: any) => {
     const users = storage.getUsers();
     const existingIndex = users.findIndex((item: any) => item.email.toLowerCase() === user.email.toLowerCase());
@@ -2189,7 +2196,7 @@ export const storage = {
       ...storage.getUsers(),
       ...(storage.getUsers().some((user: any) => user.email === signedInUser.email) ? [] : [signedInUser])
     ];
-    const directoryRows = directorySource.map((user: any) => ({
+    const directoryRows = [...new Map(directorySource.map((user: any) => [user.email.toLowerCase(), user])).values()].map((user: any) => ({
       id: `${projectId}-${user.id || session.user.id}`,
       project_id: projectId,
       auth_user_id: user.email === signedInUser.email ? session.user.id : null,
