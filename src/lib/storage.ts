@@ -1245,22 +1245,26 @@ export const storage = {
   onAuthStateChange: (callback: (user: { name: string; email: string; role: string } | null) => void) => {
     const client = getSupabaseClient();
     if (!client) return () => {};
-    const { data } = client.auth.onAuthStateChange(async (_event, session) => {
+    const { data } = client.auth.onAuthStateChange((_event, session) => {
       if (!session?.user) {
         callback(null);
         return;
       }
-      const { data: profile } = await client
-        .from('project_users')
-        .select('name,email,role')
-        .eq('auth_user_id', session.user.id)
-        .limit(1)
-        .maybeSingle();
-      callback(profile || {
-        name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'BuildTrack User',
-        email: session.user.email || '',
-        role: session.user.user_metadata?.role || 'project_manager'
-      });
+      window.setTimeout(() => {
+        void client
+          .from('project_users')
+          .select('name,email,role')
+          .eq('auth_user_id', session.user.id)
+          .limit(1)
+          .maybeSingle()
+          .then(({ data: profile }) => {
+            callback(profile || {
+              name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'BuildTrack User',
+              email: session.user.email || '',
+              role: session.user.user_metadata?.role || 'project_manager'
+            });
+          });
+      }, 0);
     });
     return () => data.subscription.unsubscribe();
   },
