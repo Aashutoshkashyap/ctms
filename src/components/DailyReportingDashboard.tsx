@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Activity } from '../lib/cpm';
 import { SitePhoto, storage } from '../lib/storage';
+import { can } from '../lib/permissions';
 
 interface Props {
   projectId: string;
@@ -8,16 +9,18 @@ interface Props {
   reports: any[];
   currentDate: string;
   userName: string;
+  userRole: string;
   onSubmit: (report: any, workItems: any[], materials: any[]) => void;
   onReload: () => void;
 }
 
-export default function DailyReportingDashboard({ projectId, activities, reports, currentDate, userName, onSubmit, onReload }: Props) {
+export default function DailyReportingDashboard({ projectId, activities, reports, currentDate, userName, userRole, onSubmit, onReload }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [caption, setCaption] = useState('');
-  const [photos, setPhotos] = useState<SitePhoto[]>(() => storage.getSitePhotos());
+  const [evidenceType, setEvidenceType] = useState<SitePhoto['evidence_type']>('progress');
+  const [photos, setPhotos] = useState<SitePhoto[]>([]);
   const [form, setForm] = useState({
     report_date: currentDate, weather: 'Clear / Sunny', manpower_total: 0, equipment_total: 0,
     site_instructions: '', obstruction_reasons: '', next_day_plan: '',
@@ -26,6 +29,18 @@ export default function DailyReportingDashboard({ projectId, activities, reports
   });
 
   const sortedReports = useMemo(() => [...reports].sort((a,b)=>b.report_date.localeCompare(a.report_date)), [reports]);
+  const canUpload = can(userRole, 'upload_evidence');
+  const canView = can(userRole, 'view_evidence');
+
+  React.useEffect(() => {
+    let active = true;
+    if (!canView) {
+      setPhotos([]);
+      return;
+    }
+    void storage.getSitePhotosForRole(userRole).then(rows => { if (active) setPhotos(rows); });
+    return () => { active = false; };
+  }, [projectId, userRole, canView]);
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setSaving(true);
@@ -44,8 +59,10 @@ export default function DailyReportingDashboard({ projectId, activities, reports
         material_name: form.material_name, unit: form.material_unit, received_qty: form.received_qty,
         consumed_qty: form.consumed_qty, vendor: form.vendor
       }] : []);
-      for (const file of files) await storage.uploadSitePhoto(file, reportId, caption);
-      setPhotos(storage.getSitePhotos());
+      if (canUpload) {
+        for (const file of files) await storage.uploadSitePhoto(file, reportId, caption, userName, evidenceType);
+      }
+      if (canView) setPhotos(await storage.getSitePhotosForRole(userRole));
       setFiles([]);
       setCaption('');
       setShowForm(false);
@@ -86,15 +103,18 @@ export default function DailyReportingDashboard({ projectId, activities, reports
         <Field label="Consumed"><input type="number" value={form.consumed_qty} onChange={e=>setForm({...form,consumed_qty:Number(e.target.value)})}/></Field>
         <Field label="Vendor"><input value={form.vendor} onChange={e=>setForm({...form,vendor:e.target.value})}/></Field>
       </div></div>
-      <Field label="Site Photos (small images are stored locally; connected projects upload to Supabase Storage)"><input type="file" accept="image/*" multiple onChange={e=>setFiles(Array.from(e.target.files||[]))}/></Field>
-      {files.length>0&&<div className="text-slate-400">{files.length} photo(s) selected</div>}
+      {canUpload&&<div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <Field label="Verification Images (private; Director access only)"><input type="file" accept="image/*" multiple onChange={e=>setFiles(Array.from(e.target.files||[]))}/></Field>
+        <Field label="Evidence Type"><select value={evidenceType} onChange={e=>setEvidenceType(e.target.value as SitePhoto['evidence_type'])}>{['progress','quality','safety','delivery','attendance','other'].map(value=><option key={value}>{value}</option>)}</select></Field>
+      </div>}
+      {files.length>0&&<div className="text-slate-600">{files.length} protected image(s) selected. Only the Project Director can view them after submission.</div>}
       <button disabled={saving} className="bg-emerald-600 disabled:opacity-50 px-4 py-2 rounded font-semibold">{saving?'Saving report…':'Submit Daily Report'}</button>
     </form>}
     <div className="space-y-3">{sortedReports.map(report=>{const reportPhotos=photos.filter(photo=>photo.daily_report_id===report.id);const work=storage.getDailyWorkItems(report.id);const mats=storage.getDailyMaterialLogs(report.id);return <article key={report.id} className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-4 space-y-3">
       <div className="flex justify-between"><div><h3 className="font-bold text-slate-100">{report.report_date} · {report.weather}</h3><div className="text-slate-500">Submitted by {report.submitted_by}</div></div><div className="text-right"><b>{report.manpower_total}</b> people · <b>{report.equipment_total}</b> plant</div></div>
       <div className="grid md:grid-cols-3 gap-3"><Info label="Instructions" value={report.site_instructions}/><Info label="Obstructions" value={report.obstruction_reasons}/><Info label="Next Plan" value={report.next_day_plan}/></div>
       {(work.length>0||mats.length>0)&&<div className="grid md:grid-cols-2 gap-3 text-slate-400"><div><b className="text-slate-200">Work:</b> {work.map((item:any)=>`${item.quantity_completed} on ${activities.find(a=>a.id===item.activity_id)?.name||item.activity_id}`).join(', ')}</div><div><b className="text-slate-200">Materials:</b> {mats.map((item:any)=>`${item.material_name} +${item.received_qty} / -${item.consumed_qty}`).join(', ')}</div></div>}
-      {reportPhotos.length>0&&<div className="grid grid-cols-2 md:grid-cols-4 gap-2">{reportPhotos.map(photo=><figure key={photo.id}><img src={photo.url} alt={photo.caption||photo.name} className="h-28 w-full object-cover rounded-lg border border-slate-700"/><figcaption className="text-[10px] text-slate-500 mt-1">{photo.caption||photo.name}</figcaption></figure>)}</div>}
+      {canView&&reportPhotos.length>0&&<div className="grid grid-cols-2 md:grid-cols-4 gap-2">{reportPhotos.map(photo=><figure key={photo.id}><img src={photo.url} alt={photo.caption||photo.name} className="h-28 w-full object-cover rounded-lg border border-slate-200"/><figcaption className="text-[10px] text-slate-500 mt-1">{photo.caption||photo.name}</figcaption></figure>)}</div>}
     </article>})}</div>
   </div>;
 }

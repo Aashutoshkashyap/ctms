@@ -1,10 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import { DailyExpense, storage } from '../lib/storage';
+import { can } from '../lib/permissions';
 
-export default function DailyExpenseDashboard({ projectId, userName }: { projectId: string; userName: string }) {
+export default function DailyExpenseDashboard({ projectId, userName, userRole }: { projectId: string; userName: string; userRole: string }) {
   const [expenses, setExpenses] = useState<DailyExpense[]>(() => storage.getDailyExpenses());
   const [showForm, setShowForm] = useState(false);
   const [filter, setFilter] = useState<'all' | DailyExpense['status']>('all');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [form, setForm] = useState({
     expense_date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0],
     category: 'material' as DailyExpense['category'], description: '', vendor: '', amount: 0,
@@ -35,6 +38,20 @@ export default function DailyExpenseDashboard({ projectId, userName }: { project
     setExpenses(storage.getDailyExpenses());
   };
   const visible = expenses.filter(item => filter === 'all' || item.status === filter).sort((a,b)=>b.expense_date.localeCompare(a.expense_date));
+  const canApprove = can(userRole, 'approve_expenses');
+  const accumulatedByDate = useMemo(() => {
+    let running = 0;
+    const grouped = new Map<string, number>();
+    expenses
+      .filter(item => item.status !== 'rejected' && (!fromDate || item.expense_date >= fromDate) && (!toDate || item.expense_date <= toDate))
+      .forEach(item => grouped.set(item.expense_date, (grouped.get(item.expense_date) || 0) + item.amount));
+    return [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, amount]) => {
+      running += amount;
+      return { date, amount, accumulated: running };
+    });
+  }, [expenses, fromDate, toDate]);
+  const rangeTotal = accumulatedByDate.at(-1)?.accumulated || 0;
+  const maxAccumulated = Math.max(1, rangeTotal);
 
   return <div className="space-y-5 text-xs" key={projectId}>
     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -44,6 +61,21 @@ export default function DailyExpenseDashboard({ projectId, userName }: { project
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       <Metric label="Selected Day" value={summary.today}/><Metric label="Current Month" value={summary.month}/><Metric label="Awaiting Approval" value={summary.pending} warning/><Metric label="Project Recorded" value={summary.total}/>
     </div>
+    <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div><h3 className="font-bold text-slate-900">Accumulated finance by date</h3><p className="text-slate-500">Approved and submitted daily costs rolled up across the selected period.</p></div>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="From"><input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)}/></Field>
+          <Field label="To"><input type="date" value={toDate} onChange={e=>setToDate(e.target.value)}/></Field>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-4 md:grid-cols-[1fr_220px]">
+        <div className="flex h-44 items-end gap-2 overflow-x-auto rounded-lg bg-slate-50 p-3">
+          {accumulatedByDate.length===0?<div className="m-auto text-slate-500">No cost records in this date range.</div>:accumulatedByDate.map(row=><div key={row.date} className="flex min-w-14 flex-1 flex-col items-center justify-end gap-1" title={`${row.date}: NPR ${row.accumulated.toLocaleString()}`}><span className="text-[10px] font-bold text-slate-600">{(row.accumulated/1_000_000).toFixed(1)}m</span><div className="w-full rounded-t bg-emerald-500" style={{height:`${Math.max(6,(row.accumulated/maxAccumulated)*110)}px`}}/><span className="text-[9px] text-slate-500">{row.date.slice(5)}</span></div>)}
+        </div>
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4"><div className="text-xs font-bold uppercase text-emerald-700">Accumulated in range</div><div className="mt-2 text-2xl font-extrabold text-emerald-800">NPR {rangeTotal.toLocaleString()}</div><div className="mt-2 text-xs text-emerald-700">{accumulatedByDate.length} posting date(s)</div></div>
+      </div>
+    </section>
     {showForm&&<form onSubmit={save} className="bg-white border border-slate-700 rounded-xl p-4 shadow-lg space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <Field label="Expense Date"><input required type="date" value={form.expense_date} onChange={e=>setForm({...form,expense_date:e.target.value})}/></Field>
@@ -60,7 +92,7 @@ export default function DailyExpenseDashboard({ projectId, userName }: { project
     <div className="flex flex-wrap gap-2">{(['all','draft','submitted','approved','rejected'] as const).map(value=><button key={value} onClick={()=>setFilter(value)} className={`px-3 py-1.5 rounded-full capitalize ${filter===value?'bg-blue-600 text-white':'bg-white border border-slate-700 text-slate-600'}`}>{value}</button>)}</div>
     <div className="bg-white border border-slate-700 rounded-xl p-4 shadow-lg overflow-x-auto">
       <table className="w-full min-w-[980px]"><thead><tr className="text-slate-400 border-b border-slate-700">{['Date','WBS','Category / Description','Vendor','Reference','Payment','Amount','Status','Action'].map(title=><th key={title} className="text-left py-3">{title}</th>)}</tr></thead>
-        <tbody>{visible.map(item=><tr key={item.id} className="border-b border-slate-800"><td className="py-3 font-mono">{item.expense_date}</td><td className="font-mono">{item.wbs_code||'—'}</td><td><b className="capitalize">{item.category.replaceAll('_',' ')}</b><div className="text-slate-500">{item.description}</div></td><td>{item.vendor||'—'}</td><td className="font-mono">{item.reference||'—'}</td><td className="capitalize">{item.payment_method.replaceAll('_',' ')}</td><td className="font-bold">NPR {item.amount.toLocaleString()}</td><td><Status value={item.status}/></td><td>{item.status==='submitted'&&<div className="flex gap-2"><button onClick={()=>updateStatus(item,'approved')} className="text-emerald-600 font-semibold">Approve</button><button onClick={()=>updateStatus(item,'rejected')} className="text-rose-600 font-semibold">Reject</button></div>}</td></tr>)}</tbody>
+        <tbody>{visible.map(item=><tr key={item.id} className="border-b border-slate-800"><td className="py-3 font-mono">{item.expense_date}</td><td className="font-mono">{item.wbs_code||'—'}</td><td><b className="capitalize">{item.category.replaceAll('_',' ')}</b><div className="text-slate-500">{item.description}</div></td><td>{item.vendor||'—'}</td><td className="font-mono">{item.reference||'—'}</td><td className="capitalize">{item.payment_method.replaceAll('_',' ')}</td><td className="font-bold">NPR {item.amount.toLocaleString()}</td><td><Status value={item.status}/></td><td>{canApprove&&item.status==='submitted'&&<div className="flex gap-2"><button onClick={()=>updateStatus(item,'approved')} className="text-emerald-600 font-semibold">Approve</button><button onClick={()=>updateStatus(item,'rejected')} className="text-rose-600 font-semibold">Reject</button></div>}</td></tr>)}</tbody>
       </table>
     </div>
   </div>;

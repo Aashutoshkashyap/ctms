@@ -6,7 +6,6 @@ import { calculateEVM, EVMMetrics } from '../lib/evm';
 import { Activity, Dependency, diffDays } from '../lib/cpm';
 
 // Dashboard views imports
-import ExecutiveDashboard from '../components/ExecutiveDashboard';
 import CpmTimelineDashboard from '../components/CpmTimelineDashboard';
 import ExpectedActualDashboard from '../components/ExpectedActualDashboard';
 import ProjectionDashboard from '../components/ProjectionDashboard';
@@ -28,6 +27,11 @@ import ContractObligationsDashboard from '../components/ContractObligationsDashb
 import DailyReportingDashboard from '../components/DailyReportingDashboard';
 import ReportCenter from '../components/ReportCenter';
 import DailyExpenseDashboard from '../components/DailyExpenseDashboard';
+import RoleDashboard from '../components/RoleDashboard';
+import OperationalControlDashboard from '../components/OperationalControlDashboard';
+import EvidenceVault from '../components/EvidenceVault';
+import { can, ROLE_LABELS, normalizeRole } from '../lib/permissions';
+import type { Feature } from '../lib/permissions';
 
 type ActiveTab =
   | 'dashboard' | 'cpm' | 'expected_actual' | 'projection'
@@ -36,7 +40,17 @@ type ActiveTab =
   | 'handover' | 'defects'
   | 'finance' | 'documents'
   | 'procurement' | 'obligations' | 'daily' | 'reports' | 'expenses'
+  | 'operations' | 'evidence'
   | 'ai' | 'settings';
+
+const TAB_FEATURES: Partial<Record<ActiveTab, Feature>> = {
+  cpm: 'schedule', expected_actual: 'schedule', projection: 'forecast', daily: 'daily_reports',
+  operations: 'operations', evidence: 'view_evidence', design: 'design', budget: 'budget',
+  ipc: 'ipc', claims: 'claims', procurement: 'procurement', obligations: 'obligations',
+  qaqc: 'qaqc', safety: 'safety', finance: 'finance', expenses: 'expenses',
+  documents: 'documents', reports: 'reports', handover: 'handover', defects: 'defects',
+  ai: 'ai', settings: 'settings',
+};
 
 interface AuthUser {
   name: string;
@@ -213,6 +227,9 @@ export default function DashboardShell() {
   const [handover, setHandover] = useState<any[]>([]);
   const [defects, setDefects] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const [expenses, setExpenses] = useState<any[]>([]);
+  const [resourceUsage, setResourceUsage] = useState<any[]>([]);
+  const [employeeVisits, setEmployeeVisits] = useState<any[]>([]);
 
   // ---- Database loader ----
   const loadData = () => {
@@ -232,6 +249,9 @@ export default function DashboardShell() {
     setHandover(storage.getHandoverChecklist());
     setDefects(storage.getDefects());
     setUsers(storage.getUsers());
+    setExpenses(storage.getDailyExpenses());
+    setResourceUsage(storage.getDailyResourceUsage());
+    setEmployeeVisits(storage.getEmployeeVisits());
   };
 
   // Check persisted auth on mount
@@ -266,6 +286,7 @@ export default function DashboardShell() {
   // ---- Auth Handlers ----
   const handleAuthSuccess = (user: AuthUser) => {
     setAuthUser(user);
+    setActiveTab('dashboard');
     if (typeof window !== 'undefined') {
       localStorage.setItem('bt_auth_user', JSON.stringify(user));
     }
@@ -280,6 +301,7 @@ export default function DashboardShell() {
     }
     void storage.signOut();
     setAuthUser(null);
+    setActiveTab('dashboard');
   };
 
   // ---- Show auth screen ----
@@ -414,6 +436,11 @@ export default function DashboardShell() {
 
   // ---- DB status badge ----
   const isSupabaseConnected = storage.isSupabaseConfigured();
+  const isAllowedTab = (tab: ActiveTab) => tab === 'dashboard' || !TAB_FEATURES[tab] || can(authUser.role, TAB_FEATURES[tab]!);
+  const goToTab = (tab: string) => {
+    const next = tab as ActiveTab;
+    setActiveTab(isAllowedTab(next) ? next : 'dashboard');
+  };
 
   return (
     <div className="app-shell min-h-screen flex flex-col md:flex-row font-sans">
@@ -463,37 +490,39 @@ export default function DashboardShell() {
         {/* Tab Links */}
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-180px)]">
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 mb-1.5 tracking-wider">Project Operations</div>
-          <NavBtn tab="dashboard" activeTab={activeTab} setActiveTab={setActiveTab} icon="📊" label="Executive Dashboard" />
-          <NavBtn tab="cpm" activeTab={activeTab} setActiveTab={setActiveTab} icon="📅" label="WBS / CPM Scheduler" />
-          <NavBtn tab="expected_actual" activeTab={activeTab} setActiveTab={setActiveTab} icon="📈" label="Expected vs Actual" />
-          <NavBtn tab="projection" activeTab={activeTab} setActiveTab={setActiveTab} icon="🔮" label="Forecast & Projections" />
-          <NavBtn tab="daily" activeTab={activeTab} setActiveTab={setActiveTab} icon="📝" label="Daily Site Reporting" />
+          <NavBtn tab="dashboard" activeTab={activeTab} setActiveTab={setActiveTab} icon="📊" label="My Dashboard" />
+          {can(authUser.role, 'schedule') && <NavBtn tab="cpm" activeTab={activeTab} setActiveTab={setActiveTab} icon="📅" label="WBS / CPM Scheduler" />}
+          {can(authUser.role, 'schedule') && <NavBtn tab="expected_actual" activeTab={activeTab} setActiveTab={setActiveTab} icon="📈" label="Expected vs Actual" />}
+          {can(authUser.role, 'forecast') && <NavBtn tab="projection" activeTab={activeTab} setActiveTab={setActiveTab} icon="🔮" label="Forecast & Projections" />}
+          {can(authUser.role, 'daily_reports') && <NavBtn tab="daily" activeTab={activeTab} setActiveTab={setActiveTab} icon="📝" label="Daily Site Reporting" />}
+          {can(authUser.role, 'operations') && <NavBtn tab="operations" activeTab={activeTab} setActiveTab={setActiveTab} icon="🚜" label="Resources & Productivity" />}
+          {can(authUser.role, 'view_evidence') && <NavBtn tab="evidence" activeTab={activeTab} setActiveTab={setActiveTab} icon="🖼️" label="Director Evidence Vault" />}
 
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Engineering & Controls</div>
-          <NavBtn tab="design" activeTab={activeTab} setActiveTab={setActiveTab} icon="📐" label="Design Approval Register" />
-          <NavBtn tab="budget" activeTab={activeTab} setActiveTab={setActiveTab} icon="💰" label="Budget & Costs" />
-          <NavBtn tab="ipc" activeTab={activeTab} setActiveTab={setActiveTab} icon="🧾" label="IPC Billing / Valuation" />
-          <NavBtn tab="claims" activeTab={activeTab} setActiveTab={setActiveTab} icon="⚖️" label="Variations & Claims" />
-          <NavBtn tab="procurement" activeTab={activeTab} setActiveTab={setActiveTab} icon="🚚" label="Procurement & Stores" />
-          <NavBtn tab="obligations" activeTab={activeTab} setActiveTab={setActiveTab} icon="⏰" label="Contract Obligations" />
+          {can(authUser.role, 'design') && <NavBtn tab="design" activeTab={activeTab} setActiveTab={setActiveTab} icon="📐" label="Design Approval Register" />}
+          {can(authUser.role, 'budget') && <NavBtn tab="budget" activeTab={activeTab} setActiveTab={setActiveTab} icon="💰" label="Budget & Costs" />}
+          {can(authUser.role, 'ipc') && <NavBtn tab="ipc" activeTab={activeTab} setActiveTab={setActiveTab} icon="🧾" label="IPC Billing / Valuation" />}
+          {can(authUser.role, 'claims') && <NavBtn tab="claims" activeTab={activeTab} setActiveTab={setActiveTab} icon="⚖️" label="Variations & Claims" />}
+          {can(authUser.role, 'procurement') && <NavBtn tab="procurement" activeTab={activeTab} setActiveTab={setActiveTab} icon="🚚" label="Procurement & Stores" />}
+          {can(authUser.role, 'obligations') && <NavBtn tab="obligations" activeTab={activeTab} setActiveTab={setActiveTab} icon="⏰" label="Contract Obligations" />}
 
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Site Quality & Safety</div>
-          <NavBtn tab="qaqc" activeTab={activeTab} setActiveTab={setActiveTab} icon="🧪" label="QA / QC Inspections" />
-          <NavBtn tab="safety" activeTab={activeTab} setActiveTab={setActiveTab} icon="🦺" label="Safety / EHS Logs" />
+          {can(authUser.role, 'qaqc') && <NavBtn tab="qaqc" activeTab={activeTab} setActiveTab={setActiveTab} icon="🧪" label="QA / QC Inspections" />}
+          {can(authUser.role, 'safety') && <NavBtn tab="safety" activeTab={activeTab} setActiveTab={setActiveTab} icon="🦺" label="Safety / EHS Logs" />}
 
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Finance & Documents</div>
-          <NavBtn tab="finance" activeTab={activeTab} setActiveTab={setActiveTab} icon="📉" label="Finance Tracker" accent="emerald" />
-          <NavBtn tab="expenses" activeTab={activeTab} setActiveTab={setActiveTab} icon="🧾" label="Daily Expense Register" accent="emerald" />
-          <NavBtn tab="documents" activeTab={activeTab} setActiveTab={setActiveTab} icon="📁" label="Document Registry" accent="emerald" />
-          <NavBtn tab="reports" activeTab={activeTab} setActiveTab={setActiveTab} icon="📤" label="Reports & Exports" accent="emerald" />
+          {can(authUser.role, 'finance') && <NavBtn tab="finance" activeTab={activeTab} setActiveTab={setActiveTab} icon="📉" label="Finance Tracker" accent="emerald" />}
+          {can(authUser.role, 'expenses') && <NavBtn tab="expenses" activeTab={activeTab} setActiveTab={setActiveTab} icon="🧾" label="Daily Expense Register" accent="emerald" />}
+          {can(authUser.role, 'documents') && <NavBtn tab="documents" activeTab={activeTab} setActiveTab={setActiveTab} icon="📁" label="Document Registry" accent="emerald" />}
+          {can(authUser.role, 'reports') && <NavBtn tab="reports" activeTab={activeTab} setActiveTab={setActiveTab} icon="📤" label="Reports & Exports" accent="emerald" />}
 
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Completion Dossier</div>
-          <NavBtn tab="handover" activeTab={activeTab} setActiveTab={setActiveTab} icon="🔑" label="Handover Checklist" />
-          <NavBtn tab="defects" activeTab={activeTab} setActiveTab={setActiveTab} icon="🔧" label="Defects Maintenance" />
+          {can(authUser.role, 'handover') && <NavBtn tab="handover" activeTab={activeTab} setActiveTab={setActiveTab} icon="🔑" label="Handover Checklist" />}
+          {can(authUser.role, 'defects') && <NavBtn tab="defects" activeTab={activeTab} setActiveTab={setActiveTab} icon="🔧" label="Defects Maintenance" />}
 
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">AI Operations & Setup</div>
-          <NavBtn tab="ai" activeTab={activeTab} setActiveTab={setActiveTab} icon="✨" label="AI Assistant Panel" accent="purple" />
-          <NavBtn tab="settings" activeTab={activeTab} setActiveTab={setActiveTab} icon="⚙️" label="System Settings" />
+          {can(authUser.role, 'ai') && <NavBtn tab="ai" activeTab={activeTab} setActiveTab={setActiveTab} icon="✨" label="AI Assistant Panel" accent="purple" />}
+          {can(authUser.role, 'settings') && <NavBtn tab="settings" activeTab={activeTab} setActiveTab={setActiveTab} icon="⚙️" label="System Settings" />}
         </nav>
       </aside>
 
@@ -514,12 +543,12 @@ export default function DashboardShell() {
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
-            <button
+            {can(authUser.role, 'manage_projects') && <button
               onClick={() => setShowCreateProject(true)}
               className="px-2 py-1 bg-blue-600/80 hover:bg-blue-600 text-white text-[10px] font-bold rounded transition whitespace-nowrap"
             >
               + New Project
-            </button>
+            </button>}
           </div>
 
           {/* Right: DB status + date + role switcher */}
@@ -543,7 +572,7 @@ export default function DashboardShell() {
             <div className="flex items-center gap-1.5">
               <span className="text-slate-500 hidden sm:inline">Role:</span>
               <span className="bg-slate-800 border border-slate-700 px-2 py-0.5 rounded text-[10px] text-blue-400 font-bold capitalize">
-                {authUser.role.replace(/_/g, ' ')}
+                {ROLE_LABELS[normalizeRole(authUser.role)]}
               </span>
             </div>
           </div>
@@ -552,18 +581,16 @@ export default function DashboardShell() {
         {/* ---- Active Dashboard Panel ---- */}
         <main className="app-main flex-1 p-4 md:p-6 overflow-y-auto max-h-[calc(100vh-56px)]">
           {activeTab === 'dashboard' && (
-            <ExecutiveDashboard
+            <RoleDashboard
+              role={authUser.role}
+              userName={authUser.name}
               project={project}
               activities={activities}
-              evm={evmMetrics}
-              designPackages={designPackages}
-              ipcSubmissions={ipcSubmissions}
-              claims={claims}
-              qaqc={qaqc}
-              safety={safety}
-              risks={risks}
+              expenses={expenses}
+              resourceUsage={resourceUsage}
+              visits={employeeVisits}
               alerts={alerts}
-              currentDate={currentDate}
+              onNavigate={goToTab}
             />
           )}
 
@@ -610,9 +637,18 @@ export default function DashboardShell() {
               reports={dailyReports}
               currentDate={currentDate}
               userName={authUser.name}
+              userRole={authUser.role}
               onSubmit={handleSubmitDailyReport}
               onReload={loadData}
             />
+          )}
+
+          {activeTab === 'operations' && (
+            <OperationalControlDashboard key={project.id} projectId={project.id} role={authUser.role} userName={authUser.name} activities={activities} />
+          )}
+
+          {activeTab === 'evidence' && (
+            <EvidenceVault key={project.id} projectId={project.id} role={authUser.role} />
           )}
 
           {activeTab === 'design' && (
@@ -687,7 +723,7 @@ export default function DashboardShell() {
           )}
 
           {activeTab === 'expenses' && (
-            <DailyExpenseDashboard key={project.id} projectId={project.id} userName={authUser.name} />
+            <DailyExpenseDashboard key={project.id} projectId={project.id} userName={authUser.name} userRole={authUser.role} />
           )}
 
           {/* ---- NEW: Document Registry ---- */}
@@ -706,6 +742,7 @@ export default function DashboardShell() {
               qaqc={qaqc}
               safety={safety}
               handover={handover}
+              userRole={authUser.role}
             />
           )}
 
@@ -744,6 +781,7 @@ export default function DashboardShell() {
               onResetDb={storage.resetDatabase}
               project={project}
               onUpdateProject={handleUpdateProject}
+              userRole={authUser.role}
             />
           )}
         </main>

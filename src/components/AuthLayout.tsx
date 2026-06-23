@@ -49,8 +49,8 @@ export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
     let role = 'project_manager';
     if (jobFunction === 'Finance') role = 'qs_billing_engineer';
     else if (jobFunction === 'Engineering') role = 'site_engineer';
-    else if (jobFunction === 'Executive') role = 'project_director';
-    else if (jobFunction === 'Other') role = 'employer_viewer';
+    else if (jobFunction === 'Executive') role = 'employer_viewer';
+    else if (jobFunction === 'Other') role = 'subcontractor';
 
     const user = {
       name: `${firstName} ${lastName}`.trim(),

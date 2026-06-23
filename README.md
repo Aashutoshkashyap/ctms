@@ -50,6 +50,7 @@ To use OpenRouter or another OpenAI-compatible provider, also set `OPENAI_BASE_U
 For Supabase:
 
 1. Run `supabase_schema.sql` in the Supabase SQL editor.
+   - If the original schema was already installed, run `supabase_role_upgrade.sql` instead to add private evidence access and operational registers.
 2. Enable Email authentication and optionally configure the Google provider.
 3. Paste the project URL and anon/publishable key into **System Settings → Supabase Integration Status**.
 4. Sign out and create/sign into a Supabase-backed account.

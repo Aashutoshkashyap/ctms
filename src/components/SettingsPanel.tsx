@@ -8,6 +8,7 @@ interface SettingsPanelProps {
   onResetDb: () => void;
   project: any;
   onUpdateProject: (proj: any) => void;
+  userRole: string;
 }
 
 export default function SettingsPanel({
@@ -15,7 +16,8 @@ export default function SettingsPanel({
   onAddUser,
   onResetDb,
   project,
-  onUpdateProject
+  onUpdateProject,
+  userRole
 }: SettingsPanelProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -162,7 +164,7 @@ export default function SettingsPanel({
               <p className="text-[10px] text-slate-500 leading-normal">
                 Cloud setup: run `supabase_schema.sql` once in the Supabase SQL editor, then enter the project URL and anon/publishable key here. Credentials stay in this browser.
               </p>
-              {connectionState === 'connected' && (
+              {connectionState === 'connected' && userRole === 'project_director' && (
                 <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800">
                   <button type="button" disabled={syncing} onClick={() => runSync('push')} className="bg-blue-600 disabled:opacity-50 p-2 rounded font-semibold">
                     Push Project to Cloud
@@ -171,6 +173,9 @@ export default function SettingsPanel({
                     Pull Project from Cloud
                   </button>
                 </div>
+              )}
+              {connectionState === 'connected' && userRole !== 'project_director' && (
+                <p className="border-t border-slate-200 pt-2 text-[10px] text-slate-500">Full project push/pull is Director-controlled. Administrative changes continue to save in this workspace.</p>
               )}
               {syncMessage && <p className="text-[10px] text-blue-300">{syncMessage}</p>}
             </div>
@@ -220,7 +225,7 @@ export default function SettingsPanel({
                 onChange={(e) => setRole(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
               >
-                <option value="super_admin">Super Admin</option>
+                <option value="super_admin">Project Administrator</option>
                 <option value="project_director">Project Director</option>
                 <option value="project_manager">Project Manager</option>
                 <option value="planning_engineer">Planning Engineer</option>
@@ -230,6 +235,9 @@ export default function SettingsPanel({
                 <option value="qa_qc_engineer">QA / QC Engineer</option>
                 <option value="safety_officer">Safety Officer</option>
                 <option value="accountant">Accountant</option>
+                <option value="store_officer">Store Officer</option>
+                <option value="subcontractor">Subcontractor</option>
+                <option value="jv_partner">JV Partner</option>
                 <option value="employer_viewer">Employer / Client Representative</option>
               </select>
             </div>

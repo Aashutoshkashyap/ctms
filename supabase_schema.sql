@@ -87,7 +87,8 @@ create table if not exists material_logs (
 create table if not exists site_photos (
   id text primary key, project_id text references projects(id) on delete cascade,
   daily_report_id text references daily_reports(id) on delete cascade, name text not null,
-  url text not null, caption text, captured_at timestamptz default now()
+  url text not null default '', storage_path text, caption text, captured_at timestamptz default now(),
+  uploaded_by text, evidence_type text default 'progress'
 );
 
 create table if not exists budget_heads (
@@ -137,6 +138,25 @@ create table if not exists daily_expenses (
   payment_method text check(payment_method in ('cash','bank','credit','petty_cash')),
   reference text, wbs_code text,
   status text default 'submitted' check(status in ('draft','submitted','approved','rejected')),
+  recorded_by text, created_at timestamptz default now()
+);
+
+create table if not exists daily_resource_usage (
+  id text primary key, project_id text references projects(id) on delete cascade,
+  usage_date date not null, activity_id text references activities(id) on delete set null,
+  location text, manpower_skilled integer default 0, manpower_unskilled integer default 0,
+  equipment_name text, equipment_hours numeric(10,2) default 0, fuel_litres numeric(12,2) default 0,
+  work_quantity numeric(14,2) default 0, work_unit text,
+  excavator_start_meter numeric(14,2) default 0, excavator_end_meter numeric(14,2) default 0,
+  excavator_output numeric(14,2) default 0, downtime_hours numeric(10,2) default 0,
+  remarks text, recorded_by text, created_at timestamptz default now()
+);
+
+create table if not exists employee_visits (
+  id text primary key, project_id text references projects(id) on delete cascade,
+  visit_date date not null, employee_name text not null, employee_role text,
+  site_location text not null, check_in time, check_out time, purpose text,
+  vehicle_number text, status text default 'planned' check(status in ('planned','on_site','completed','cancelled')),
   recorded_by text, created_at timestamptz default now()
 );
 
@@ -195,6 +215,8 @@ create index if not exists idx_activities_project on activities(project_id);
 create index if not exists idx_daily_reports_project on daily_reports(project_id,report_date);
 create index if not exists idx_procurement_project on procurement_orders(project_id);
 create index if not exists idx_obligations_project on contract_obligations(project_id,due_date);
+create index if not exists idx_resource_usage_project on daily_resource_usage(project_id,usage_date);
+create index if not exists idx_employee_visits_project on employee_visits(project_id,visit_date);
 
 -- Membership helper used by RLS policies. It lives outside exposed API schemas.
 create schema if not exists private;
@@ -221,7 +243,7 @@ as $$
   ) or exists (
     select 1 from project_users pu
     where pu.project_id=target_project_id and pu.auth_user_id=(select auth.uid())
-      and pu.role <> 'employer_viewer'
+      and pu.role not in ('employer_viewer','super_admin','jv_partner')
   );
 $$;
 grant execute on function private.can_edit_project(text) to authenticated;
@@ -234,16 +256,27 @@ as $$
   ) or exists (
     select 1 from project_users pu
     where pu.project_id=target_project_id and pu.auth_user_id=(select auth.uid())
-      and pu.role in ('super_admin','project_director','project_manager')
+      and pu.role in ('super_admin','project_director')
   );
 $$;
 grant execute on function private.can_manage_project(text) to authenticated;
+
+create or replace function private.has_project_role(target_project_id text, allowed_roles text[])
+returns boolean language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from project_users pu
+    where pu.project_id=target_project_id and pu.auth_user_id=(select auth.uid())
+      and pu.role = any(allowed_roles)
+  );
+$$;
+grant execute on function private.has_project_role(text,text[]) to authenticated;
 
 alter table projects enable row level security;
 alter table project_users enable row level security;
 create policy "project members select projects" on projects for select to authenticated using (private.is_project_member(id));
 create policy "users create projects" on projects for insert to authenticated with check (created_by = (select auth.uid()));
-create policy "managers update projects" on projects for update to authenticated using (private.can_edit_project(id)) with check (private.can_edit_project(id));
+create policy "managers update projects" on projects for update to authenticated using (private.can_manage_project(id)) with check (private.can_manage_project(id));
 create policy "users read memberships" on project_users for select to authenticated using (auth_user_id = (select auth.uid()) or private.is_project_member(project_id));
 create policy "project managers manage memberships" on project_users for all to authenticated
 using (private.can_manage_project(project_id))
@@ -254,15 +287,53 @@ declare table_name text;
 begin
   foreach table_name in array array[
     'wbs_items','activities','activity_dependencies','design_packages','daily_reports',
-    'daily_work_items','material_logs','site_photos','budget_heads','subcontractor_packages',
-    'procurement_orders','store_items','ipc_submissions','finance_rows','qa_qc_inspections',
-    'daily_expenses',
-    'safety_logs','variations_and_claims','risk_register','contract_obligations',
-    'document_register','handover_checklists','defects_liability'
+    'daily_work_items','material_logs','qa_qc_inspections',
+    'safety_logs','variations_and_claims','risk_register',
+    'handover_checklists','defects_liability'
   ] loop
     execute format('alter table %I enable row level security', table_name);
     execute format('create policy "members read %1$s" on %1$I for select to authenticated using (private.is_project_member(project_id))', table_name);
     execute format('create policy "editors manage %1$s" on %1$I for all to authenticated using (private.can_edit_project(project_id)) with check (private.can_edit_project(project_id))', table_name);
+  end loop;
+end $$;
+
+-- Role-specific operational, administrative, finance and evidence policies.
+alter table daily_resource_usage enable row level security;
+create policy "members read resource usage" on daily_resource_usage for select to authenticated using (private.is_project_member(project_id));
+create policy "operations roles manage resource usage" on daily_resource_usage for all to authenticated
+using (private.has_project_role(project_id,array['project_director','project_manager','planning_engineer','site_engineer','store_officer','subcontractor']))
+with check (private.has_project_role(project_id,array['project_director','project_manager','planning_engineer','site_engineer','store_officer','subcontractor']));
+
+alter table employee_visits enable row level security;
+create policy "tracking roles read visits" on employee_visits for select to authenticated
+using (private.has_project_role(project_id,array['project_director','project_manager','site_engineer','safety_officer']));
+create policy "tracking roles manage visits" on employee_visits for all to authenticated
+using (private.has_project_role(project_id,array['project_director','project_manager','site_engineer','safety_officer']))
+with check (private.has_project_role(project_id,array['project_director','project_manager','site_engineer','safety_officer']));
+
+alter table site_photos enable row level security;
+create policy "director reads evidence records" on site_photos for select to authenticated
+using (private.has_project_role(project_id,array['project_director']));
+create policy "field roles submit evidence records" on site_photos for insert to authenticated
+with check (private.has_project_role(project_id,array['project_director','project_manager','site_engineer','design_coordinator','qa_qc_engineer','safety_officer','subcontractor']));
+create policy "director manages evidence records" on site_photos for update to authenticated
+using (private.has_project_role(project_id,array['project_director']))
+with check (private.has_project_role(project_id,array['project_director']));
+create policy "director deletes evidence records" on site_photos for delete to authenticated
+using (private.has_project_role(project_id,array['project_director']));
+
+do $$
+declare table_name text;
+begin
+  foreach table_name in array array['budget_heads','subcontractor_packages','ipc_submissions','finance_rows','daily_expenses'] loop
+    execute format('alter table %I enable row level security', table_name);
+    execute format('create policy "finance roles read %1$s" on %1$I for select to authenticated using (private.has_project_role(project_id,array[''project_director'',''project_manager'',''qs_billing_engineer'',''accountant'']))', table_name);
+    execute format('create policy "finance roles manage %1$s" on %1$I for all to authenticated using (private.has_project_role(project_id,array[''project_director'',''qs_billing_engineer'',''accountant''])) with check (private.has_project_role(project_id,array[''project_director'',''qs_billing_engineer'',''accountant'']))', table_name);
+  end loop;
+  foreach table_name in array array['procurement_orders','store_items','contract_obligations','document_register'] loop
+    execute format('alter table %I enable row level security', table_name);
+    execute format('create policy "admin roles read %1$s" on %1$I for select to authenticated using (private.is_project_member(project_id))', table_name);
+    execute format('create policy "admin roles manage %1$s" on %1$I for all to authenticated using (private.has_project_role(project_id,array[''super_admin'',''project_director'',''project_manager'',''store_officer''])) with check (private.has_project_role(project_id,array[''super_admin'',''project_director'',''project_manager'',''store_officer'']))', table_name);
   end loop;
 end $$;
 
@@ -275,11 +346,17 @@ grant select,insert,update,delete on all tables in schema public to authenticate
 grant usage on schema public to authenticated;
 
 insert into storage.buckets (id,name,public,file_size_limit,allowed_mime_types)
-values ('site-photos','site-photos',true,6291456,array['image/jpeg','image/png','image/webp'])
-on conflict (id) do update set public=true,file_size_limit=6291456;
+values ('site-photos','site-photos',false,6291456,array['image/jpeg','image/png','image/webp'])
+on conflict (id) do update set public=false,file_size_limit=6291456;
 
 create policy "authenticated upload project photos" on storage.objects for insert to authenticated
-with check (bucket_id='site-photos' and private.can_edit_project((storage.foldername(name))[1]));
-create policy "members update project photos" on storage.objects for update to authenticated
-using (bucket_id='site-photos' and private.can_edit_project((storage.foldername(name))[1]));
-create policy "public read site photos" on storage.objects for select to public using (bucket_id='site-photos');
+with check (
+  bucket_id='site-photos' and
+  private.has_project_role((storage.foldername(name))[1],array['project_director','project_manager','site_engineer','design_coordinator','qa_qc_engineer','safety_officer','subcontractor'])
+);
+create policy "director reads project photos" on storage.objects for select to authenticated
+using (bucket_id='site-photos' and private.has_project_role((storage.foldername(name))[1],array['project_director']));
+create policy "director updates project photos" on storage.objects for update to authenticated
+using (bucket_id='site-photos' and private.has_project_role((storage.foldername(name))[1],array['project_director']));
+create policy "director deletes project photos" on storage.objects for delete to authenticated
+using (bucket_id='site-photos' and private.has_project_role((storage.foldername(name))[1],array['project_director']));

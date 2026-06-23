@@ -43,7 +43,23 @@ export default function CpmTimelineDashboard({
   const [editDur, setEditDur] = useState(0);
   const [editQty, setEditQty] = useState(0);
 
-  const isEditable = ['super_admin', 'project_manager', 'planning_engineer'].includes(userRole);
+  const isEditable = ['project_director', 'project_manager', 'planning_engineer'].includes(userRole);
+  const today = new Date().toISOString().slice(0, 10);
+  const delayDetails = (act: Activity) => {
+    const forecastFinish = act.early_finish || act.baseline_finish;
+    const forecastDelay = Math.max(0, diffDays(act.baseline_finish, forecastFinish));
+    const overdueDays = act.status === 'completed' ? 0 : Math.max(0, diffDays(act.baseline_finish, today));
+    const delayDays = Math.max(forecastDelay, overdueDays);
+    const progress = act.planned_quantity > 0 ? (act.actual_quantity / act.planned_quantity) * 100 : 0;
+    if (act.status === 'completed') return delayDays > 0
+      ? { delayDays, remark: `Completed ${delayDays} day${delayDays === 1 ? '' : 's'} after baseline — retain as delay record` }
+      : { delayDays: 0, remark: 'Completed within baseline' };
+    if (delayDays > 0) return { delayDays, remark: `${delayDays} day delay — ${progress.toFixed(0)}% quantity achieved; recovery action required` };
+    if (act.is_critical) return { delayDays: 0, remark: 'On critical path — protect resources and access' };
+    if (act.is_near_critical) return { delayDays: 0, remark: 'Near-critical — monitor float consumption' };
+    return { delayDays: 0, remark: 'On programme' };
+  };
+  const delayedActivities = activities.filter(activity => delayDetails(activity).delayDays > 0);
 
   // Gantt Chart Range Math
   const projStart = new Date(project.start_date);
@@ -221,13 +237,18 @@ export default function CpmTimelineDashboard({
       )}
 
       {/* Gantt Timeline Rendering */}
-      <div className="bg-slate-800/30 border border-slate-700/40 p-4 rounded-xl shadow-lg overflow-x-auto">
-        <h3 className="text-slate-300 text-xs font-bold uppercase tracking-wider mb-4">Gantt Chart (Baseline vs Forecast Timeline)</h3>
+      <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-lg overflow-x-auto">
+        <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <h3 className="text-slate-800 text-sm font-bold uppercase tracking-wider">Gantt Chart (Baseline vs Forecast Timeline)</h3>
+          <span className={`rounded-full px-3 py-1 text-xs font-bold ${delayedActivities.length ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+            {delayedActivities.length ? `${delayedActivities.length} delayed activities require remarks` : 'Programme currently within baseline'}
+          </span>
+        </div>
         
         {/* Gantt Area */}
         <div className="min-w-[800px] select-none text-xs">
           {/* Timeline Dates Header */}
-          <div className="flex border-b border-slate-800 pb-2 mb-2 font-semibold text-slate-500">
+          <div className="flex border-b border-slate-200 pb-2 mb-2 font-semibold text-slate-600">
             <div className="w-1/3">WBS Activity Name</div>
             <div className="w-2/3 relative h-6">
               <span className="absolute left-[0%]">2025</span>
@@ -240,6 +261,7 @@ export default function CpmTimelineDashboard({
           {/* Activity Timeline Rows */}
           <div className="space-y-4">
             {activities.map(act => {
+              const delay = delayDetails(act);
               const startOffset = getPercentOffset(act.early_start || act.baseline_start);
               const durationWidth = getPercentWidth(
                 act.early_start || act.baseline_start,
@@ -256,7 +278,7 @@ export default function CpmTimelineDashboard({
               else if (act.is_near_critical) barColor = 'bg-amber-500';
 
               return (
-                <div key={act.id} className="flex items-center hover:bg-slate-800/20 py-1.5 rounded transition">
+                <div key={act.id} className={`flex items-center py-2 rounded transition ${delay.delayDays > 0 ? 'bg-rose-50 hover:bg-rose-100' : 'hover:bg-blue-50'}`}>
                   {/* WBS info column */}
                   <div className="w-1/3 pr-4 flex flex-col">
                     <span className="font-semibold text-slate-200 truncate">{act.wbs_code} - {act.name}</span>
@@ -265,10 +287,11 @@ export default function CpmTimelineDashboard({
                       <span>{act.status.replace('_', ' ')}</span>
                       <span>{act.planned_quantity} {act.unit}</span>
                     </div>
+                    <span className={`mt-1 text-[10px] font-semibold ${delay.delayDays > 0 ? 'text-rose-700' : 'text-slate-500'}`}>{delay.remark}</span>
                   </div>
 
                   {/* SVG Bar Visualizations */}
-                  <div className="w-2/3 relative h-8 bg-slate-950/30 rounded border border-slate-900 overflow-hidden">
+                  <div className="w-2/3 relative h-8 bg-slate-50 rounded border border-slate-200 overflow-hidden">
                     {/* Baseline Bar (Gray Outline/Stripe) */}
                     <div 
                       className="absolute h-1.5 bg-slate-700/60 rounded top-[4px]"
@@ -296,7 +319,7 @@ export default function CpmTimelineDashboard({
             })}
           </div>
         </div>
-        <div className="flex gap-4 text-[10px] text-slate-400 mt-4 justify-end border-t border-slate-850 pt-2">
+        <div className="flex flex-wrap gap-4 text-[10px] text-slate-600 mt-4 justify-end border-t border-slate-200 pt-2">
           <span className="flex items-center gap-1"><span className="w-3 h-1.5 bg-slate-700 rounded inline-block"></span> Baseline Target</span>
           <span className="flex items-center gap-1"><span className="w-3 h-3 bg-sky-500 rounded inline-block"></span> Planned / Future</span>
           <span className="flex items-center gap-1"><span className="w-3 h-3 bg-red-500 rounded inline-block"></span> Critical Path</span>
@@ -321,12 +344,14 @@ export default function CpmTimelineDashboard({
                 <th className="pb-3 text-right">Late Finish</th>
                 <th className="pb-3 text-right">Float</th>
                 <th className="pb-3 text-center">Status</th>
+                <th className="pb-3">Delay / Management Remark</th>
                 {isEditable && <th className="pb-3 text-right pr-2">Action</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800 text-slate-300">
               {activities.map(act => {
                 const isEditing = editingActId === act.id;
+                const delay = delayDetails(act);
                 return (
                   <tr key={act.id} className="hover:bg-slate-800/10">
                     <td className="py-2.5 font-mono text-slate-400">{act.wbs_code}</td>
@@ -361,6 +386,7 @@ export default function CpmTimelineDashboard({
                         {act.status.replace('_', ' ')}
                       </span>
                     </td>
+                    <td className={`py-2.5 max-w-[260px] ${delay.delayDays > 0 ? 'font-semibold text-rose-700' : 'text-slate-500'}`}>{delay.remark}</td>
                     {isEditable && (
                       <td className="py-2.5 text-right pr-2">
                         {isEditing ? (

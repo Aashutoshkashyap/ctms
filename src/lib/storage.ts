@@ -101,8 +101,11 @@ export interface SitePhoto {
   daily_report_id: string;
   name: string;
   url: string;
+  storage_path?: string;
   caption: string;
   captured_at: string;
+  uploaded_by?: string;
+  evidence_type?: 'progress' | 'quality' | 'safety' | 'delivery' | 'attendance' | 'other';
 }
 
 export interface DailyExpense {
@@ -117,6 +120,42 @@ export interface DailyExpense {
   reference: string;
   wbs_code: string;
   status: 'draft' | 'submitted' | 'approved' | 'rejected';
+  recorded_by: string;
+}
+
+export interface DailyResourceUsage {
+  id: string;
+  project_id?: string;
+  usage_date: string;
+  activity_id: string;
+  location: string;
+  manpower_skilled: number;
+  manpower_unskilled: number;
+  equipment_name: string;
+  equipment_hours: number;
+  fuel_litres: number;
+  work_quantity: number;
+  work_unit: string;
+  excavator_start_meter: number;
+  excavator_end_meter: number;
+  excavator_output: number;
+  downtime_hours: number;
+  remarks: string;
+  recorded_by: string;
+}
+
+export interface EmployeeVisit {
+  id: string;
+  project_id?: string;
+  visit_date: string;
+  employee_name: string;
+  employee_role: string;
+  site_location: string;
+  check_in: string;
+  check_out: string;
+  purpose: string;
+  vehicle_number: string;
+  status: 'planned' | 'on_site' | 'completed' | 'cancelled';
   recorded_by: string;
 }
 
@@ -968,8 +1007,7 @@ const CLOUD_SYNC_KEYS = new Set([
   'bt_daily_reports', 'bt_daily_work_items', 'bt_material_logs', 'bt_budget_heads',
   'bt_subcontractors', 'bt_ipc', 'bt_qaqc', 'bt_safety', 'bt_variations_claims',
   'bt_risks', 'bt_handover', 'bt_defects', 'bt_finance_rows', 'bt_documents',
-  'bt_procurement_orders', 'bt_store_items', 'bt_contract_obligations', 'bt_site_photos',
-  'bt_daily_expenses'
+  'bt_procurement_orders', 'bt_store_items', 'bt_contract_obligations'
 ]);
 let cloudSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let cloudPullInProgress = false;
@@ -987,6 +1025,15 @@ function setLocalItem<T>(key: string, value: T): void {
     localStorage.setItem(key, JSON.stringify(value));
     scheduleCloudSync(key);
   }
+}
+
+async function upsertCloudRow(table: string, row: Record<string, unknown>) {
+  const client = getSupabaseClient();
+  if (!client) return;
+  const { data: { session } } = await client.auth.getSession();
+  if (!session) return;
+  const { error } = await client.from(table).upsert(row, { onConflict: 'id' });
+  if (error) console.warn(`BuildTrack cloud sync skipped for ${table}:`, error.message);
 }
 
 // Helper: Active Project Management
@@ -1171,6 +1218,8 @@ export const storage = {
     localStorage.removeItem('bt_contract_obligations');
     localStorage.removeItem('bt_site_photos');
     localStorage.removeItem('bt_daily_expenses');
+    localStorage.removeItem('bt_daily_resource_usage');
+    localStorage.removeItem('bt_employee_visits');
     localStorage.removeItem('bt_supabase_url');
     localStorage.removeItem('bt_supabase_anon_key');
     storage.getProjectsList();
@@ -1797,6 +1846,41 @@ export const storage = {
     if (index >= 0) expenses[index] = record;
     else expenses.push(record);
     setLocalItem('bt_daily_expenses', expenses);
+    void upsertCloudRow('daily_expenses', record as unknown as Record<string, unknown>);
+    return record;
+  },
+
+  getDailyResourceUsage: (): DailyResourceUsage[] => {
+    const projectId = getActiveProjectId();
+    return getLocalItem<DailyResourceUsage[]>('bt_daily_resource_usage', []).filter(item => item.project_id === projectId);
+  },
+
+  saveDailyResourceUsage: (usage: Omit<DailyResourceUsage, 'id' | 'project_id'> & { id?: string }) => {
+    const projectId = getActiveProjectId();
+    const rows = getLocalItem<DailyResourceUsage[]>('bt_daily_resource_usage', []);
+    const record = { ...usage, id: usage.id || `resource-${Date.now()}`, project_id: projectId } as DailyResourceUsage;
+    const index = rows.findIndex(item => item.id === record.id);
+    if (index >= 0) rows[index] = record;
+    else rows.push(record);
+    setLocalItem('bt_daily_resource_usage', rows);
+    void upsertCloudRow('daily_resource_usage', record as unknown as Record<string, unknown>);
+    return record;
+  },
+
+  getEmployeeVisits: (): EmployeeVisit[] => {
+    const projectId = getActiveProjectId();
+    return getLocalItem<EmployeeVisit[]>('bt_employee_visits', []).filter(item => item.project_id === projectId);
+  },
+
+  saveEmployeeVisit: (visit: Omit<EmployeeVisit, 'id' | 'project_id'> & { id?: string }) => {
+    const projectId = getActiveProjectId();
+    const rows = getLocalItem<EmployeeVisit[]>('bt_employee_visits', []);
+    const record = { ...visit, id: visit.id || `visit-${Date.now()}`, project_id: projectId } as EmployeeVisit;
+    const index = rows.findIndex(item => item.id === record.id);
+    if (index >= 0) rows[index] = record;
+    else rows.push(record);
+    setLocalItem('bt_employee_visits', rows);
+    void upsertCloudRow('employee_visits', record as unknown as Record<string, unknown>);
     return record;
   },
 
@@ -1829,10 +1913,29 @@ export const storage = {
     ]);
   },
 
-  uploadSitePhoto: async (file: File, reportId: string, caption: string): Promise<SitePhoto> => {
+  getSitePhotosForRole: async (role: string, reportId?: string): Promise<SitePhoto[]> => {
+    if (role !== 'project_director') return [];
+    const photos = storage.getSitePhotos(reportId);
+    const client = getSupabaseClient();
+    if (!client) return photos;
+    return Promise.all(photos.map(async photo => {
+      if (!photo.storage_path) return photo;
+      const { data, error } = await client.storage.from('site-photos').createSignedUrl(photo.storage_path, 3600);
+      return error ? photo : { ...photo, url: data.signedUrl };
+    }));
+  },
+
+  uploadSitePhoto: async (
+    file: File,
+    reportId: string,
+    caption: string,
+    uploadedBy = 'Site Team',
+    evidenceType: SitePhoto['evidence_type'] = 'progress'
+  ): Promise<SitePhoto> => {
     const projectId = getActiveProjectId();
     const client = getSupabaseClient();
     let url = '';
+    let storagePath = '';
     if (client) {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
       const path = `${projectId}/${reportId}/${Date.now()}-${safeName}`;
@@ -1841,8 +1944,7 @@ export const storage = {
         upsert: false
       });
       if (error) throw error;
-      const { data } = client.storage.from('site-photos').getPublicUrl(path);
-      url = data.publicUrl;
+      storagePath = path;
     } else {
       url = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -1857,9 +1959,16 @@ export const storage = {
       daily_report_id: reportId,
       name: file.name,
       url,
+      storage_path: storagePath,
       caption,
-      captured_at: new Date().toISOString()
+      captured_at: new Date().toISOString(),
+      uploaded_by: uploadedBy,
+      evidence_type: evidenceType
     };
+    if (client) {
+      const { error } = await client.from('site_photos').insert(photo);
+      if (error) throw error;
+    }
     storage.saveSitePhotos([photo]);
     return photo;
   },
@@ -1900,7 +2009,8 @@ export const storage = {
       ['store_items', storage.getStoreItems()],
       ['contract_obligations', storage.getContractObligations()],
       ['daily_expenses', storage.getDailyExpenses()],
-      ['site_photos', storage.getSitePhotos()],
+      ['daily_resource_usage', storage.getDailyResourceUsage()],
+      ['employee_visits', storage.getEmployeeVisits()],
       ['finance_rows', storage.getFinanceRows().map(row => ({
         id: row.id, project_id: projectId, row_key: row.id, name: row.name,
         category: row.category, monthly_values: row.values
@@ -1909,10 +2019,10 @@ export const storage = {
     const { error: projectSyncError } = await client.from('projects').upsert(project, { onConflict: 'id' });
     if (projectSyncError) return { ok: false, message: `projects: ${projectSyncError.message}` };
     const deleteOrder = [
-      'site_photos','daily_work_items','material_logs','daily_reports','design_comments','design_packages',
+      'daily_work_items','material_logs','daily_reports','design_comments','design_packages',
       'activity_dependencies','qa_qc_inspections','activities','wbs_items','finance_rows','document_register',
       'procurement_orders','store_items','contract_obligations','budget_heads','subcontractor_packages',
-      'daily_expenses','ipc_submissions','safety_logs','variations_and_claims','risk_register','handover_checklists','defects_liability'
+      'daily_resource_usage','employee_visits','daily_expenses','ipc_submissions','safety_logs','variations_and_claims','risk_register','handover_checklists','defects_liability'
     ];
     for (const table of deleteOrder) {
       const { error } = await client.from(table).delete().eq('project_id', projectId);
@@ -1982,6 +2092,8 @@ export const storage = {
       ['store_items', 'bt_store_items', []],
       ['contract_obligations', 'bt_contract_obligations', []],
       ['daily_expenses', 'bt_daily_expenses', []],
+      ['daily_resource_usage', 'bt_daily_resource_usage', []],
+      ['employee_visits', 'bt_employee_visits', []],
       ['site_photos', 'bt_site_photos', []]
     ];
     cloudPullInProgress = true;

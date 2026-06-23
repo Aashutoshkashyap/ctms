@@ -4,7 +4,7 @@ import { EVMMetrics } from '../lib/evm';
 import { storage } from '../lib/storage';
 
 type ReportType = 'daily'|'weekly'|'monthly'|'ipc'|'claims'|'quality'|'safety'|'handover';
-interface Props { project:any; activities:Activity[]; evm:EVMMetrics; dailyReports:any[]; ipc:any[]; claims:any[]; qaqc:any[]; safety:any[]; handover:any[]; }
+interface Props { project:any; activities:Activity[]; evm:EVMMetrics; dailyReports:any[]; ipc:any[]; claims:any[]; qaqc:any[]; safety:any[]; handover:any[]; userRole:string; }
 
 export default function ReportCenter(props:Props){
   const [type,setType]=useState<ReportType>('monthly');
@@ -37,7 +37,7 @@ function buildReport(type:ReportType,p:Props){
   if(type==='quality'){rows=[['Inspection / Test','Date','Status','NCR','Open Days','Result'],...p.qaqc.map(q=>[q.qa_item,q.inspection_date,q.status,q.ncr_number,q.ncr_open_days,q.test_result_details])];section=`<h2>QA/QC Dossier Index</h2>${table(rows)}`;}
   if(type==='safety'){rows=[['Date','Toolbox Talks','Incidents','Near Misses','Permits','Environmental Complaints'],...p.safety.map(s=>[s.log_date,s.toolbox_talks,s.incidents,s.near_misses,s.permits_issued,s.environmental_complaints])];section=`<h2>EHS Performance</h2>${table(rows)}`;}
   if(type==='handover'){rows=[['Item','Category','Status','Approved By','Approved Date'],...p.handover.map(h=>[h.item_name,h.category,h.status,h.approved_by,h.approved_date])];section=`<h2>Handover and Completion Dossier</h2>${table(rows)}`;}
-  return{title:label(type),html:`${head}${section}`,rows,data:{project,type,generated_at:new Date().toISOString(),metrics:p.evm,rows,photos:storage.getSitePhotos()}};
+  return{title:label(type),html:`${head}${section}`,rows,data:{project,type,generated_at:new Date().toISOString(),metrics:p.evm,rows,photos:p.userRole==='project_director'?storage.getSitePhotos():[]}};
 }
 function table(rows:any[][]){if(!rows.length)return'<p>No records available.</p>';return `<table><thead><tr>${rows[0].map(v=>`<th>${esc(v)}</th>`).join('')}</tr></thead><tbody>${rows.slice(1).map(row=>`<tr>${row.map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>`}
 function esc(value:any){return String(value??'—').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
