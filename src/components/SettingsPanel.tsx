@@ -31,18 +31,45 @@ export default function SettingsPanel({
   const [connectionMessage, setConnectionMessage] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [userMessage, setUserMessage] = useState('');
 
   // Project configuration edit state
   const [projName, setProjName] = useState(project.name);
   const [contractAmt, setContractAmt] = useState(project.contract_amount);
 
-  const handleAddUserSubmit = (e: React.FormEvent) => {
+  const handleAddUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !email) return;
-    onAddUser({ name, email, role });
-    setName('');
-    setEmail('');
-    alert(`User ${name} registered successfully.`);
+    setCreatingUser(true);
+    setUserMessage('');
+    try {
+      if (isSupabaseConfigured() && userRole === 'project_director') {
+        const session = await storage.getAuthSession();
+        if (!session) throw new Error('Sign in to Supabase before creating a cloud user.');
+        const response = await fetch('/api/admin/users', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ name, email, role, projectId: project.id })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Could not create the project user.');
+        onAddUser(result.user);
+        setUserMessage(`Account created. Temporary password: ${result.temporaryPassword}`);
+      } else {
+        onAddUser({ name, email, role });
+        setUserMessage(`Local personnel record created for ${name}.`);
+      }
+      setName('');
+      setEmail('');
+    } catch (error) {
+      setUserMessage(error instanceof Error ? error.message : 'Could not create the project user.');
+    } finally {
+      setCreatingUser(false);
+    }
   };
 
   const handleProjectUpdateSubmit = (e: React.FormEvent) => {
@@ -241,9 +268,10 @@ export default function SettingsPanel({
                 <option value="employer_viewer">Employer / Client Representative</option>
               </select>
             </div>
-            <button type="submit" className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded shadow transition w-full">
-              Register Project User
+            <button disabled={creatingUser} type="submit" className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold rounded shadow transition w-full">
+              {creatingUser ? 'Creating Login…' : 'Create Project Login'}
             </button>
+            {userMessage && <p className="rounded bg-blue-50 p-2 text-blue-700">{userMessage}</p>}
           </form>
 
           <div className="lg:col-span-2 overflow-x-auto">

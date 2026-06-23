@@ -1284,8 +1284,8 @@ export const storage = {
           : `Supabase schema check failed: ${schemaError.message}`
       };
     }
-    const { data: buckets, error: bucketError } = await client.storage.listBuckets();
-    const hasPhotoBucket = !bucketError && Boolean(buckets?.some(bucket => bucket.id === 'site-photos'));
+    const { error: bucketError } = await client.storage.from('site-photos').list('', { limit: 1 });
+    const hasPhotoBucket = !bucketError;
     return {
       ok: true,
       message: hasPhotoBucket
@@ -2144,7 +2144,6 @@ export const storage = {
     const setup = await storage.ensureActiveProjectMembership(signedInUser);
     if (!setup.ok) return setup;
     const reports = storage.getDailyReports();
-    const reportIds = new Set(reports.map((report: any) => report.id));
     const designPackages = storage.getDesignPackages();
     const designComments = designPackages.flatMap((pkg: any) =>
       storage.getDesignComments(pkg.id).map((comment: any) => ({ ...comment, project_id: projectId }))
@@ -2156,8 +2155,8 @@ export const storage = {
       ['design_packages', designPackages],
       ['design_comments', designComments],
       ['daily_reports', reports],
-      ['daily_work_items', getLocalItem<any[]>('bt_daily_work_items', []).filter(item => reportIds.has(item.daily_report_id)).map(item => ({ ...item, project_id: projectId }))],
-      ['material_logs', getLocalItem<any[]>('bt_material_logs', []).filter(item => reportIds.has(item.daily_report_id)).map(item => ({ ...item, project_id: projectId }))],
+      ['daily_work_items', reports.flatMap((report: any) => storage.getDailyWorkItems(report.id)).map((item: any) => ({ ...item, project_id: projectId }))],
+      ['material_logs', reports.flatMap((report: any) => storage.getDailyMaterialLogs(report.id)).map((item: any) => ({ ...item, project_id: projectId }))],
       ['budget_heads', storage.getBudgetHeads()],
       ['subcontractor_packages', storage.getSubcontractors()],
       ['ipc_submissions', storage.getIPCs()],

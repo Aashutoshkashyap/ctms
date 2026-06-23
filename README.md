@@ -17,6 +17,7 @@ Included modules:
 - Daily site reporting with progress photos
 - Printable/CSV/JSON report and evidence packs
 - Browser-based Supabase Auth, Storage and project synchronization
+- Director-only cloud account provisioning with temporary passwords
 
 ## Getting Started
 
