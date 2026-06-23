@@ -427,6 +427,7 @@ export default function DashboardShell() {
   const handleAddDefect = (def: any) => { storage.addDefect(def); loadData(); };
   const handleAddUser = (usr: any) => { storage.addUser(usr); loadData(); };
   const handleUpdateProject = (proj: any) => { storage.updateProject(proj); loadData(); };
+  const handleDeleteDailyReport = (id: string) => { storage.deleteDailyReport(id); loadData(); };
 
   const handleSwitchProject = (id: string) => {
     storage.setActiveProjectId(id);
@@ -560,7 +561,6 @@ export default function DashboardShell() {
                 : 'bg-slate-800 text-slate-500 border-slate-700'
             }`}>
               <span className={`w-1.5 h-1.5 rounded-full ${isSupabaseConnected ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`} />
-              {isSupabaseConnected ? 'Supabase Live' : 'Local Sandbox'}
             </div>
 
             <div className="flex items-center gap-1 text-slate-500 hidden lg:flex">
@@ -640,6 +640,7 @@ export default function DashboardShell() {
               userRole={authUser.role}
               onSubmit={handleSubmitDailyReport}
               onReload={loadData}
+              onDelete={handleDeleteDailyReport}
             />
           )}
 

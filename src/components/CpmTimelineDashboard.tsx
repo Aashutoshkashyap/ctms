@@ -368,6 +368,18 @@ export default function CpmTimelineDashboard({
                         `${act.planned_duration}d`
                       )}
                     </td>
+                    <td className="py-2.5 text-right">
+                      {isEditing ? (
+                        <input
+                          type="number"
+                          value={editQty}
+                          onChange={(e) => setEditQty(Number(e.target.value))}
+                          className="w-20 bg-slate-900 border border-slate-700 rounded text-right px-1"
+                        />
+                      ) : (
+                        `${act.planned_quantity} ${act.unit}`
+                      )}
+                    </td>
                     <td className="py-2.5 text-right font-mono">{act.early_start}</td>
                     <td className="py-2.5 text-right font-mono">{act.early_finish}</td>
                     <td className="py-2.5 text-right font-mono">{act.late_start}</td>

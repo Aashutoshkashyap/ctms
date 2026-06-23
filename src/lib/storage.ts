@@ -1699,6 +1699,21 @@ export const storage = {
     storage.recalculateSchedule();
     return newReport;
   },
+  deleteDailyReport: (reportId: string) => {
+    const reports = getLocalItem<any[]>('bt_daily_reports', MOCK_DAILY_REPORTS);
+    const remaining = reports.filter(r => r.id !== reportId);
+    setLocalItem('bt_daily_reports', remaining);
+
+    const allWorkItems = getLocalItem<any[]>('bt_daily_work_items', MOCK_DAILY_WORK_ITEMS);
+    const filteredWork = allWorkItems.filter(w => w.daily_report_id !== reportId);
+    setLocalItem('bt_daily_work_items', filteredWork);
+
+    const allMats = getLocalItem<any[]>('bt_material_logs', MOCK_MATERIAL_LOGS);
+    const filteredMats = allMats.filter(m => m.daily_report_id !== reportId);
+    setLocalItem('bt_material_logs', filteredMats);
+
+    storage.recalculateSchedule();
+  },
 
   // 8. Cost & Budget (filtered by project)
   getBudgetHeads: () => {
@@ -2092,14 +2107,25 @@ export const storage = {
     let url = '';
     let storagePath = '';
     if (client) {
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
-      const path = `${projectId}/${reportId}/${Date.now()}-${safeName}`;
-      const { error } = await client.storage.from('site-photos').upload(path, file, {
-        contentType: file.type,
-        upsert: false
-      });
-      if (error) throw error;
-      storagePath = path;
+      if (file.size > 0) {
+        try {
+          const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
+          const path = `${projectId}/${reportId}/${Date.now()}-${safeName}`;
+          const { error } = await client.storage.from('site-photos').upload(path, file, {
+            contentType: file.type,
+            upsert: false
+          });
+          if (error) {
+            console.warn('Site photo storage upload skipped:', error.message);
+          } else {
+            storagePath = path;
+          }
+        } catch (e) {
+          console.warn('Site photo upload failed, proceeding to save metadata locally.', e instanceof Error ? e.message : String(e));
+        }
+      } else {
+        console.warn('Skipping upload of empty file for site photo.');
+      }
     } else {
       url = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -2121,8 +2147,14 @@ export const storage = {
       evidence_type: evidenceType
     };
     if (client) {
-      const { error } = await client.from('site_photos').insert(photo);
-      if (error) throw error;
+      try {
+        const { error } = await client.from('site_photos').insert(photo);
+        if (error) {
+          console.warn('Could not insert site_photos row to cloud:', error.message);
+        }
+      } catch (e) {
+        console.warn('Site photo DB insert failed, saving locally only.', e instanceof Error ? e.message : String(e));
+      }
     }
     storage.saveSitePhotos([photo]);
     return photo;
