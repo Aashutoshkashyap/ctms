@@ -1,10 +1,12 @@
 // Storage and Database Adapter Layer - Multi-Project and Supabase Connect wizard
 import { calculateCPM, Activity, Dependency, ProjectInfo, diffDays, addDays } from './cpm';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // Environment variables fallback
 const defaultUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const defaultAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+let cachedSupabaseClient: SupabaseClient | null = null;
+let cachedSupabaseConfig = '';
 
 // Initialize Supabase Client dynamically checking localStorage first
 export const getSupabaseClient = () => {
@@ -13,7 +15,12 @@ export const getSupabaseClient = () => {
   const anonKey = localStorage.getItem('bt_supabase_anon_key') || defaultAnonKey;
   if (url && anonKey) {
     try {
-      return createClient(url, anonKey);
+      const config = `${url}|${anonKey}`;
+      if (!cachedSupabaseClient || cachedSupabaseConfig !== config) {
+        cachedSupabaseClient = createClient(url, anonKey);
+        cachedSupabaseConfig = config;
+      }
+      return cachedSupabaseClient;
     } catch (e) {
       console.error('Failed to init Supabase:', e);
     }
@@ -1003,7 +1010,7 @@ function getLocalItem<T>(key: string, defaultValue: T): T {
 
 const CLOUD_SYNC_KEYS = new Set([
   'bt_projects_list', 'bt_wbs', 'bt_activities', 'bt_dependencies', 'bt_design_packages',
-  'bt_design_comments', 'bt_users',
+  'bt_design_comments',
   'bt_daily_reports', 'bt_daily_work_items', 'bt_material_logs', 'bt_budget_heads',
   'bt_subcontractors', 'bt_ipc', 'bt_qaqc', 'bt_safety', 'bt_variations_claims',
   'bt_risks', 'bt_handover', 'bt_defects', 'bt_finance_rows', 'bt_documents',
@@ -1057,6 +1064,15 @@ async function upsertCloudRows(table: string, rows: Record<string, unknown>[]) {
   if (!session) return;
   const { error } = await client.from(table).upsert(rows, { onConflict: 'id' });
   if (error) console.warn(`BuildTrack cloud sync skipped for ${table}:`, error.message);
+}
+
+async function upsertProjectUser(row: Record<string, unknown>) {
+  const client = getSupabaseClient();
+  if (!client) return;
+  const { data: { session } } = await client.auth.getSession();
+  if (!session) return;
+  const { error } = await client.from('project_users').upsert(row, { onConflict: 'project_id,email' });
+  if (error) console.warn('BuildTrack personnel sync skipped:', error.message);
 }
 
 async function syncLocalKeyToCloud(key: string) {
@@ -1133,6 +1149,8 @@ export const storage = {
     if (typeof window !== 'undefined') {
       localStorage.setItem('bt_supabase_url', url);
       localStorage.setItem('bt_supabase_anon_key', key);
+      cachedSupabaseClient = null;
+      cachedSupabaseConfig = '';
     }
   },
 
@@ -1391,14 +1409,20 @@ export const storage = {
   getUsers: () => getLocalItem('bt_users', MOCK_USERS),
   addUser: (user: any) => {
     const users = storage.getUsers();
-    const newUser = { id: `usr-${Date.now()}`, ...user };
-    users.push(newUser);
+    const existingIndex = users.findIndex((item: any) => item.email.toLowerCase() === user.email.toLowerCase());
+    const newUser = existingIndex >= 0
+      ? { ...users[existingIndex], ...user }
+      : { id: `usr-${Date.now()}`, ...user };
+    if (existingIndex >= 0) users[existingIndex] = newUser;
+    else users.push(newUser);
     setLocalItem('bt_users', users);
-    void upsertCloudRow('project_users', {
-      ...newUser,
-      project_id: getActiveProjectId(),
-      auth_user_id: null
-    });
+    if (existingIndex < 0) {
+      void upsertProjectUser({
+        ...newUser,
+        project_id: getActiveProjectId(),
+        auth_user_id: null
+      });
+    }
     return newUser;
   },
 
