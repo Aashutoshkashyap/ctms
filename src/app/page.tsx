@@ -291,7 +291,7 @@ export default function DashboardShell() {
       localStorage.setItem('bt_auth_user', JSON.stringify(user));
     }
     storage.addUser(user);
-    void storage.syncUserToSupabase(user);
+    void storage.ensureActiveProjectMembership(user);
     loadData();
   };
 

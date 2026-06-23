@@ -162,7 +162,7 @@ export default function SettingsPanel({
                 </p>
               )}
               <p className="text-[10px] text-slate-500 leading-normal">
-                Cloud setup: run `supabase_schema.sql` once in the Supabase SQL editor, then enter the project URL and anon/publishable key here. Credentials stay in this browser.
+                First-time cloud setup: run the complete `supabase_schema.sql` in the Supabase SQL Editor. Do not run the upgrade file on an empty database. The complete schema also creates the private `site-photos` bucket and role policies. Then enter the project URL and anon/publishable key here.
               </p>
               {connectionState === 'connected' && userRole === 'project_director' && (
                 <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800">

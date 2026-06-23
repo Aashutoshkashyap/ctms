@@ -1011,13 +1011,26 @@ const CLOUD_SYNC_KEYS = new Set([
 ]);
 let cloudSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let cloudPullInProgress = false;
+const pendingCloudSyncKeys = new Set<string>();
+const CLOUD_SYNC_ORDER = [
+  'bt_projects_list', 'bt_wbs', 'bt_activities', 'bt_dependencies', 'bt_design_packages',
+  'bt_design_comments', 'bt_daily_reports', 'bt_daily_work_items', 'bt_material_logs',
+  'bt_budget_heads', 'bt_subcontractors', 'bt_ipc', 'bt_qaqc', 'bt_safety',
+  'bt_variations_claims', 'bt_risks', 'bt_handover', 'bt_defects', 'bt_finance_rows',
+  'bt_documents', 'bt_procurement_orders', 'bt_store_items', 'bt_contract_obligations'
+];
 
 function scheduleCloudSync(key: string) {
   if (typeof window === 'undefined' || cloudPullInProgress || !CLOUD_SYNC_KEYS.has(key) || !isSupabaseConfigured()) return;
+  pendingCloudSyncKeys.add(key);
   if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
   cloudSyncTimer = setTimeout(() => {
-    void storage.syncActiveProjectToCloud();
-  }, 700);
+    const keys = CLOUD_SYNC_ORDER.filter(item => pendingCloudSyncKeys.has(item));
+    pendingCloudSyncKeys.clear();
+    void (async () => {
+      for (const pendingKey of keys) await syncLocalKeyToCloud(pendingKey);
+    })();
+  }, 500);
 }
 
 function setLocalItem<T>(key: string, value: T): void {
@@ -1034,6 +1047,79 @@ async function upsertCloudRow(table: string, row: Record<string, unknown>) {
   if (!session) return;
   const { error } = await client.from(table).upsert(row, { onConflict: 'id' });
   if (error) console.warn(`BuildTrack cloud sync skipped for ${table}:`, error.message);
+}
+
+async function upsertCloudRows(table: string, rows: Record<string, unknown>[]) {
+  if (rows.length === 0) return;
+  const client = getSupabaseClient();
+  if (!client) return;
+  const { data: { session } } = await client.auth.getSession();
+  if (!session) return;
+  const { error } = await client.from(table).upsert(rows, { onConflict: 'id' });
+  if (error) console.warn(`BuildTrack cloud sync skipped for ${table}:`, error.message);
+}
+
+async function syncLocalKeyToCloud(key: string) {
+  const projectId = getActiveProjectId();
+  const reports = getLocalItem<any[]>('bt_daily_reports', []).filter(item => item.project_id === projectId);
+  const reportIds = new Set(reports.map(item => item.id));
+  const simpleMappings: Record<string, [string, string]> = {
+    bt_wbs: ['wbs_items', 'bt_wbs'],
+    bt_dependencies: ['activity_dependencies', 'bt_dependencies'],
+    bt_design_packages: ['design_packages', 'bt_design_packages'],
+    bt_design_comments: ['design_comments', 'bt_design_comments'],
+    bt_daily_reports: ['daily_reports', 'bt_daily_reports'],
+    bt_budget_heads: ['budget_heads', 'bt_budget_heads'],
+    bt_subcontractors: ['subcontractor_packages', 'bt_subcontractors'],
+    bt_ipc: ['ipc_submissions', 'bt_ipc'],
+    bt_qaqc: ['qa_qc_inspections', 'bt_qaqc'],
+    bt_safety: ['safety_logs', 'bt_safety'],
+    bt_variations_claims: ['variations_and_claims', 'bt_variations_claims'],
+    bt_risks: ['risk_register', 'bt_risks'],
+    bt_handover: ['handover_checklists', 'bt_handover'],
+    bt_defects: ['defects_liability', 'bt_defects'],
+    bt_documents: ['document_register', 'bt_documents'],
+    bt_procurement_orders: ['procurement_orders', 'bt_procurement_orders'],
+    bt_store_items: ['store_items', 'bt_store_items'],
+    bt_contract_obligations: ['contract_obligations', 'bt_contract_obligations']
+  };
+  if (key === 'bt_projects_list') {
+    const project = getLocalItem<any[]>('bt_projects_list', []).find(item => item.id === projectId);
+    if (project) await upsertCloudRow('projects', project);
+    return;
+  }
+  if (key === 'bt_activities') {
+    const rows = getLocalItem<(Activity & { project_id?: string })[]>('bt_activities', [])
+      .filter(item => item.project_id === projectId)
+      .map(({ early_start, early_finish, late_start, late_finish, total_float, free_float, is_critical, is_near_critical, ...item }) => item);
+    await upsertCloudRows('activities', rows as unknown as Record<string, unknown>[]);
+    return;
+  }
+  if (key === 'bt_daily_work_items' || key === 'bt_material_logs') {
+    const [table, localKey] = key === 'bt_daily_work_items'
+      ? ['daily_work_items', 'bt_daily_work_items']
+      : ['material_logs', 'bt_material_logs'];
+    const rows = getLocalItem<Record<string, unknown>[]>(localKey, [])
+      .filter(item => reportIds.has(String(item.daily_report_id)))
+      .map(item => ({ ...item, project_id: projectId }));
+    await upsertCloudRows(table, rows);
+    return;
+  }
+  if (key === 'bt_finance_rows') {
+    const finance = getLocalItem<Record<string, FinanceRow[]>>('bt_finance_rows', {});
+    await upsertCloudRows('finance_rows', (finance[projectId] || []).map(row => ({
+      id: row.id, project_id: projectId, row_key: row.id, name: row.name,
+      category: row.category, monthly_values: row.values
+    })));
+    return;
+  }
+  const mapping = simpleMappings[key];
+  if (!mapping) return;
+  const [table, localKey] = mapping;
+  const rows = getLocalItem<Record<string, unknown>[]>(localKey, [])
+    .filter(item => item.project_id === projectId)
+    .map(item => ({ ...item, project_id: projectId }));
+  await upsertCloudRows(table, rows);
 }
 
 // Helper: Active Project Management
@@ -1094,15 +1180,6 @@ export const storage = {
       options: { data: metadata }
     });
     if (error) throw error;
-    if (data.user) {
-      await client.from('project_users').upsert({
-        auth_user_id: data.user.id,
-        project_id: getActiveProjectId(),
-        email,
-        name: metadata.name,
-        role: metadata.role
-      }, { onConflict: 'project_id,email' });
-    }
     return { local: false, user: data.user, session: data.session };
   },
 
@@ -1173,9 +1250,45 @@ export const storage = {
   testSupabaseConnection: async () => {
     const client = getSupabaseClient();
     if (!client) return { ok: false, message: 'Enter a valid Supabase URL and anon key.' };
-    const { error } = await client.auth.getSession();
-    if (error) return { ok: false, message: error.message };
-    return { ok: true, message: 'Supabase client connected. Sign in to enable protected data synchronization.' };
+    const { error: sessionError } = await client.auth.getSession();
+    if (sessionError) return { ok: false, message: sessionError.message };
+    const { error: schemaError } = await client.from('projects').select('id').limit(1);
+    if (schemaError) {
+      const missingSchema = schemaError.message.includes('projects') || schemaError.code === '42P01' || schemaError.code === 'PGRST205';
+      return {
+        ok: false,
+        message: missingSchema
+          ? 'Connected to Supabase, but the BuildTrack schema is missing. Run supabase_schema.sql in the Supabase SQL Editor first.'
+          : `Supabase schema check failed: ${schemaError.message}`
+      };
+    }
+    const { data: buckets, error: bucketError } = await client.storage.listBuckets();
+    const hasPhotoBucket = !bucketError && Boolean(buckets?.some(bucket => bucket.id === 'site-photos'));
+    return {
+      ok: true,
+      message: hasPhotoBucket
+        ? 'Supabase schema and private site-photos bucket are ready. Sign in to synchronize protected project data.'
+        : 'Database schema is ready, but the site-photos bucket could not be verified. Re-run the storage section of supabase_schema.sql.'
+    };
+  },
+
+  ensureActiveProjectMembership: async (user: { name: string; email: string; role: string }) => {
+    const client = getSupabaseClient();
+    if (!client) return { ok: false, message: 'Supabase is not configured.' };
+    const session = await storage.getAuthSession();
+    if (!session) return { ok: false, message: 'Confirm your email and sign in before cloud setup.' };
+    const project = storage.getProject();
+    const { error: projectError } = await client.from('projects').upsert({
+      ...project,
+      created_by: session.user.id
+    }, { onConflict: 'id' });
+    if (projectError && projectError.code !== '42501') {
+      return { ok: false, message: `Project setup: ${projectError.message}` };
+    }
+    const membership = await storage.syncUserToSupabase(user);
+    return membership.ok
+      ? { ok: true, message: 'Project membership is ready.' }
+      : { ok: false, message: membership.error || 'Could not create project membership.' };
   },
 
   syncUserToSupabase: async (user: { name: string; email: string; role: string }) => {
@@ -1281,6 +1394,11 @@ export const storage = {
     const newUser = { id: `usr-${Date.now()}`, ...user };
     users.push(newUser);
     setLocalItem('bt_users', users);
+    void upsertCloudRow('project_users', {
+      ...newUser,
+      project_id: getActiveProjectId(),
+      auth_user_id: null
+    });
     return newUser;
   },
 
@@ -1399,6 +1517,8 @@ export const storage = {
     const allDeps = getLocalItem('bt_dependencies', MOCK_DEPENDENCIES);
     const filtered = allDeps.filter(d => d.id !== id);
     setLocalItem('bt_dependencies', filtered);
+    const client = getSupabaseClient();
+    if (client) void client.from('activity_dependencies').delete().eq('id', id);
     storage.recalculateSchedule();
   },
 
@@ -1980,6 +2100,14 @@ export const storage = {
     if (!session) return { ok: false, message: 'Sign in to Supabase before synchronizing.' };
     const projectId = getActiveProjectId();
     const project = storage.getProject();
+    const currentProfile = await storage.getCurrentAuthUser();
+    const signedInUser = currentProfile || {
+      name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'BuildTrack User',
+      email: session.user.email || '',
+      role: session.user.user_metadata?.role || 'project_manager'
+    };
+    const setup = await storage.ensureActiveProjectMembership(signedInUser);
+    if (!setup.ok) return setup;
     const reports = storage.getDailyReports();
     const reportIds = new Set(reports.map((report: any) => report.id));
     const designPackages = storage.getDesignPackages();
@@ -2033,12 +2161,6 @@ export const storage = {
       const { error } = await client.from(table).upsert(rows, { onConflict: 'id' });
       if (error) return { ok: false, message: `${table}: ${error.message}` };
     }
-    const currentProfile = await storage.getCurrentAuthUser();
-    const signedInUser = currentProfile || {
-      name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'BuildTrack User',
-      email: session.user.email || '',
-      role: session.user.user_metadata?.role || 'project_manager'
-    };
     const directorySource = [
       ...storage.getUsers(),
       ...(storage.getUsers().some((user: any) => user.email === signedInUser.email) ? [] : [signedInUser])
