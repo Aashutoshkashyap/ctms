@@ -72,8 +72,11 @@ export interface ProcurementOrder {
   unit_rate: number;
   required_date: string;
   expected_date: string;
+  order_date?: string;
+  delivery_date?: string;
   delivered_quantity: number;
   status: 'draft' | 'approved' | 'ordered' | 'partially_delivered' | 'delivered' | 'cancelled';
+  remarks?: string;
 }
 
 export interface StoreItem {
@@ -87,6 +90,8 @@ export interface StoreItem {
   issued: number;
   reorder_level: number;
   location: string;
+  vendor?: string;
+  status?: 'available' | 'low_stock' | 'ordered' | 'inactive';
 }
 
 export interface ContractObligation {
@@ -126,6 +131,11 @@ export interface DailyExpense {
   payment_method: 'cash' | 'bank' | 'credit' | 'petty_cash';
   reference: string;
   wbs_code: string;
+  activity_id?: string;
+  employee_id?: string;
+  employee_name?: string;
+  payment_slip_url?: string;
+  payment_slip_path?: string;
   status: 'draft' | 'submitted' | 'approved' | 'rejected';
   recorded_by: string;
 }
@@ -136,10 +146,13 @@ export interface DailyResourceUsage {
   usage_date: string;
   activity_id: string;
   location: string;
+  crew_name?: string;
   manpower_skilled: number;
   manpower_unskilled: number;
+  equipment_type?: 'excavator' | 'loader' | 'tipper' | 'roller' | 'grader' | 'concrete_mixer' | 'tools' | 'machinery' | 'other';
   equipment_name: string;
   equipment_hours: number;
+  machinery_day?: number;
   fuel_litres: number;
   work_quantity: number;
   work_unit: string;
@@ -164,6 +177,58 @@ export interface EmployeeVisit {
   vehicle_number: string;
   status: 'planned' | 'on_site' | 'completed' | 'cancelled';
   recorded_by: string;
+}
+
+export interface EmployeeProfile {
+  id: string;
+  project_id?: string;
+  employee_id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  role: string;
+  trade?: string;
+  site_location?: string;
+  daily_rate?: number;
+  status: 'active' | 'inactive';
+  assigned_to?: string;
+}
+
+export interface UploadedDocument {
+  id: string;
+  project_id?: string;
+  name: string;
+  category: 'payment_slip' | 'contract' | 'report' | 'drawing' | 'photo' | 'other';
+  storage_path?: string;
+  url?: string;
+  linked_record_id?: string;
+  uploaded_by?: string;
+  uploaded_at: string;
+  remarks?: string;
+}
+
+export interface AppNotification {
+  id: string;
+  project_id?: string;
+  actor?: string;
+  action: string;
+  module: string;
+  detail: string;
+  created_at: string;
+  read: boolean;
+}
+
+export interface InventoryEvent {
+  id: string;
+  project_id?: string;
+  item_id?: string;
+  event_date: string;
+  event_type: 'received' | 'issued' | 'adjusted' | 'moved';
+  quantity: number;
+  vendor?: string;
+  location?: string;
+  remarks?: string;
+  recorded_by?: string;
 }
 
 export interface HandoverItem {
@@ -303,6 +368,57 @@ const MOCK_USERS = [
   { id: 'usr-9', email: 'safety@buildtrack.com', name: 'Prem Chaudhary', role: 'safety_officer' },
   { id: 'usr-10', email: 'employer@buildtrack.com', name: 'Govind Raj Pandey', role: 'employer_viewer' }
 ];
+
+function resolveLoginIdentifier(identifier: string) {
+  const normalized = identifier.trim().toLowerCase();
+  if (normalized === 'superadmin' || normalized === 'admin') return 'admin@buildtrack.com';
+  if (normalized === 'director') return 'director@buildtrack.com';
+  return normalized;
+}
+
+function isNetworkLikeError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /fetch failed|failed to fetch|network|enotfound|dns|timeout|load failed/i.test(message);
+}
+
+async function signInWithLocalFallback(email: string, password: string) {
+  const response = await fetch('/api/auth/local', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(data?.error || 'Sign-in failed.');
+  return data;
+}
+
+async function fileToDataUrl(file: File): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadToTenantGoogleDrive(
+  file: File,
+  category: 'daily_report' | 'expense' | 'employee' | 'photo' | 'document',
+  metadata: { date?: string; employee?: string; boq?: string; remarks?: string; reference?: string } = {}
+) {
+  const status = await fetch('/api/google/status').then(response => response.json()).catch(() => null);
+  if (!status?.connected) return null;
+  const form = new FormData();
+  form.append('file', file);
+  form.append('category', category);
+  Object.entries(metadata).forEach(([key, value]) => {
+    if (value) form.append(key, value);
+  });
+  const response = await fetch('/api/google/upload', { method: 'POST', body: form });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || !result?.ok) throw new Error(result?.message || 'Google Drive upload failed.');
+  return result.file as { id: string; name: string; webViewLink?: string; folderId?: string };
+}
 
 const MOCK_WBS = [
   { id: 'wbs-1', project_id: 'proj-101', wbs_code: '01', name: 'Design & Approvals', parent_code: null },
@@ -1014,7 +1130,9 @@ const CLOUD_SYNC_KEYS = new Set([
   'bt_daily_reports', 'bt_daily_work_items', 'bt_material_logs', 'bt_budget_heads',
   'bt_subcontractors', 'bt_ipc', 'bt_qaqc', 'bt_safety', 'bt_variations_claims',
   'bt_risks', 'bt_handover', 'bt_defects', 'bt_finance_rows', 'bt_documents',
-  'bt_procurement_orders', 'bt_store_items', 'bt_contract_obligations'
+  'bt_procurement_orders', 'bt_store_items', 'bt_contract_obligations',
+  'bt_daily_expenses', 'bt_daily_resource_usage', 'bt_employee_visits', 'bt_employees',
+  'bt_uploaded_documents', 'bt_inventory_events', 'bt_notifications'
 ]);
 let cloudSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let cloudPullInProgress = false;
@@ -1024,8 +1142,53 @@ const CLOUD_SYNC_ORDER = [
   'bt_design_comments', 'bt_daily_reports', 'bt_daily_work_items', 'bt_material_logs',
   'bt_budget_heads', 'bt_subcontractors', 'bt_ipc', 'bt_qaqc', 'bt_safety',
   'bt_variations_claims', 'bt_risks', 'bt_handover', 'bt_defects', 'bt_finance_rows',
-  'bt_documents', 'bt_procurement_orders', 'bt_store_items', 'bt_contract_obligations'
+  'bt_documents', 'bt_procurement_orders', 'bt_store_items', 'bt_contract_obligations',
+  'bt_daily_expenses', 'bt_daily_resource_usage', 'bt_employee_visits', 'bt_employees',
+  'bt_uploaded_documents', 'bt_inventory_events', 'bt_notifications'
 ];
+
+const SYNC_LABELS: Record<string, { module: string; action: string }> = {
+  bt_projects_list: { module: 'Projects', action: 'Project list updated' },
+  bt_wbs: { module: 'Schedule', action: 'BOQ/WBS updated' },
+  bt_activities: { module: 'Schedule', action: 'Work programme updated' },
+  bt_dependencies: { module: 'Schedule', action: 'Relationship logic updated' },
+  bt_daily_reports: { module: 'Daily Site Reporting', action: 'Daily report saved' },
+  bt_daily_work_items: { module: 'Daily Site Reporting', action: 'Completed work updated' },
+  bt_material_logs: { module: 'Daily Site Reporting', action: 'Material log updated' },
+  bt_daily_expenses: { module: 'Finance', action: 'Daily expense updated' },
+  bt_daily_resource_usage: { module: 'Resources', action: 'Resource usage updated' },
+  bt_employee_visits: { module: 'Employees', action: 'Site visit updated' },
+  bt_employees: { module: 'Employees', action: 'Employee record updated' },
+  bt_procurement_orders: { module: 'Procurement', action: 'Procurement record updated' },
+  bt_store_items: { module: 'Inventory', action: 'Store inventory updated' },
+  bt_inventory_events: { module: 'Inventory', action: 'Inventory log updated' },
+  bt_contract_obligations: { module: 'Contracts', action: 'Contract obligation updated' },
+  bt_uploaded_documents: { module: 'Documents', action: 'Document uploaded' },
+  bt_notifications: { module: 'Notifications', action: 'Notification updated' },
+};
+
+function appendNotification(key: string) {
+  if (typeof window === 'undefined' || cloudPullInProgress || key === 'bt_notifications') return;
+  const label = SYNC_LABELS[key];
+  if (!label) return;
+  const projectId = getActiveProjectId();
+  const auth = getLocalItem<{ name?: string } | null>('bt_auth_user', null);
+  const rows = getLocalItem<AppNotification[]>('bt_notifications', []);
+  const last = rows[0];
+  const now = new Date().toISOString();
+  if (last && last.project_id === projectId && last.action === label.action && Date.now() - new Date(last.created_at).getTime() < 1500) return;
+  const next: AppNotification = {
+    id: `note-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    project_id: projectId,
+    actor: auth?.name || 'BuildTrack User',
+    action: label.action,
+    module: label.module,
+    detail: `${label.module} changed in ${storage.getProject()?.name || 'active project'}.`,
+    created_at: now,
+    read: false,
+  };
+  localStorage.setItem('bt_notifications', JSON.stringify([next, ...rows].slice(0, 200)));
+}
 
 function scheduleCloudSync(key: string) {
   if (typeof window === 'undefined' || cloudPullInProgress || !CLOUD_SYNC_KEYS.has(key) || !isSupabaseConfigured()) return;
@@ -1043,6 +1206,7 @@ function scheduleCloudSync(key: string) {
 function setLocalItem<T>(key: string, value: T): void {
   if (typeof window !== 'undefined') {
     localStorage.setItem(key, JSON.stringify(value));
+    appendNotification(key);
     scheduleCloudSync(key);
   }
 }
@@ -1097,7 +1261,14 @@ async function syncLocalKeyToCloud(key: string) {
     bt_documents: ['document_register', 'bt_documents'],
     bt_procurement_orders: ['procurement_orders', 'bt_procurement_orders'],
     bt_store_items: ['store_items', 'bt_store_items'],
-    bt_contract_obligations: ['contract_obligations', 'bt_contract_obligations']
+    bt_contract_obligations: ['contract_obligations', 'bt_contract_obligations'],
+    bt_daily_expenses: ['daily_expenses', 'bt_daily_expenses'],
+    bt_daily_resource_usage: ['daily_resource_usage', 'bt_daily_resource_usage'],
+    bt_employee_visits: ['employee_visits', 'bt_employee_visits'],
+    bt_employees: ['employee_profiles', 'bt_employees'],
+    bt_uploaded_documents: ['uploaded_documents', 'bt_uploaded_documents'],
+    bt_inventory_events: ['inventory_events', 'bt_inventory_events'],
+    bt_notifications: ['app_notifications', 'bt_notifications']
   };
   if (key === 'bt_projects_list') {
     const project = getLocalItem<any[]>('bt_projects_list', []).find(item => item.id === projectId);
@@ -1192,39 +1363,50 @@ export const storage = {
   signUp: async (email: string, password: string, metadata: { name: string; role: string }) => {
     const client = getSupabaseClient();
     if (!client) return { local: true, user: { email, ...metadata } };
-    const { data, error } = await client.auth.signUp({
-      email,
-      password,
-      options: { data: metadata }
-    });
-    if (error) throw error;
-    return { local: false, user: data.user, session: data.session };
+    try {
+      const { data, error } = await client.auth.signUp({
+        email,
+        password,
+        options: { data: metadata }
+      });
+      if (error) throw error;
+      return { local: false, user: data.user, session: data.session };
+    } catch (error) {
+      if (!isNetworkLikeError(error)) throw error;
+      const localUser = { id: `local-${Date.now()}`, email, ...metadata };
+      storage.addUser(localUser);
+      return { local: true, user: localUser };
+    }
   },
 
   signIn: async (email: string, password: string) => {
+    const loginEmail = resolveLoginIdentifier(email);
     const client = getSupabaseClient();
     if (!client) {
-      const localUser = storage.getUsers().find((user: any) => user.email.toLowerCase() === email.toLowerCase());
-      if (!localUser) throw new Error('No local user found for this email.');
-      return { local: true, user: localUser };
+      return signInWithLocalFallback(loginEmail, password);
     }
-    const { data, error } = await client.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-    const { data: profile } = await client
-      .from('project_users')
-      .select('name,email,role')
-      .eq('auth_user_id', data.user.id)
-      .limit(1)
-      .maybeSingle();
-    return {
-      local: false,
-      user: profile || {
-        name: data.user.user_metadata?.name || email.split('@')[0],
-        email,
-        role: data.user.user_metadata?.role || 'project_manager'
-      },
-      session: data.session
-    };
+    try {
+      const { data, error } = await client.auth.signInWithPassword({ email: loginEmail, password });
+      if (error) throw error;
+      const { data: profile } = await client
+        .from('project_users')
+        .select('name,email,role')
+        .eq('auth_user_id', data.user.id)
+        .limit(1)
+        .maybeSingle();
+      return {
+        local: false,
+        user: profile || {
+          name: data.user.user_metadata?.name || loginEmail.split('@')[0],
+          email: loginEmail,
+          role: data.user.user_metadata?.role || 'project_manager'
+        },
+        session: data.session
+      };
+    } catch (error) {
+      if (!isNetworkLikeError(error)) return signInWithLocalFallback(loginEmail, password);
+      return signInWithLocalFallback(loginEmail, password);
+    }
   },
 
   signInWithGoogle: async () => {
@@ -1355,6 +1537,10 @@ export const storage = {
     localStorage.removeItem('bt_daily_expenses');
     localStorage.removeItem('bt_daily_resource_usage');
     localStorage.removeItem('bt_employee_visits');
+    localStorage.removeItem('bt_employees');
+    localStorage.removeItem('bt_uploaded_documents');
+    localStorage.removeItem('bt_inventory_events');
+    localStorage.removeItem('bt_notifications');
     localStorage.removeItem('bt_supabase_url');
     localStorage.removeItem('bt_supabase_anon_key');
     storage.getProjectsList();
@@ -1407,6 +1593,32 @@ export const storage = {
       setLocalItem('bt_projects_list', list);
       storage.recalculateSchedule();
     }
+  },
+
+  archiveProject: (projectId: string) => {
+    const list = storage.getProjectsList();
+    setLocalItem('bt_projects_list', list.map((project: any) => project.id === projectId ? { ...project, status: 'archived' } : project));
+  },
+
+  restoreProject: (projectId: string) => {
+    const list = storage.getProjectsList();
+    setLocalItem('bt_projects_list', list.map((project: any) => project.id === projectId ? { ...project, status: 'active' } : project));
+  },
+
+  deleteProjectLocal: (projectId: string) => {
+    const list = storage.getProjectsList().filter((project: any) => project.id !== projectId);
+    setLocalItem('bt_projects_list', list.length ? list : [MOCK_PROJECT]);
+    if (getActiveProjectId() === projectId) setLocalItem('bt_active_project_id', (list[0] || MOCK_PROJECT).id);
+    [
+      'bt_wbs','bt_activities','bt_dependencies','bt_design_packages','bt_design_comments','bt_daily_reports',
+      'bt_daily_work_items','bt_material_logs','bt_budget_heads','bt_subcontractors','bt_ipc','bt_qaqc','bt_safety',
+      'bt_variations_claims','bt_risks','bt_handover','bt_defects','bt_documents','bt_procurement_orders',
+      'bt_store_items','bt_contract_obligations','bt_site_photos','bt_daily_expenses','bt_daily_resource_usage',
+      'bt_employee_visits','bt_employees','bt_uploaded_documents','bt_inventory_events','bt_notifications'
+    ].forEach(key => {
+      const rows = getLocalItem<any[]>(key, []);
+      if (Array.isArray(rows)) setLocalItem(key, rows.filter(row => row.project_id !== projectId));
+    });
   },
 
   // 2. Users
@@ -1462,6 +1674,15 @@ export const storage = {
     const proj = storage.getProject();
     
     return calculateCPM(proj, filteredActs, deps);
+  },
+
+  getAllActivities: (): Activity[] => {
+    const all = getLocalItem<(Activity & { project_id?: string })[]>('bt_activities', MOCK_ACTIVITIES);
+    return storage.getProjectsList().flatMap((project: any) => {
+      const rows = all.filter(activity => activity.project_id === project.id);
+      const deps = getLocalItem<Dependency[]>('bt_dependencies', MOCK_DEPENDENCIES).filter(dep => dep.project_id === project.id);
+      return calculateCPM(project, rows, deps);
+    });
   },
   
   updateActivity: (updatedAct: Activity) => {
@@ -2008,6 +2229,40 @@ export const storage = {
     return getLocalItem<DailyExpense[]>('bt_daily_expenses', []).filter(item => item.project_id === projectId);
   },
 
+  getAllDailyExpenses: (): DailyExpense[] => getLocalItem<DailyExpense[]>('bt_daily_expenses', []),
+
+  getEmployees: (): EmployeeProfile[] => {
+    const projectId = getActiveProjectId();
+    const seeded = storage.getUsers().map((user: any, index: number) => ({
+      id: `emp-seed-${index}`,
+      project_id: projectId,
+      employee_id: user.employee_id || `EMP-${String(index + 1).padStart(3, '0')}`,
+      name: user.name,
+      email: user.email,
+      role: user.role?.replaceAll('_', ' ') || 'Team Member',
+      trade: user.role?.replaceAll('_', ' ') || '',
+      site_location: 'Project Office',
+      daily_rate: 0,
+      status: 'active' as const,
+      assigned_to: projectId
+    }));
+    const rows = getLocalItem<EmployeeProfile[]>('bt_employees', seeded);
+    const existing = rows.filter(item => item.project_id === projectId);
+    return existing.length ? existing : seeded;
+  },
+
+  saveEmployee: (employee: Omit<EmployeeProfile, 'id' | 'project_id'> & { id?: string }) => {
+    const projectId = getActiveProjectId();
+    const rows = getLocalItem<EmployeeProfile[]>('bt_employees', []);
+    const record = { ...employee, id: employee.id || `emp-${Date.now()}`, project_id: projectId } as EmployeeProfile;
+    const index = rows.findIndex(item => item.id === record.id || (item.project_id === projectId && item.employee_id === record.employee_id));
+    if (index >= 0) rows[index] = { ...rows[index], ...record };
+    else rows.push(record);
+    setLocalItem('bt_employees', rows);
+    void upsertCloudRow('employee_profiles', record as unknown as Record<string, unknown>);
+    return record;
+  },
+
   saveDailyExpense: (expense: Omit<DailyExpense, 'id' | 'project_id'> & { id?: string }) => {
     const projectId = getActiveProjectId();
     const expenses = getLocalItem<DailyExpense[]>('bt_daily_expenses', []);
@@ -2020,10 +2275,101 @@ export const storage = {
     return record;
   },
 
+  getNotifications: (limit = 20): AppNotification[] => {
+    const projectId = getActiveProjectId();
+    return getLocalItem<AppNotification[]>('bt_notifications', [])
+      .filter(item => !item.project_id || item.project_id === projectId)
+      .slice(0, limit);
+  },
+
+  getAllNotifications: (limit = 50): AppNotification[] => {
+    return getLocalItem<AppNotification[]>('bt_notifications', []).slice(0, limit);
+  },
+
+  markNotificationsRead: () => {
+    const projectId = getActiveProjectId();
+    const rows = getLocalItem<AppNotification[]>('bt_notifications', []);
+    setLocalItem('bt_notifications', rows.map(item => item.project_id === projectId ? { ...item, read: true } : item));
+  },
+
+  markAllNotificationsRead: () => {
+    const rows = getLocalItem<AppNotification[]>('bt_notifications', []);
+    setLocalItem('bt_notifications', rows.map(item => ({ ...item, read: true })));
+  },
+
+  getUploadedDocuments: (): UploadedDocument[] => {
+    const projectId = getActiveProjectId();
+    return getLocalItem<UploadedDocument[]>('bt_uploaded_documents', []).filter(item => item.project_id === projectId);
+  },
+
+  uploadProjectDocument: async (
+    file: File,
+    category: UploadedDocument['category'],
+    linkedRecordId = '',
+    uploadedBy = 'BuildTrack User',
+    remarks = ''
+  ): Promise<UploadedDocument> => {
+    const projectId = getActiveProjectId();
+    const client = getSupabaseClient();
+    let url = '';
+    let storagePath = '';
+    try {
+      const googleFile = await uploadToTenantGoogleDrive(file, category === 'payment_slip' ? 'expense' : 'document', {
+        date: new Date().toISOString().slice(0, 10),
+        employee: uploadedBy,
+        boq: linkedRecordId || 'general',
+        remarks: remarks || file.name,
+        reference: linkedRecordId,
+      });
+      if (googleFile) {
+        storagePath = `google-drive:${googleFile.id}`;
+        url = googleFile.webViewLink || '';
+      }
+    } catch (error) {
+      console.warn('Google Drive document upload skipped:', error instanceof Error ? error.message : String(error));
+    }
+    if (!storagePath && client && file.size > 0) {
+      try {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
+        const path = `${projectId}/${category}/${Date.now()}-${safeName}`;
+        const { error } = await client.storage.from('project-documents').upload(path, file, {
+          contentType: file.type || 'application/octet-stream',
+          upsert: false,
+        });
+        if (error) throw new Error(error.message);
+        storagePath = path;
+      } catch (error) {
+        if (!isNetworkLikeError(error)) throw new Error(`Document upload failed: ${error instanceof Error ? error.message : String(error)}. Check the project-documents bucket and storage RLS policies.`);
+        url = await fileToDataUrl(file);
+        console.warn('Document saved locally because Supabase storage is unreachable.');
+      }
+    } else if (!storagePath && file.size > 0) {
+      url = await fileToDataUrl(file);
+    }
+    const record: UploadedDocument = {
+      id: `doc-upload-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      project_id: projectId,
+      name: file.name,
+      category,
+      storage_path: storagePath,
+      url,
+      linked_record_id: linkedRecordId,
+      uploaded_by: uploadedBy,
+      uploaded_at: new Date().toISOString(),
+      remarks,
+    };
+    const rows = getLocalItem<UploadedDocument[]>('bt_uploaded_documents', []);
+    setLocalItem('bt_uploaded_documents', [record, ...rows]);
+    void upsertCloudRow('uploaded_documents', record as unknown as Record<string, unknown>);
+    return record;
+  },
+
   getDailyResourceUsage: (): DailyResourceUsage[] => {
     const projectId = getActiveProjectId();
     return getLocalItem<DailyResourceUsage[]>('bt_daily_resource_usage', []).filter(item => item.project_id === projectId);
   },
+
+  getAllDailyResourceUsage: (): DailyResourceUsage[] => getLocalItem<DailyResourceUsage[]>('bt_daily_resource_usage', []),
 
   saveDailyResourceUsage: (usage: Omit<DailyResourceUsage, 'id' | 'project_id'> & { id?: string }) => {
     const projectId = getActiveProjectId();
@@ -2037,10 +2383,29 @@ export const storage = {
     return record;
   },
 
+  getInventoryEvents: (): InventoryEvent[] => {
+    const projectId = getActiveProjectId();
+    return getLocalItem<InventoryEvent[]>('bt_inventory_events', []).filter(item => item.project_id === projectId);
+  },
+
+  saveInventoryEvent: (event: Omit<InventoryEvent, 'id' | 'project_id'> & { id?: string }) => {
+    const projectId = getActiveProjectId();
+    const rows = getLocalItem<InventoryEvent[]>('bt_inventory_events', []);
+    const record = { ...event, id: event.id || `inv-event-${Date.now()}`, project_id: projectId } as InventoryEvent;
+    const index = rows.findIndex(item => item.id === record.id);
+    if (index >= 0) rows[index] = record;
+    else rows.push(record);
+    setLocalItem('bt_inventory_events', rows);
+    void upsertCloudRow('inventory_events', record as unknown as Record<string, unknown>);
+    return record;
+  },
+
   getEmployeeVisits: (): EmployeeVisit[] => {
     const projectId = getActiveProjectId();
     return getLocalItem<EmployeeVisit[]>('bt_employee_visits', []).filter(item => item.project_id === projectId);
   },
+
+  getAllEmployeeVisits: (): EmployeeVisit[] => getLocalItem<EmployeeVisit[]>('bt_employee_visits', []),
 
   saveEmployeeVisit: (visit: Omit<EmployeeVisit, 'id' | 'project_id'> & { id?: string }) => {
     const projectId = getActiveProjectId();
@@ -2090,6 +2455,7 @@ export const storage = {
     if (!client) return photos;
     return Promise.all(photos.map(async photo => {
       if (!photo.storage_path) return photo;
+      if (photo.storage_path.startsWith('google-drive:')) return photo;
       const { data, error } = await client.storage.from('site-photos').createSignedUrl(photo.storage_path, 3600);
       return error ? photo : { ...photo, url: data.signedUrl };
     }));
@@ -2106,7 +2472,21 @@ export const storage = {
     const client = getSupabaseClient();
     let url = '';
     let storagePath = '';
-    if (client) {
+    try {
+      const googleFile = await uploadToTenantGoogleDrive(file, 'photo', {
+        date: new Date().toISOString().slice(0, 10),
+        employee: uploadedBy,
+        boq: reportId,
+        remarks: caption || evidenceType || file.name,
+      });
+      if (googleFile) {
+        storagePath = `google-drive:${googleFile.id}`;
+        url = googleFile.webViewLink || '';
+      }
+    } catch (error) {
+      console.warn('Google Drive photo upload skipped:', error instanceof Error ? error.message : String(error));
+    }
+    if (!storagePath && client) {
       if (file.size > 0) {
         try {
           const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
@@ -2116,23 +2496,20 @@ export const storage = {
             upsert: false
           });
           if (error) {
-            console.warn('Site photo storage upload skipped:', error.message);
+            throw new Error(`Image upload failed: ${error.message}. Check the site-photos bucket and storage RLS policy for this user's project role.`);
           } else {
             storagePath = path;
           }
         } catch (e) {
-          console.warn('Site photo upload failed, proceeding to save metadata locally.', e instanceof Error ? e.message : String(e));
+          if (!isNetworkLikeError(e)) throw e instanceof Error ? e : new Error(String(e));
+          url = await fileToDataUrl(file);
+          console.warn('Site photo saved locally because Supabase storage is unreachable.');
         }
       } else {
         console.warn('Skipping upload of empty file for site photo.');
       }
-    } else {
-      url = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(file);
-      });
+    } else if (!storagePath) {
+      url = await fileToDataUrl(file);
     }
     const photo: SitePhoto = {
       id: `photo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -2146,14 +2523,15 @@ export const storage = {
       uploaded_by: uploadedBy,
       evidence_type: evidenceType
     };
-    if (client) {
+    if (client && storagePath && !storagePath.startsWith('google-drive:')) {
       try {
         const { error } = await client.from('site_photos').insert(photo);
         if (error) {
-          console.warn('Could not insert site_photos row to cloud:', error.message);
+          throw new Error(`Image metadata save failed: ${error.message}. The file uploaded but the site_photos row was blocked by RLS.`);
         }
       } catch (e) {
-        console.warn('Site photo DB insert failed, saving locally only.', e instanceof Error ? e.message : String(e));
+        if (!isNetworkLikeError(e)) throw e instanceof Error ? e : new Error(String(e));
+        console.warn('Site photo metadata saved locally because Supabase table is unreachable.');
       }
     }
     storage.saveSitePhotos([photo]);
@@ -2205,6 +2583,10 @@ export const storage = {
       ['daily_expenses', storage.getDailyExpenses()],
       ['daily_resource_usage', storage.getDailyResourceUsage()],
       ['employee_visits', storage.getEmployeeVisits()],
+      ['employee_profiles', storage.getEmployees()],
+      ['uploaded_documents', storage.getUploadedDocuments()],
+      ['inventory_events', storage.getInventoryEvents()],
+      ['app_notifications', storage.getNotifications(200)],
       ['finance_rows', storage.getFinanceRows().map(row => ({
         id: row.id, project_id: projectId, row_key: row.id, name: row.name,
         category: row.category, monthly_values: row.values
@@ -2217,6 +2599,7 @@ export const storage = {
       'activity_dependencies','qa_qc_inspections','activities','wbs_items','finance_rows','document_register',
       'procurement_orders','store_items','contract_obligations','budget_heads','subcontractor_packages',
       'daily_resource_usage','employee_visits','daily_expenses','ipc_submissions','safety_logs','variations_and_claims','risk_register','handover_checklists','defects_liability'
+      ,'employee_profiles','uploaded_documents','inventory_events','app_notifications'
     ];
     for (const table of deleteOrder) {
       const { error } = await client.from(table).delete().eq('project_id', projectId);
@@ -2282,6 +2665,10 @@ export const storage = {
       ['daily_expenses', 'bt_daily_expenses', []],
       ['daily_resource_usage', 'bt_daily_resource_usage', []],
       ['employee_visits', 'bt_employee_visits', []],
+      ['employee_profiles', 'bt_employees', []],
+      ['uploaded_documents', 'bt_uploaded_documents', []],
+      ['inventory_events', 'bt_inventory_events', []],
+      ['app_notifications', 'bt_notifications', []],
       ['site_photos', 'bt_site_photos', []]
     ];
     cloudPullInProgress = true;
@@ -2295,7 +2682,10 @@ export const storage = {
       }
       for (const [table, key, defaults] of mappings) {
         const { data, error } = await client.from(table).select('*').eq('project_id', projectId);
-        if (error) return { ok: false, message: `${table}: ${error.message}` };
+        if (error) {
+          console.warn(`BuildTrack cloud pull skipped ${table}:`, error.message);
+          continue;
+        }
         if (!data) continue;
         const allRows = getLocalItem<any[]>(key, defaults);
         const remaining = allRows.filter(row => row.project_id !== projectId);

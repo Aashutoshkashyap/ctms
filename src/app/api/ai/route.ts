@@ -1,7 +1,13 @@
+import { getClientIp, rateLimit, rateLimitResponse } from '../../../lib/server/security';
+
 const AI_BASE_URL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
 const AI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
 export async function POST(request: Request) {
+  const ip = getClientIp(request);
+  const limit = rateLimit({ key: `ai:${ip}`, limit: 20, windowMs: 60_000 });
+  if (!limit.allowed) return rateLimitResponse(limit.resetAt);
+
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return Response.json({ error: 'AI is not configured on this server.' }, { status: 503 });

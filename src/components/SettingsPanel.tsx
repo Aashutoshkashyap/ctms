@@ -1,5 +1,5 @@
 // Settings Panel Component
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { isSupabaseConfigured, storage } from '../lib/storage';
 
 interface SettingsPanelProps {
@@ -33,10 +33,20 @@ export default function SettingsPanel({
   const [syncMessage, setSyncMessage] = useState('');
   const [creatingUser, setCreatingUser] = useState(false);
   const [userMessage, setUserMessage] = useState('');
+  const [googleStatus, setGoogleStatus] = useState<{ configured: boolean; connected: boolean; project_folder_id?: string | null; sheet_id?: string | null; missing?: string[] } | null>(null);
 
   // Project configuration edit state
   const [projName, setProjName] = useState(project.name);
   const [contractAmt, setContractAmt] = useState(project.contract_amount);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/google/status')
+      .then(response => response.json())
+      .then(data => { if (active) setGoogleStatus(data); })
+      .catch(() => { if (active) setGoogleStatus({ configured: false, connected: false, missing: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'] }); });
+    return () => { active = false; };
+  }, []);
 
   const handleAddUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -109,6 +119,22 @@ export default function SettingsPanel({
     setSyncMessage(result.message);
     setSyncing(false);
     if (result.ok && direction === 'pull') window.location.reload();
+  };
+
+  const connectGoogleDrive = () => {
+    const params = new URLSearchParams({
+      organizationName: project.lead_partner || 'BuildTrack Tenant',
+      projectName: project.name,
+      projectId: project.id,
+      returnTo: '/',
+    });
+    window.location.href = `/api/google/connect?${params.toString()}`;
+  };
+
+  const disconnectGoogleDrive = async () => {
+    if (!confirm('Disconnect this browser from the tenant Google Drive connection? You can reconnect anytime.')) return;
+    await fetch('/api/google/disconnect', { method: 'POST' });
+    setGoogleStatus({ configured: true, connected: false });
   };
 
   return (
@@ -217,6 +243,67 @@ export default function SettingsPanel({
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="bg-white border border-blue-100 rounded-xl p-5 shadow-sm space-y-4 text-slate-700">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h3 className="text-slate-900 text-sm font-bold">Tenant-owned Google Drive Storage</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              Let each business store its own project files, employee records, expense sheets, photos and documents in its own Google Drive. Superadmin sees subscription/access only, not tenant files.
+            </p>
+          </div>
+          <span className={`rounded-full px-3 py-1 text-xs font-bold ${googleStatus?.connected ? 'bg-emerald-50 text-emerald-700' : googleStatus?.configured ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+            {googleStatus?.connected ? 'Drive connected' : googleStatus?.configured ? 'Ready to connect' : 'OAuth keys needed'}
+          </span>
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-lg bg-slate-50 p-3">
+            <div className="text-[10px] font-bold uppercase text-slate-500">Folder pattern</div>
+            <div className="mt-1 text-xs text-slate-700">BuildTrack - Business / Project / Daily Reports, Expenses, Employees, Documents, Photos</div>
+          </div>
+          <div className="rounded-lg bg-slate-50 p-3">
+            <div className="text-[10px] font-bold uppercase text-slate-500">Sheets created</div>
+            <div className="mt-1 text-xs text-slate-700">Employees, Expenses, Daily Reports and Inventory tabs</div>
+          </div>
+          <div className="rounded-lg bg-slate-50 p-3">
+            <div className="text-[10px] font-bold uppercase text-slate-500">File naming</div>
+            <div className="mt-1 text-xs text-slate-700">date_employee_BOQ_remarks/reference.ext</div>
+          </div>
+        </div>
+        {googleStatus?.connected && (
+          <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-xs text-emerald-800">
+            Connected. Project folder ID: <span className="font-mono">{googleStatus.project_folder_id}</span>
+            {googleStatus.sheet_id && <span> · Sheet ID: <span className="font-mono">{googleStatus.sheet_id}</span></span>}
+          </div>
+        )}
+        {!googleStatus?.configured && (
+          <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs text-amber-800">
+            Missing server env: {(googleStatus?.missing || ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET']).join(', ')}. Add these from Google Cloud OAuth, then restart/deploy.
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={connectGoogleDrive}
+            disabled={!googleStatus?.configured}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {googleStatus?.connected ? 'Reconnect Business Google Drive' : 'Connect Business Google Drive'}
+          </button>
+          {googleStatus?.connected && (
+            <button
+              type="button"
+              onClick={disconnectGoogleDrive}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700"
+            >
+              Disconnect Google
+            </button>
+          )}
+        </div>
+        <p className="text-[10px] text-slate-500">
+          Gmail sending can be enabled later for project notices and report emails using the optional gmail.send scope. It is intentionally disabled by default to keep Google verification simpler.
+        </p>
       </div>
 
       {/* Users and Roles list */}

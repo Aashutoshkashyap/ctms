@@ -15,24 +15,33 @@ interface Props {
   onDelete?: (id: string) => void;
 }
 
+function nepaliDate(date: string) {
+  try {
+    return new Intl.DateTimeFormat('ne-NP-u-ca-bikram-sambat', { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(date));
+  } catch {
+    return date;
+  }
+}
+
 export default function DailyReportingDashboard({ projectId, activities, reports, currentDate, userName, userRole, onSubmit, onReload, onDelete }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [caption, setCaption] = useState('');
+  const [logDate, setLogDate] = useState('');
   const [evidenceType, setEvidenceType] = useState<SitePhoto['evidence_type']>('progress');
   const [photos, setPhotos] = useState<SitePhoto[]>([]);
   const [form, setForm] = useState({
     report_date: currentDate, weather: 'Clear / Sunny', manpower_total: 0, equipment_total: 0,
     site_instructions: '', obstruction_reasons: '', next_day_plan: '',
-    activity_id: activities[0]?.id || '', quantity_completed: 0, activity_manpower: 0, activity_equipment: 0,
+    activity_id: activities[0]?.id || '', quantity_completed: 0, rework_quantity: 0, activity_manpower: 0, activity_equipment: 0,
     delay_reason: '', material_name: '', material_unit: 'Bag', received_qty: 0, consumed_qty: 0, vendor: ''
   });
   const [workItems, setWorkItems] = useState<any[]>([]);
   const [materialItems, setMaterialItems] = useState<any[]>([]);
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
 
-  const sortedReports = useMemo(() => [...reports].sort((a,b)=>b.report_date.localeCompare(a.report_date)), [reports]);
+  const sortedReports = useMemo(() => [...reports].filter(report => !logDate || report.report_date === logDate).sort((a,b)=>b.report_date.localeCompare(a.report_date)), [reports, logDate]);
   const canUpload = can(userRole, 'upload_evidence');
   const canView = can(userRole, 'view_evidence');
 
@@ -57,6 +66,7 @@ export default function DailyReportingDashboard({ projectId, activities, reports
         next_day_plan: form.next_day_plan, submitted_by: userName
       }, workItems.length ? workItems : (form.activity_id ? [{
         activity_id: form.activity_id, quantity_completed: form.quantity_completed,
+        rework_quantity: form.rework_quantity,
         manpower_count: form.activity_manpower, equipment_count: form.activity_equipment,
         delay_reason: form.delay_reason
       }] : []), materialItems.length ? materialItems : (form.material_name ? [{
@@ -86,11 +96,12 @@ export default function DailyReportingDashboard({ projectId, activities, reports
     setWorkItems(w => [...w, {
       activity_id: form.activity_id,
       quantity_completed: Number(form.quantity_completed) || 0,
+      rework_quantity: Number(form.rework_quantity) || 0,
       manpower_count: Number(form.activity_manpower) || 0,
       equipment_count: Number(form.activity_equipment) || 0,
       delay_reason: form.delay_reason || ''
     }]);
-    setForm({...form, activity_id: activities[0]?.id || '', quantity_completed: 0, activity_manpower: 0, activity_equipment: 0, delay_reason: ''});
+    setForm({...form, activity_id: activities[0]?.id || '', quantity_completed: 0, rework_quantity: 0, activity_manpower: 0, activity_equipment: 0, delay_reason: ''});
   };
 
   const handleRemoveWorkItem = (idx: number) => setWorkItems(w => w.filter((_,i)=>i!==idx));
@@ -133,13 +144,13 @@ export default function DailyReportingDashboard({ projectId, activities, reports
   };
 
   return <div className="space-y-5 text-xs" key={projectId}>
-    <div className="flex justify-between items-center"><div><h2 className="text-base font-semibold">Daily Site Reporting</h2><p className="text-slate-400">Progress quantities, labour, plant, materials, delays, instructions and photographic evidence.</p></div><button onClick={()=>setShowForm(v=>!v)} className="bg-blue-600 px-3 py-2 rounded-lg font-semibold">+ New Daily Report</button></div>
+    <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between"><div><h2 className="text-base font-semibold">Daily Site Reporting</h2><p className="text-slate-400">Progress quantities, labour, plant, materials, delays, instructions and photographic evidence.</p></div><div className="flex flex-wrap items-end gap-2"><Field label="Filter logs by date"><input type="date" value={logDate} onChange={e=>setLogDate(e.target.value)}/></Field><button onClick={()=>setShowForm(v=>!v)} className="bg-blue-600 px-3 py-2 rounded-lg font-semibold">+ New Daily Report</button></div></div>
     {showForm&&<form onSubmit={submit} className="space-y-4 bg-slate-800/60 border border-slate-700 p-4 rounded-xl">
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <Field label="Report Date"><input type="date" value={form.report_date} onChange={e=>setForm({...form,report_date:e.target.value})}/></Field>
         <Field label="Weather"><input value={form.weather} onChange={e=>setForm({...form,weather:e.target.value})}/></Field>
-        <Field label="Total Manpower"><input type="number" value={form.manpower_total} onChange={e=>setForm({...form,manpower_total:Number(e.target.value)})}/></Field>
-        <Field label="Total Equipment"><input type="number" value={form.equipment_total} onChange={e=>setForm({...form,equipment_total:Number(e.target.value)})}/></Field>
+        <Field label="Total Manpower"><input type="number" value={form.manpower_total || ''} onChange={e=>setForm({...form,manpower_total:Number(e.target.value)})}/></Field>
+        <Field label="Total Equipment"><input type="number" value={form.equipment_total || ''} onChange={e=>setForm({...form,equipment_total:Number(e.target.value)})}/></Field>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Field label="Site Instructions"><textarea value={form.site_instructions} onChange={e=>setForm({...form,site_instructions:e.target.value})}/></Field>
@@ -148,10 +159,11 @@ export default function DailyReportingDashboard({ projectId, activities, reports
         <Field label="Photo Caption"><textarea value={caption} onChange={e=>setCaption(e.target.value)}/></Field>
       </div>
       <div className="border-t border-slate-700 pt-3"><h3 className="font-semibold text-slate-200 mb-2">Work Item</h3><div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-        <Field label="Activity"><select value={form.activity_id} onChange={e=>setForm({...form,activity_id:e.target.value})}>{activities.map(activity=><option key={activity.id} value={activity.id}>{activity.wbs_code} — {activity.name}</option>)}</select></Field>
-        <Field label="Quantity Done"><input type="number" value={form.quantity_completed} onChange={e=>setForm({...form,quantity_completed:Number(e.target.value)})}/></Field>
-        <Field label="Manpower"><input type="number" value={form.activity_manpower} onChange={e=>setForm({...form,activity_manpower:Number(e.target.value)})}/></Field>
-        <Field label="Equipment"><input type="number" value={form.activity_equipment} onChange={e=>setForm({...form,activity_equipment:Number(e.target.value)})}/></Field>
+        <Field label="BOQ item / Work"><select value={form.activity_id} onChange={e=>setForm({...form,activity_id:e.target.value})}>{activities.map(activity=><option key={activity.id} value={activity.id}>{activity.wbs_code} — {activity.name}</option>)}</select></Field>
+        <Field label="Quantity Done"><input type="number" value={form.quantity_completed || ''} onChange={e=>setForm({...form,quantity_completed:Number(e.target.value)})}/></Field>
+        <Field label="Rework Quantity"><input type="number" value={form.rework_quantity || ''} onChange={e=>setForm({...form,rework_quantity:Number(e.target.value)})}/></Field>
+        <Field label="Manpower"><input type="number" value={form.activity_manpower || ''} onChange={e=>setForm({...form,activity_manpower:Number(e.target.value)})}/></Field>
+        <Field label="Equipment"><input type="number" value={form.activity_equipment || ''} onChange={e=>setForm({...form,activity_equipment:Number(e.target.value)})}/></Field>
         <Field label="Delay Reason"><input value={form.delay_reason} onChange={e=>setForm({...form,delay_reason:e.target.value})}/></Field>
       </div></div>
       <div className="flex items-start gap-3 mt-2">
@@ -159,7 +171,7 @@ export default function DailyReportingDashboard({ projectId, activities, reports
         <div className="flex-1">
           {workItems.length>0 && <div className="text-xs text-slate-300"><b className="text-slate-200">Work Items:</b>
             <ul className="mt-2 space-y-1">
-              {workItems.map((w,i)=>(<li key={i} className="flex justify-between items-center bg-slate-900/40 p-2 rounded"><div className="text-slate-300">{w.quantity_completed} {activities.find(a=>a.id===w.activity_id)?.unit||''} on {activities.find(a=>a.id===w.activity_id)?.name||w.activity_id} · {w.manpower_count}p · {w.equipment_count}eq</div><button type="button" onClick={()=>handleRemoveWorkItem(i)} className="text-rose-400 text-xs">Remove</button></li>))}
+              {workItems.map((w,i)=>(<li key={i} className="flex justify-between items-center bg-slate-900/40 p-2 rounded"><div className="text-slate-300">{w.quantity_completed} {activities.find(a=>a.id===w.activity_id)?.unit||''} on {activities.find(a=>a.id===w.activity_id)?.name||w.activity_id}{w.rework_quantity ? ` · rework ${w.rework_quantity}` : ''} · {w.manpower_count}p · {w.equipment_count}eq</div><button type="button" onClick={()=>handleRemoveWorkItem(i)} className="text-rose-400 text-xs">Remove</button></li>))}
             </ul>
           </div>}
         </div>
@@ -167,8 +179,8 @@ export default function DailyReportingDashboard({ projectId, activities, reports
       <div className="border-t border-slate-700 pt-3"><h3 className="font-semibold text-slate-200 mb-2">Material Movement</h3><div className="grid grid-cols-1 md:grid-cols-5 gap-3">
         <Field label="Material"><input value={form.material_name} onChange={e=>setForm({...form,material_name:e.target.value})}/></Field>
         <Field label="Unit"><input value={form.material_unit} onChange={e=>setForm({...form,material_unit:e.target.value})}/></Field>
-        <Field label="Received"><input type="number" value={form.received_qty} onChange={e=>setForm({...form,received_qty:Number(e.target.value)})}/></Field>
-        <Field label="Consumed"><input type="number" value={form.consumed_qty} onChange={e=>setForm({...form,consumed_qty:Number(e.target.value)})}/></Field>
+        <Field label="Received"><input type="number" value={form.received_qty || ''} onChange={e=>setForm({...form,received_qty:Number(e.target.value)})}/></Field>
+        <Field label="Consumed"><input type="number" value={form.consumed_qty || ''} onChange={e=>setForm({...form,consumed_qty:Number(e.target.value)})}/></Field>
         <Field label="Vendor"><input value={form.vendor} onChange={e=>setForm({...form,vendor:e.target.value})}/></Field>
       </div></div>
       <div className="flex items-start gap-3 mt-2">
@@ -188,8 +200,21 @@ export default function DailyReportingDashboard({ projectId, activities, reports
       {files.length>0&&<div className="text-slate-600">{files.length} protected image(s) selected. Only the Project Director can view them after submission.</div>}
       <button disabled={saving} className="bg-emerald-600 disabled:opacity-50 px-4 py-2 rounded font-semibold">{saving?'Saving report…':'Submit Daily Report'}</button>
     </form>}
+    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+      <table className="w-full min-w-[960px] text-sm">
+        <thead><tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-500">{['Date','People/Plant','Work done','Materials','Instructions / Delays','Actions'].map(title=><th key={title} className="p-3">{title}</th>)}</tr></thead>
+        <tbody>{sortedReports.map(report=>{const work=storage.getDailyWorkItems(report.id);const mats=storage.getDailyMaterialLogs(report.id);return <tr key={report.id} className="border-b border-slate-100 align-top">
+          <td className="p-3 font-mono"><b>{nepaliDate(report.report_date)}</b><div className="text-xs text-slate-500">{report.report_date}</div><div className="text-xs text-slate-500">{report.weather}</div><div className="text-xs text-slate-500">By {report.submitted_by}</div></td>
+          <td className="p-3">{report.manpower_total} people<br />{report.equipment_total} plant</td>
+          <td className="p-3">{work.length ? work.map((item:any)=>`${item.quantity_completed}${item.rework_quantity ? ` (rework ${item.rework_quantity})` : ''} on ${activities.find(a=>a.id===item.activity_id)?.name||item.activity_id}`).join(', ') : '—'}</td>
+          <td className="p-3">{mats.length ? mats.map((item:any)=>`${item.material_name} +${item.received_qty} / -${item.consumed_qty}`).join(', ') : '—'}</td>
+          <td className="p-3"><b>Instruction:</b> {report.site_instructions || '—'}<br /><b>Delay:</b> {report.obstruction_reasons || '—'}</td>
+          <td className="p-3"><div className="flex gap-2">{can(userRole,'daily_reports') && <button onClick={()=>startEditReport(report)} className="text-blue-700 font-bold">Edit</button>}{can(userRole,'daily_reports') && <button onClick={()=>handleDelete(report.id)} className="text-rose-700 font-bold">Delete</button>}</div></td>
+        </tr>})}</tbody>
+      </table>
+    </div>
     <div className="space-y-3">{sortedReports.map(report=>{const reportPhotos=photos.filter(photo=>photo.daily_report_id===report.id);const work=storage.getDailyWorkItems(report.id);const mats=storage.getDailyMaterialLogs(report.id);const resources=storage.getDailyResourceUsage().filter(r=>r.usage_date===report.report_date);return <article key={report.id} className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-4 space-y-3">
-      <div className="flex justify-between"><div><h3 className="font-bold text-slate-100">{report.report_date} · {report.weather}</h3><div className="text-slate-500">Submitted by {report.submitted_by}</div></div><div className="text-right">
+      <div className="flex justify-between"><div><h3 className="font-bold text-slate-100">{nepaliDate(report.report_date)} · {report.weather}</h3><div className="text-slate-500">{report.report_date} · Submitted by {report.submitted_by}</div></div><div className="text-right">
         <div className="mb-1"><b>{report.manpower_total}</b> people · <b>{report.equipment_total}</b> plant</div>
         <div className="flex justify-end gap-2">
           {can(userRole,'daily_reports') && <button onClick={()=>startEditReport(report)} className="text-blue-400 hover:text-blue-300 text-xs font-semibold">Edit</button>}
@@ -197,7 +222,7 @@ export default function DailyReportingDashboard({ projectId, activities, reports
         </div>
       </div></div>
       <div className="grid md:grid-cols-3 gap-3"><Info label="Instructions" value={report.site_instructions}/><Info label="Obstructions" value={report.obstruction_reasons}/><Info label="Next Plan" value={report.next_day_plan}/></div>
-      {(work.length>0||mats.length>0)&&<div className="grid md:grid-cols-2 gap-3 text-slate-400"><div><b className="text-slate-200">Work:</b> {work.map((item:any)=>`${item.quantity_completed} on ${activities.find(a=>a.id===item.activity_id)?.name||item.activity_id} (${item.manpower_count}p · ${item.equipment_count}eq)`).join(', ')}</div><div><b className="text-slate-200">Materials:</b> {mats.map((item:any)=>`${item.material_name} +${item.received_qty} / -${item.consumed_qty}`).join(', ')}</div></div>}
+      {(work.length>0||mats.length>0)&&<div className="grid md:grid-cols-2 gap-3 text-slate-400"><div><b className="text-slate-200">Work:</b> {work.map((item:any)=>`${item.quantity_completed}${item.rework_quantity ? `, rework ${item.rework_quantity}` : ''} on ${activities.find(a=>a.id===item.activity_id)?.name||item.activity_id} (${item.manpower_count}p · ${item.equipment_count}eq)`).join(', ')}</div><div><b className="text-slate-200">Materials:</b> {mats.map((item:any)=>`${item.material_name} +${item.received_qty} / -${item.consumed_qty}`).join(', ')}</div></div>}
       {resources.length>0 && <div className="text-slate-400"><b className="text-slate-200">Equipment usage:</b> <span className="ml-2">{resources.map(r=>`${r.equipment_name} ${r.equipment_hours}h`).join(', ')}</span></div>}
       {canView&&reportPhotos.length>0&&<div className="grid grid-cols-2 md:grid-cols-4 gap-2">{reportPhotos.map(photo=><figure key={photo.id}><img src={photo.url} alt={photo.caption||photo.name} className="h-28 w-full object-cover rounded-lg border border-slate-200"/><figcaption className="text-[10px] text-slate-500 mt-1">{photo.caption||photo.name}</figcaption></figure>)}</div>}
     </article>})}</div>

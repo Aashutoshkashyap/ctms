@@ -21,6 +21,9 @@ export default function ClaimsDashboard({
   const [type, setType] = useState<'variation' | 'claim_eot' | 'claim_cost'>('claim_eot');
   const [timeImpact, setTimeImpact] = useState(0);
   const [costImpact, setCostImpact] = useState(0);
+  const [quantity, setQuantity] = useState(0);
+  const [previousRate, setPreviousRate] = useState(0);
+  const [newRate, setNewRate] = useState(0);
 
   // AI draft states
   const [draftedLetter, setDraftedLetter] = useState<string | null>(null);
@@ -40,6 +43,11 @@ export default function ClaimsDashboard({
       notice_date: new Date().toISOString().split('T')[0],
       time_impact_days: timeImpact,
       cost_impact_amount: costImpact,
+      variation_item: title,
+      quantity,
+      previous_rate: previousRate,
+      new_rate: newRate,
+      rate_difference: newRate - previousRate,
       supporting_docs: ['Joint_Site_Survey_Minutes.pdf']
     });
 
@@ -47,6 +55,9 @@ export default function ClaimsDashboard({
     setRefId('');
     setTimeImpact(0);
     setCostImpact(0);
+    setQuantity(0);
+    setPreviousRate(0);
+    setNewRate(0);
     setShowAddForm(false);
     alert('Claim/Variation event registered.');
   };
@@ -143,6 +154,22 @@ export default function ClaimsDashboard({
                 className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
               />
             </div>
+            <div>
+              <label className="block text-slate-400 mb-1">Variation Quantity</label>
+              <input type="number" value={quantity || ''} onChange={(e) => setQuantity(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200" />
+            </div>
+            <div>
+              <label className="block text-slate-400 mb-1">Previous Rate</label>
+              <input type="number" value={previousRate || ''} onChange={(e) => setPreviousRate(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200" />
+            </div>
+            <div>
+              <label className="block text-slate-400 mb-1">New Rate</label>
+              <input type="number" value={newRate || ''} onChange={(e) => setNewRate(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200" />
+            </div>
+            <div>
+              <label className="block text-slate-400 mb-1">Rate Difference</label>
+              <input readOnly value={(newRate - previousRate).toLocaleString()} className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200" />
+            </div>
           </div>
           <button type="submit" className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded shadow transition">
             Save Claim Record
@@ -164,6 +191,7 @@ export default function ClaimsDashboard({
                   <th className="pb-3">Type</th>
                   <th className="pb-3 text-right">Time Impact</th>
                   <th className="pb-3 text-right">Cost Impact (NPR)</th>
+                  <th className="pb-3 text-right">Qty / Rate Diff</th>
                   <th className="pb-3 text-center">Status</th>
                   {canEdit && <th className="pb-3 text-right pr-2">Action</th>}
                 </tr>
@@ -183,6 +211,7 @@ export default function ClaimsDashboard({
                     </td>
                     <td className="py-3 text-right font-mono font-bold text-amber-400">+{claim.time_impact_days}d</td>
                     <td className="py-3 text-right font-mono">{(claim.cost_impact_amount).toLocaleString()}</td>
+                    <td className="py-3 text-right font-mono">{claim.quantity || '—'}<div className="text-[10px] text-slate-500">{claim.rate_difference ? `Δ ${Number(claim.rate_difference).toLocaleString()}` : 'No rate diff'}</div></td>
                     <td className="py-3 text-center">
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                         claim.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' :

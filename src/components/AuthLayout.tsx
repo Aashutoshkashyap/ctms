@@ -98,7 +98,7 @@ export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
 
         <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 mb-1">{mode === 'signup' ? "Let's get you set up" : 'Welcome back'}</h1>
         <p className="text-xs text-slate-500 mb-6">
-          {storage.isSupabaseConfigured() ? 'Secure authentication and cloud synchronization are enabled.' : 'Local sandbox mode is active. Connect Supabase in Settings for cloud authentication.'}
+          Secure project access with cloud sync and local continuity for site work.
         </p>
 
         {/* Social Buttons */}
@@ -144,10 +144,10 @@ export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
           </div>}
 
           <div>
-            <label className="block text-slate-500 mb-1">Email address</label>
+            <label className="block text-slate-500 mb-1">{mode === 'signin' ? 'Username or email' : 'Email address'}</label>
             <input 
-              type="email" 
-              placeholder="Email"
+              type={mode === 'signin' ? 'text' : 'email'}
+              placeholder={mode === 'signin' ? 'superadmin, director, or email' : 'Email'}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:bg-white focus:border-blue-500"
@@ -181,7 +181,12 @@ export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
           <button type="button" onClick={() => { setMode(mode === 'signup' ? 'signin' : 'signup'); setMessage(''); }} className="text-blue-600 hover:underline">
             {mode === 'signup' ? 'Already registered? Sign in' : 'Need an account? Sign up'}
           </button>
-          <span>{storage.isSupabaseConfigured() ? 'Supabase Auth' : 'Local Sandbox'}</span>
+          <span>Secure access</span>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3 text-[10px] font-semibold text-slate-500">
+          <a href="/privacy" className="hover:text-blue-700">Privacy Policy</a>
+          <a href="/terms" className="hover:text-blue-700">Terms</a>
+          <a href="/google-verification" className="hover:text-blue-700">Google integration</a>
         </div>
       </div>
 

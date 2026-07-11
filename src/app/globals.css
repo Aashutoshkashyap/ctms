@@ -247,6 +247,6 @@ a:focus-visible {
 
 @media (max-width: 767px) {
   .app-sidebar nav {
-    max-height: 44vh;
+    max-height: calc(100vh - 170px);
   }
 }

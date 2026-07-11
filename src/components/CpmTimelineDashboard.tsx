@@ -40,8 +40,7 @@ export default function CpmTimelineDashboard({
 
   // Quick edit state
   const [editingActId, setEditingActId] = useState<string | null>(null);
-  const [editDur, setEditDur] = useState(0);
-  const [editQty, setEditQty] = useState(0);
+  const [editAct, setEditAct] = useState<Partial<Activity>>({});
 
   const isEditable = ['project_director', 'project_manager', 'planning_engineer'].includes(userRole);
   const today = new Date().toISOString().slice(0, 10);
@@ -96,15 +95,20 @@ export default function CpmTimelineDashboard({
 
   const handleStartEdit = (act: Activity) => {
     setEditingActId(act.id);
-    setEditDur(act.planned_duration);
-    setEditQty(act.planned_quantity);
+    setEditAct({ ...act });
   };
 
   const handleSaveEdit = (act: Activity) => {
+    const duration = Number(editAct.planned_duration || act.planned_duration);
+    const baselineStart = String(editAct.baseline_start || act.baseline_start);
     onUpdateActivity({
       ...act,
-      planned_duration: editDur,
-      planned_quantity: editQty
+      ...editAct,
+      planned_duration: duration,
+      planned_quantity: Number(editAct.planned_quantity || 0),
+      baseline_start: baselineStart,
+      baseline_finish: editAct.baseline_finish || addDays(baselineStart, Math.max(1, duration) - 1),
+      remaining_duration: Number(editAct.remaining_duration ?? duration),
     });
     setEditingActId(null);
   };
@@ -162,8 +166,8 @@ export default function CpmTimelineDashboard({
             <p className="text-slate-400 text-xs">Use this for direct planning entry. The AI Tender WBS Scanner remains available in AI Assistant for bulk generation.</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
-            <Control label="WBS Code"><input required placeholder="e.g. 03.02" value={manual.wbs_code} onChange={e=>setManual({...manual,wbs_code:e.target.value})}/></Control>
-            <Control label="Activity Name"><input required placeholder="Foundation excavation" value={manual.name} onChange={e=>setManual({...manual,name:e.target.value})}/></Control>
+            <Control label="BOQ Item No."><input required placeholder="e.g. 03.02" value={manual.wbs_code} onChange={e=>setManual({...manual,wbs_code:e.target.value})}/></Control>
+            <Control label="Description of Work"><input required placeholder="Foundation excavation" value={manual.name} onChange={e=>setManual({...manual,name:e.target.value})}/></Control>
             <Control label="Baseline Start"><input type="date" required value={manual.baseline_start} onChange={e=>setManual({...manual,baseline_start:e.target.value})}/></Control>
             <Control label="Duration (days)"><input type="number" min="1" required value={manual.planned_duration} onChange={e=>setManual({...manual,planned_duration:Number(e.target.value)})}/></Control>
             <Control label="Planned Quantity"><input type="number" min="0" step="any" value={manual.planned_quantity} onChange={e=>setManual({...manual,planned_quantity:Number(e.target.value)})}/></Control>
@@ -172,7 +176,7 @@ export default function CpmTimelineDashboard({
             <Control label="Resource / Crew"><input value={manual.resource_required} onChange={e=>setManual({...manual,resource_required:e.target.value})}/></Control>
             <Control label="Predecessor (optional)"><select value={manual.predecessor_id} onChange={e=>setManual({...manual,predecessor_id:e.target.value})}><option value="">No predecessor</option>{activities.map(a=><option key={a.id} value={a.id}>{a.wbs_code} — {a.name}</option>)}</select></Control>
             <Control label="Relationship"><select value={manual.dependency_type} onChange={e=>setManual({...manual,dependency_type:e.target.value as Dependency['type']})}>{['FS','SS','FF','SF'].map(type=><option key={type}>{type}</option>)}</select></Control>
-            <Control label="Lag / Lead"><input type="number" value={manual.lag} onChange={e=>setManual({...manual,lag:Number(e.target.value)})}/></Control>
+            <Control label="Lag / Lead (days)"><input type="number" placeholder="Use -2 for lead" value={manual.lag || ''} onChange={e=>setManual({...manual,lag:Number(e.target.value)})}/></Control>
           </div>
           <button className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg">Save Activity & Recalculate CPM</button>
         </form>
@@ -249,7 +253,7 @@ export default function CpmTimelineDashboard({
         <div className="min-w-[800px] select-none text-xs">
           {/* Timeline Dates Header */}
           <div className="flex border-b border-slate-200 pb-2 mb-2 font-semibold text-slate-600">
-            <div className="w-1/3">WBS Activity Name</div>
+            <div className="w-1/3">BOQ Item / Description of Work</div>
             <div className="w-2/3 relative h-6">
               <span className="absolute left-[0%]">2025</span>
               <span className="absolute left-[33%]">2026</span>
@@ -335,9 +339,10 @@ export default function CpmTimelineDashboard({
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="border-b border-slate-700 text-slate-400 font-semibold">
-                <th className="pb-3">WBS</th>
-                <th className="pb-3">Activity Name</th>
+                <th className="pb-3">BOQ Item No.</th>
+                <th className="pb-3">Description of Work</th>
                 <th className="pb-3 text-right">Planned Dur</th>
+                <th className="pb-3 text-right">Qty / Unit</th>
                 <th className="pb-3 text-right">Early Start</th>
                 <th className="pb-3 text-right">Early Finish</th>
                 <th className="pb-3 text-right">Late Start</th>
@@ -354,14 +359,14 @@ export default function CpmTimelineDashboard({
                 const delay = delayDetails(act);
                 return (
                   <tr key={act.id} className="hover:bg-slate-800/10">
-                    <td className="py-2.5 font-mono text-slate-400">{act.wbs_code}</td>
-                    <td className="py-2.5 font-semibold text-slate-100">{act.name}</td>
+                    <td className="py-2.5 font-mono text-slate-400">{isEditing ? <input value={editAct.wbs_code || ''} onChange={e=>setEditAct({...editAct,wbs_code:e.target.value})} className="w-24 rounded border px-1" /> : act.wbs_code}</td>
+                    <td className="py-2.5 font-semibold text-slate-100">{isEditing ? <input value={editAct.name || ''} onChange={e=>setEditAct({...editAct,name:e.target.value})} className="w-56 rounded border px-1" /> : act.name}</td>
                     <td className="py-2.5 text-right">
                       {isEditing ? (
                         <input 
                           type="number" 
-                          value={editDur}
-                          onChange={(e) => setEditDur(Number(e.target.value))}
+                          value={editAct.planned_duration || ''}
+                          onChange={(e) => setEditAct({...editAct, planned_duration:Number(e.target.value)})}
                           className="w-16 bg-slate-900 border border-slate-700 rounded text-right px-1"
                         />
                       ) : (
@@ -370,18 +375,13 @@ export default function CpmTimelineDashboard({
                     </td>
                     <td className="py-2.5 text-right">
                       {isEditing ? (
-                        <input
-                          type="number"
-                          value={editQty}
-                          onChange={(e) => setEditQty(Number(e.target.value))}
-                          className="w-20 bg-slate-900 border border-slate-700 rounded text-right px-1"
-                        />
+                        <div className="flex justify-end gap-1"><input type="number" value={editAct.planned_quantity || ''} onChange={(e) => setEditAct({...editAct, planned_quantity:Number(e.target.value)})} className="w-20 bg-slate-900 border border-slate-700 rounded text-right px-1" /><input value={editAct.unit || ''} onChange={(e) => setEditAct({...editAct, unit:e.target.value})} className="w-14 bg-slate-900 border border-slate-700 rounded px-1" /></div>
                       ) : (
                         `${act.planned_quantity} ${act.unit}`
                       )}
                     </td>
-                    <td className="py-2.5 text-right font-mono">{act.early_start}</td>
-                    <td className="py-2.5 text-right font-mono">{act.early_finish}</td>
+                    <td className="py-2.5 text-right font-mono">{isEditing ? <input type="date" value={String(editAct.baseline_start || act.baseline_start)} onChange={e=>setEditAct({...editAct,baseline_start:e.target.value})} className="rounded border px-1" /> : act.early_start}</td>
+                    <td className="py-2.5 text-right font-mono">{isEditing ? <input type="date" value={String(editAct.baseline_finish || act.baseline_finish)} onChange={e=>setEditAct({...editAct,baseline_finish:e.target.value})} className="rounded border px-1" /> : act.early_finish}</td>
                     <td className="py-2.5 text-right font-mono">{act.late_start}</td>
                     <td className="py-2.5 text-right font-mono">{act.late_finish}</td>
                     <td className="py-2.5 text-right font-mono">
@@ -390,13 +390,13 @@ export default function CpmTimelineDashboard({
                       </span>
                     </td>
                     <td className="py-2.5 text-center">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase font-bold ${
+                      {isEditing ? <select value={editAct.status || act.status} onChange={e=>setEditAct({...editAct,status:e.target.value as Activity['status']})} className="rounded border px-1"><option value="not_started">not started</option><option value="in_progress">in progress</option><option value="completed">completed</option></select> : <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase font-bold ${
                         act.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400' :
                         act.status === 'in_progress' ? 'bg-sky-500/10 text-sky-400' :
                         'bg-slate-700/30 text-slate-400'
                       }`}>
                         {act.status.replace('_', ' ')}
-                      </span>
+                      </span>}
                     </td>
                     <td className={`py-2.5 max-w-[260px] ${delay.delayDays > 0 ? 'font-semibold text-rose-700' : 'text-slate-500'}`}>{delay.remark}</td>
                     {isEditable && (

@@ -18,6 +18,8 @@ export default function QaqcDashboard({
   const [qaItem, setQaItem] = useState('');
   const [testType, setTestType] = useState('');
   const [inspectDate, setInspectDate] = useState(new Date().toISOString().split('T')[0]);
+  const [sampleDate, setSampleDate] = useState('');
+  const [testedDate, setTestedDate] = useState('');
 
   const canEdit = ['super_admin', 'project_manager', 'qa_qc_engineer'].includes(userRole);
 
@@ -28,6 +30,8 @@ export default function QaqcDashboard({
       qa_item: qaItem,
       test_type: testType,
       inspection_date: inspectDate,
+      sample_collection_date: sampleDate,
+      tested_date: testedDate,
       status: 'pending',
       ncr_number: null,
       ncr_open_days: 0,
@@ -35,6 +39,8 @@ export default function QaqcDashboard({
     });
     setQaItem('');
     setTestType('');
+    setSampleDate('');
+    setTestedDate('');
     setShowAddForm(false);
     alert('Inspection request registered successfully.');
   };
@@ -46,6 +52,7 @@ export default function QaqcDashboard({
       ...item,
       status,
       ncr_number: ncrNum,
+      ncr_code: ncrNum,
       ncr_open_days: isFailed ? 1 : 0,
       test_result_details: isFailed ? 'Cube compressive strength below standard specs. NCR registered.' : 'Passed required specification bounds.'
     });
@@ -101,7 +108,7 @@ export default function QaqcDashboard({
           <h3 className="text-slate-200 font-bold uppercase tracking-wider">Raise Quality Inspection</h3>
           <div className="space-y-3">
             <div>
-              <label className="block text-slate-400 mb-1">Inspection Item / Chainage Location</label>
+              <label className="block text-slate-400 mb-1">Inspection Item</label>
               <input
                 type="text"
                 placeholder="e.g. Slump test PCC bedding Pier 3 cap"
@@ -131,6 +138,14 @@ export default function QaqcDashboard({
                 required
               />
             </div>
+            <div>
+              <label className="block text-slate-400 mb-1">Sample Collection Date</label>
+              <input type="date" value={sampleDate} onChange={(e) => setSampleDate(e.target.value)} className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200" />
+            </div>
+            <div>
+              <label className="block text-slate-400 mb-1">Tested Date</label>
+              <input type="date" value={testedDate} onChange={(e) => setTestedDate(e.target.value)} className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200" />
+            </div>
           </div>
           <button type="submit" className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded shadow transition">
             Save Inspection Request
@@ -150,6 +165,7 @@ export default function QaqcDashboard({
                 <th className="pb-3 text-right">Inspection Date</th>
                 <th className="pb-3 text-center">Status</th>
                 <th className="pb-3 text-right">NCR Code</th>
+                <th className="pb-3 text-right">Sample / Tested</th>
                 <th className="pb-3 pl-4">Audit Result Notes</th>
                 {canEdit && <th className="pb-3 text-right pr-2">Actions</th>}
               </tr>
@@ -170,8 +186,9 @@ export default function QaqcDashboard({
                     </span>
                   </td>
                   <td className={`py-3 text-right font-mono font-bold ${item.ncr_number ? 'text-red-400' : 'text-slate-500'}`}>
-                    {item.ncr_number || '-'}
+                    {item.ncr_code || item.ncr_number || '-'}
                   </td>
+                  <td className="py-3 text-right font-mono text-slate-500">{item.sample_collection_date || '—'}<br />{item.tested_date || '—'}</td>
                   <td className="py-3 pl-4 text-slate-400">{item.test_result_details || 'Awaiting site audit'}</td>
                   {canEdit && (
                     <td className="py-3 text-right pr-2">

@@ -17,10 +17,12 @@ export default function OperationalControlDashboard({ projectId, role, userName,
   const [visits, setVisits] = useState<EmployeeVisit[]>(() => storage.getEmployeeVisits());
   const [showUsage, setShowUsage] = useState(false);
   const [showVisit, setShowVisit] = useState(false);
+  const [editingUsageId, setEditingUsageId] = useState<string | null>(null);
+  const [editingVisitId, setEditingVisitId] = useState<string | null>(null);
   const [resource, setResource] = useState({
     usage_date: today(), activity_id: activities[0]?.id || '', location: '',
-    manpower_skilled: 0, manpower_unskilled: 0, equipment_name: 'Excavator',
-    equipment_hours: 0, fuel_litres: 0, work_quantity: 0, work_unit: 'm³',
+    crew_name: '', manpower_skilled: 0, manpower_unskilled: 0, equipment_type: 'excavator' as DailyResourceUsage['equipment_type'], equipment_name: 'Excavator',
+    equipment_hours: 0, machinery_day: 0, fuel_litres: 0, work_quantity: 0, work_unit: 'm³',
     excavator_start_meter: 0, excavator_end_meter: 0, excavator_output: 0,
     downtime_hours: 0, remarks: '', recorded_by: userName,
   });
@@ -53,12 +55,25 @@ export default function OperationalControlDashboard({ projectId, role, userName,
     storage.saveDailyResourceUsage(resource);
     setUsage(storage.getDailyResourceUsage());
     setShowUsage(false);
+    setEditingUsageId(null);
   };
   const saveVisit = (event: React.FormEvent) => {
     event.preventDefault();
     storage.saveEmployeeVisit(visit);
     setVisits(storage.getEmployeeVisits());
     setShowVisit(false);
+    setEditingVisitId(null);
+  };
+
+  const startEditUsage = (row: DailyResourceUsage) => {
+    setEditingUsageId(row.id);
+    setResource({ ...resource, ...row });
+    setShowUsage(true);
+  };
+  const startEditVisit = (row: EmployeeVisit) => {
+    setEditingVisitId(row.id);
+    setVisit({ ...visit, ...row });
+    setShowVisit(true);
   };
 
   return <div className="space-y-5" key={projectId}>
@@ -84,13 +99,16 @@ export default function OperationalControlDashboard({ projectId, role, userName,
       <div className="grid gap-3 md:grid-cols-4">
         <Field label="Date"><input type="date" required value={resource.usage_date} onChange={e => setResource({ ...resource, usage_date: e.target.value })} /></Field>
         <Field label="Activity"><select value={resource.activity_id} onChange={e => setResource({ ...resource, activity_id: e.target.value })}>{activities.map(item => <option key={item.id} value={item.id}>{item.wbs_code} — {item.name}</option>)}</select></Field>
-        <Field label="Site / Chainage"><input required value={resource.location} onChange={e => setResource({ ...resource, location: e.target.value })} /></Field>
-        <Field label="Equipment"><input value={resource.equipment_name} onChange={e => setResource({ ...resource, equipment_name: e.target.value })} /></Field>
-        <Field label="Skilled Manpower"><input type="number" min="0" value={resource.manpower_skilled} onChange={e => setResource({ ...resource, manpower_skilled: Number(e.target.value) })} /></Field>
-        <Field label="Unskilled Manpower"><input type="number" min="0" value={resource.manpower_unskilled} onChange={e => setResource({ ...resource, manpower_unskilled: Number(e.target.value) })} /></Field>
-        <Field label="Equipment Hours"><input type="number" min="0" step="0.1" value={resource.equipment_hours} onChange={e => setResource({ ...resource, equipment_hours: Number(e.target.value) })} /></Field>
-        <Field label="Fuel Used (L)"><input type="number" min="0" step="0.1" value={resource.fuel_litres} onChange={e => setResource({ ...resource, fuel_litres: Number(e.target.value) })} /></Field>
-        <Field label="Work Completed"><input type="number" min="0" step="0.01" value={resource.work_quantity} onChange={e => setResource({ ...resource, work_quantity: Number(e.target.value) })} /></Field>
+        <Field label="Site / Location"><input required value={resource.location} onChange={e => setResource({ ...resource, location: e.target.value })} /></Field>
+        <Field label="Crew / Resource Name"><input value={resource.crew_name} onChange={e => setResource({ ...resource, crew_name: e.target.value })} /></Field>
+        <Field label="Equipment Type"><select value={resource.equipment_type} onChange={e => setResource({ ...resource, equipment_type: e.target.value as DailyResourceUsage['equipment_type'] })}>{['excavator','loader','tipper','roller','grader','concrete_mixer','tools','machinery','other'].map(value => <option key={value}>{value}</option>)}</select></Field>
+        <Field label="Equipment / Tool Name"><input value={resource.equipment_name} onChange={e => setResource({ ...resource, equipment_name: e.target.value })} /></Field>
+        <Field label="Skilled Manpower"><input type="number" min="0" value={resource.manpower_skilled || ''} onChange={e => setResource({ ...resource, manpower_skilled: Number(e.target.value) })} /></Field>
+        <Field label="Unskilled Manpower"><input type="number" min="0" value={resource.manpower_unskilled || ''} onChange={e => setResource({ ...resource, manpower_unskilled: Number(e.target.value) })} /></Field>
+        <Field label="Equipment Hours"><input type="number" min="0" step="0.1" value={resource.equipment_hours || ''} onChange={e => setResource({ ...resource, equipment_hours: Number(e.target.value) })} /></Field>
+        <Field label="Daily Machinery (Day)"><input type="number" min="0" step="0.5" value={resource.machinery_day || ''} onChange={e => setResource({ ...resource, machinery_day: Number(e.target.value) })} /></Field>
+        <Field label="Fuel Used (L)"><input type="number" min="0" step="0.1" value={resource.fuel_litres || ''} onChange={e => setResource({ ...resource, fuel_litres: Number(e.target.value) })} /></Field>
+        <Field label="Work Completed"><input type="number" min="0" step="0.01" value={resource.work_quantity || ''} onChange={e => setResource({ ...resource, work_quantity: Number(e.target.value) })} /></Field>
         <Field label="Work Unit"><input value={resource.work_unit} onChange={e => setResource({ ...resource, work_unit: e.target.value })} /></Field>
         <Field label="Excavator Start Meter"><input type="number" min="0" step="0.1" value={resource.excavator_start_meter} onChange={e => setResource({ ...resource, excavator_start_meter: Number(e.target.value) })} /></Field>
         <Field label="Excavator End Meter"><input type="number" min="0" step="0.1" value={resource.excavator_end_meter} onChange={e => setResource({ ...resource, excavator_end_meter: Number(e.target.value) })} /></Field>
@@ -98,7 +116,7 @@ export default function OperationalControlDashboard({ projectId, role, userName,
         <Field label="Downtime Hours"><input type="number" min="0" step="0.1" value={resource.downtime_hours} onChange={e => setResource({ ...resource, downtime_hours: Number(e.target.value) })} /></Field>
         <Field label="Remarks"><input value={resource.remarks} onChange={e => setResource({ ...resource, remarks: e.target.value })} /></Field>
       </div>
-      <button className="mt-4 rounded-lg bg-blue-600 px-4 py-2 font-bold text-white">Save Daily Operational Record</button>
+      <button className="mt-4 rounded-lg bg-blue-600 px-4 py-2 font-bold text-white">{editingUsageId ? 'Update Daily Operational Record' : 'Save Daily Operational Record'}</button>
     </form>}
 
     {showVisit && <form onSubmit={saveVisit} className="rounded-xl border border-emerald-200 bg-white p-5 shadow-sm">
@@ -122,13 +140,13 @@ export default function OperationalControlDashboard({ projectId, role, userName,
       <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-sm"><thead><tr>{['Date', 'Activity / Location', 'Manpower', 'Plant Hours', 'Fuel', 'Work Completed', 'Work / Litre', 'Excavator Hours', 'Excavator Output / Hr', 'Remarks'].map(title => <th key={title} className="border-b border-slate-200 p-2 text-left text-xs text-slate-500">{title}</th>)}</tr></thead>
         <tbody>{[...usage].sort((a, b) => b.usage_date.localeCompare(a.usage_date)).map(row => {
           const excavatorHours = Math.max(0, row.excavator_end_meter - row.excavator_start_meter);
-          return <tr key={row.id} className="border-b border-slate-100"><td className="p-2 font-mono">{row.usage_date}</td><td className="p-2"><b>{activities.find(item => item.id === row.activity_id)?.name || 'General works'}</b><div className="text-xs text-slate-500">{row.location}</div></td><td className="p-2">{row.manpower_skilled + row.manpower_unskilled}</td><td className="p-2">{row.equipment_hours}</td><td className="p-2">{row.fuel_litres} L</td><td className="p-2">{row.work_quantity} {row.work_unit}</td><td className="p-2 font-bold text-blue-700">{row.fuel_litres ? (row.work_quantity / row.fuel_litres).toFixed(2) : '—'}</td><td className="p-2">{excavatorHours.toFixed(1)}</td><td className="p-2 font-bold text-emerald-700">{excavatorHours ? (row.excavator_output / excavatorHours).toFixed(2) : '—'}</td><td className="p-2 text-slate-600">{row.remarks || '—'}</td></tr>;
+          return <tr key={row.id} className="border-b border-slate-100"><td className="p-2 font-mono">{row.usage_date}</td><td className="p-2"><b>{activities.find(item => item.id === row.activity_id)?.name || 'General works'}</b><div className="text-xs text-slate-500">{row.location} · {row.crew_name || 'Crew not named'}</div></td><td className="p-2">{row.manpower_skilled + row.manpower_unskilled}</td><td className="p-2"><b className="capitalize">{row.equipment_type || 'equipment'}</b><div className="text-xs text-slate-500">{row.equipment_name} · {row.equipment_hours}h · {row.machinery_day || 0} day</div></td><td className="p-2">{row.fuel_litres} L</td><td className="p-2">{row.work_quantity} {row.work_unit}</td><td className="p-2 font-bold text-blue-700">{row.fuel_litres ? (row.work_quantity / row.fuel_litres).toFixed(2) : '—'}</td><td className="p-2">{excavatorHours.toFixed(1)}</td><td className="p-2 font-bold text-emerald-700">{excavatorHours ? (row.excavator_output / excavatorHours).toFixed(2) : '—'}</td><td className="p-2 text-slate-600">{row.remarks || '—'}{canRecordResources&&<button onClick={()=>startEditUsage(row)} className="ml-3 font-bold text-blue-700">Edit</button>}</td></tr>;
         })}</tbody></table></div>
     </section>
 
     {canTrackEmployees && <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <h3 className="mb-3 font-bold text-slate-900">Employee movement and site visits</h3>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{[...visits].sort((a, b) => b.visit_date.localeCompare(a.visit_date)).map(row => <div key={row.id} className="rounded-lg border border-slate-200 p-3"><div className="flex justify-between"><b>{row.employee_name}</b><span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold capitalize text-blue-700">{row.status.replace('_', ' ')}</span></div><div className="mt-1 text-sm text-slate-600">{row.employee_role} · {row.site_location}</div><div className="mt-2 text-xs text-slate-500">{row.visit_date} · {row.check_in}–{row.check_out} · {row.purpose || 'General visit'}</div></div>)}</div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{[...visits].sort((a, b) => b.visit_date.localeCompare(a.visit_date)).map(row => <div key={row.id} className="rounded-lg border border-slate-200 p-3"><div className="flex justify-between"><b>{row.employee_name}</b><span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold capitalize text-blue-700">{row.status.replace('_', ' ')}</span></div><div className="mt-1 text-sm text-slate-600">{row.employee_role} · {row.site_location}</div><div className="mt-2 text-xs text-slate-500">{row.visit_date} · {row.check_in}–{row.check_out} · {row.purpose || 'General visit'}</div><button onClick={()=>startEditVisit(row)} className="mt-2 text-xs font-bold text-blue-700">Edit visit</button></div>)}</div>
     </section>}
   </div>;
 }

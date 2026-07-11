@@ -55,7 +55,7 @@ const allFeatures: Feature[] = [
 
 export const ROLE_PERMISSIONS: Record<ProjectRole, Feature[]> = {
   project_director: allFeatures,
-  super_admin: ['documents', 'procurement', 'obligations', 'settings', 'manage_users', 'manage_projects'],
+  super_admin: ['executive', 'settings', 'manage_users', 'manage_projects'],
   project_manager: [
     'schedule', 'forecast', 'daily_reports', 'operations', 'employee_tracking', 'design',
     'budget', 'ipc', 'claims', 'procurement', 'obligations', 'qaqc', 'safety', 'expenses',
@@ -83,7 +83,7 @@ export function can(role: string, feature: Feature): boolean {
 }
 
 export const ROLE_LABELS: Record<ProjectRole, string> = {
-  super_admin: 'Project Administrator',
+  super_admin: 'Platform Superadmin',
   project_director: 'Project Director',
   project_manager: 'Project Manager',
   planning_engineer: 'Planning Engineer',
@@ -101,7 +101,7 @@ export const ROLE_LABELS: Record<ProjectRole, string> = {
 
 export const ROLE_HOME_COPY: Record<ProjectRole, { title: string; subtitle: string }> = {
   project_director: { title: 'Director Command Centre', subtitle: 'Complete project, finance, schedule, workforce, risk and evidence oversight.' },
-  super_admin: { title: 'Project Administration', subtitle: 'Manage users, project setup, document controls and administrative records.' },
+  super_admin: { title: 'B2B SaaS Superadmin', subtitle: 'Onboard businesses, manage plans, create tenant admins, review subscriptions and oversee platform access.' },
   project_manager: { title: 'Project Delivery Dashboard', subtitle: 'Coordinate programme, site delivery, cost controls, quality and contractual actions.' },
   planning_engineer: { title: 'Planning & Progress Dashboard', subtitle: 'Maintain WBS logic, update progress, identify delays and prepare look-ahead plans.' },
   site_engineer: { title: 'Site Execution Dashboard', subtitle: 'Record work completed, manpower, equipment, fuel, delays and site evidence.' },

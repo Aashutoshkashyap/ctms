@@ -30,6 +30,8 @@ import DailyExpenseDashboard from '../components/DailyExpenseDashboard';
 import RoleDashboard from '../components/RoleDashboard';
 import OperationalControlDashboard from '../components/OperationalControlDashboard';
 import EvidenceVault from '../components/EvidenceVault';
+import DirectorPortfolioDashboard from '../components/DirectorPortfolioDashboard';
+import SuperAdminDashboard from '../components/SuperAdminDashboard';
 import { can, ROLE_LABELS, normalizeRole } from '../lib/permissions';
 import type { Feature } from '../lib/permissions';
 
@@ -56,6 +58,18 @@ interface AuthUser {
   name: string;
   email: string;
   role: string;
+}
+
+function formatNepaliDate(date: string) {
+  try {
+    return new Intl.DateTimeFormat('ne-NP-u-ca-bikram-sambat', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    }).format(new Date(date));
+  } catch {
+    return date;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -199,6 +213,7 @@ function NavBtn({
 // ---------------------------------------------------------------------------
 export default function DashboardShell() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [currentDate] = useState<string>(
     () => new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().split('T')[0]
   );
@@ -230,6 +245,10 @@ export default function DashboardShell() {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [resourceUsage, setResourceUsage] = useState<any[]>([]);
   const [employeeVisits, setEmployeeVisits] = useState<any[]>([]);
+  const [allActivities, setAllActivities] = useState<Activity[]>([]);
+  const [allExpenses, setAllExpenses] = useState<any[]>([]);
+  const [allResourceUsage, setAllResourceUsage] = useState<any[]>([]);
+  const [allEmployeeVisits, setAllEmployeeVisits] = useState<any[]>([]);
 
   // ---- Database loader ----
   const loadData = () => {
@@ -252,6 +271,10 @@ export default function DashboardShell() {
     setExpenses(storage.getDailyExpenses());
     setResourceUsage(storage.getDailyResourceUsage());
     setEmployeeVisits(storage.getEmployeeVisits());
+    setAllActivities(storage.getAllActivities());
+    setAllExpenses(storage.getAllDailyExpenses());
+    setAllResourceUsage(storage.getAllDailyResourceUsage());
+    setAllEmployeeVisits(storage.getAllEmployeeVisits());
   };
 
   // Check persisted auth on mount
@@ -435,12 +458,15 @@ export default function DashboardShell() {
     loadData();
   };
 
-  // ---- DB status badge ----
-  const isSupabaseConnected = storage.isSupabaseConfigured();
   const isAllowedTab = (tab: ActiveTab) => tab === 'dashboard' || !TAB_FEATURES[tab] || can(authUser.role, TAB_FEATURES[tab]!);
+  const setActiveTabFromMenu = (tab: ActiveTab) => {
+    setActiveTab(tab);
+    setMobileMenuOpen(false);
+  };
   const goToTab = (tab: string) => {
     const next = tab as ActiveTab;
     setActiveTab(isAllowedTab(next) ? next : 'dashboard');
+    setMobileMenuOpen(false);
   };
 
   return (
@@ -456,7 +482,8 @@ export default function DashboardShell() {
       {/* ------------------------------------------------------------------ */}
       {/* SIDEBAR NAVIGATION                                                   */}
       {/* ------------------------------------------------------------------ */}
-      <aside className="app-sidebar w-full md:w-72 border-b md:border-b-0 md:border-r flex flex-col shrink-0">
+      {mobileMenuOpen && <button aria-label="Close menu overlay" className="fixed inset-0 z-30 bg-slate-900/30 md:hidden" onClick={() => setMobileMenuOpen(false)} />}
+      <aside className={`app-sidebar fixed inset-y-0 left-0 z-40 w-[86vw] max-w-80 border-r flex flex-col shrink-0 transition-transform duration-200 md:static md:z-auto md:w-72 md:max-w-none md:translate-x-0 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         {/* Brand header */}
         <div className="p-4 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -491,39 +518,38 @@ export default function DashboardShell() {
         {/* Tab Links */}
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-180px)]">
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 mb-1.5 tracking-wider">Project Operations</div>
-          <NavBtn tab="dashboard" activeTab={activeTab} setActiveTab={setActiveTab} icon="📊" label="My Dashboard" />
-          {can(authUser.role, 'schedule') && <NavBtn tab="cpm" activeTab={activeTab} setActiveTab={setActiveTab} icon="📅" label="WBS / CPM Scheduler" />}
-          {can(authUser.role, 'schedule') && <NavBtn tab="expected_actual" activeTab={activeTab} setActiveTab={setActiveTab} icon="📈" label="Expected vs Actual" />}
-          {can(authUser.role, 'forecast') && <NavBtn tab="projection" activeTab={activeTab} setActiveTab={setActiveTab} icon="🔮" label="Forecast & Projections" />}
-          {can(authUser.role, 'daily_reports') && <NavBtn tab="daily" activeTab={activeTab} setActiveTab={setActiveTab} icon="📝" label="Daily Site Reporting" />}
-          {can(authUser.role, 'operations') && <NavBtn tab="operations" activeTab={activeTab} setActiveTab={setActiveTab} icon="🚜" label="Resources & Productivity" />}
-          {can(authUser.role, 'view_evidence') && <NavBtn tab="evidence" activeTab={activeTab} setActiveTab={setActiveTab} icon="🖼️" label="Director Evidence Vault" />}
+          <NavBtn tab="dashboard" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📊" label="My Dashboard" />
+          {can(authUser.role, 'schedule') && <NavBtn tab="cpm" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📅" label="WBS / CPM Scheduler" />}
+          {can(authUser.role, 'schedule') && <NavBtn tab="expected_actual" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📈" label="Expected vs Actual" />}
+          {can(authUser.role, 'forecast') && <NavBtn tab="projection" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🔮" label="Forecast & Projections" />}
+          {can(authUser.role, 'daily_reports') && <NavBtn tab="daily" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📝" label="Daily Site Reporting" />}
+          {can(authUser.role, 'operations') && <NavBtn tab="operations" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🚜" label="Resources & Productivity" />}
+          {can(authUser.role, 'view_evidence') && <NavBtn tab="evidence" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🖼️" label="Director Evidence Vault" />}
 
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Engineering & Controls</div>
-          {can(authUser.role, 'design') && <NavBtn tab="design" activeTab={activeTab} setActiveTab={setActiveTab} icon="📐" label="Design Approval Register" />}
-          {can(authUser.role, 'budget') && <NavBtn tab="budget" activeTab={activeTab} setActiveTab={setActiveTab} icon="💰" label="Budget & Costs" />}
-          {can(authUser.role, 'ipc') && <NavBtn tab="ipc" activeTab={activeTab} setActiveTab={setActiveTab} icon="🧾" label="IPC Billing / Valuation" />}
-          {can(authUser.role, 'claims') && <NavBtn tab="claims" activeTab={activeTab} setActiveTab={setActiveTab} icon="⚖️" label="Variations & Claims" />}
-          {can(authUser.role, 'procurement') && <NavBtn tab="procurement" activeTab={activeTab} setActiveTab={setActiveTab} icon="🚚" label="Procurement & Stores" />}
-          {can(authUser.role, 'obligations') && <NavBtn tab="obligations" activeTab={activeTab} setActiveTab={setActiveTab} icon="⏰" label="Contract Obligations" />}
+          {can(authUser.role, 'budget') && <NavBtn tab="budget" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="💰" label="Budget & Costs" />}
+          {can(authUser.role, 'ipc') && <NavBtn tab="ipc" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label="IPC Billing / Valuation" />}
+          {can(authUser.role, 'claims') && <NavBtn tab="claims" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⚖️" label="Variations & Claims" />}
+          {can(authUser.role, 'procurement') && <NavBtn tab="procurement" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🚚" label="Procurement & Stores" />}
+          {can(authUser.role, 'obligations') && <NavBtn tab="obligations" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⏰" label="Contract Obligations" />}
 
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Site Quality & Safety</div>
-          {can(authUser.role, 'qaqc') && <NavBtn tab="qaqc" activeTab={activeTab} setActiveTab={setActiveTab} icon="🧪" label="QA / QC Inspections" />}
-          {can(authUser.role, 'safety') && <NavBtn tab="safety" activeTab={activeTab} setActiveTab={setActiveTab} icon="🦺" label="Safety / EHS Logs" />}
+          {can(authUser.role, 'qaqc') && <NavBtn tab="qaqc" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧪" label="QA / QC Inspections" />}
+          {can(authUser.role, 'safety') && <NavBtn tab="safety" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🦺" label="Safety / EHS Logs" />}
 
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Finance & Documents</div>
-          {can(authUser.role, 'finance') && <NavBtn tab="finance" activeTab={activeTab} setActiveTab={setActiveTab} icon="📉" label="Finance Tracker" accent="emerald" />}
-          {can(authUser.role, 'expenses') && <NavBtn tab="expenses" activeTab={activeTab} setActiveTab={setActiveTab} icon="🧾" label="Daily Expense Register" accent="emerald" />}
-          {can(authUser.role, 'documents') && <NavBtn tab="documents" activeTab={activeTab} setActiveTab={setActiveTab} icon="📁" label="Document Registry" accent="emerald" />}
-          {can(authUser.role, 'reports') && <NavBtn tab="reports" activeTab={activeTab} setActiveTab={setActiveTab} icon="📤" label="Reports & Exports" accent="emerald" />}
+          {can(authUser.role, 'finance') && <NavBtn tab="finance" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📉" label="Finance Tracker" accent="emerald" />}
+          {can(authUser.role, 'expenses') && <NavBtn tab="expenses" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label="Daily Expense Register" accent="emerald" />}
+          {can(authUser.role, 'documents') && <NavBtn tab="documents" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📁" label="Document Registry" accent="emerald" />}
+          {can(authUser.role, 'reports') && <NavBtn tab="reports" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📤" label="Reports & Exports" accent="emerald" />}
 
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Completion Dossier</div>
-          {can(authUser.role, 'handover') && <NavBtn tab="handover" activeTab={activeTab} setActiveTab={setActiveTab} icon="🔑" label="Handover Checklist" />}
-          {can(authUser.role, 'defects') && <NavBtn tab="defects" activeTab={activeTab} setActiveTab={setActiveTab} icon="🔧" label="Defects Maintenance" />}
+          {can(authUser.role, 'handover') && <NavBtn tab="handover" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🔑" label="Handover Checklist" />}
+          {can(authUser.role, 'defects') && <NavBtn tab="defects" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🔧" label="Defects Maintenance" />}
 
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">AI Operations & Setup</div>
-          {can(authUser.role, 'ai') && <NavBtn tab="ai" activeTab={activeTab} setActiveTab={setActiveTab} icon="✨" label="AI Assistant Panel" accent="purple" />}
-          {can(authUser.role, 'settings') && <NavBtn tab="settings" activeTab={activeTab} setActiveTab={setActiveTab} icon="⚙️" label="System Settings" />}
+          {can(authUser.role, 'ai') && <NavBtn tab="ai" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="✨" label="AI Assistant Panel" accent="purple" />}
+          {can(authUser.role, 'settings') && <NavBtn tab="settings" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⚙️" label="System Settings" />}
         </nav>
       </aside>
 
@@ -535,6 +561,9 @@ export default function DashboardShell() {
         <header className="app-header h-14 border-b flex items-center justify-between px-4 shrink-0 text-xs gap-2">
           {/* Left: Project switcher */}
           <div className="flex items-center gap-2 min-w-0">
+            <button onClick={() => setMobileMenuOpen(true)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-lg font-bold text-slate-700 shadow-sm md:hidden" aria-label="Open menu">
+              ☰
+            </button>
             <select
               value={project.id}
               onChange={(e) => handleSwitchProject(e.target.value)}
@@ -554,18 +583,9 @@ export default function DashboardShell() {
 
           {/* Right: DB status + date + role switcher */}
           <div className="flex items-center gap-3 shrink-0">
-            {/* DB Status badge */}
-            <div className={`flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold border ${
-              isSupabaseConnected
-                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                : 'bg-slate-800 text-slate-500 border-slate-700'
-            }`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${isSupabaseConnected ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`} />
-            </div>
-
             <div className="flex items-center gap-1 text-slate-500 hidden lg:flex">
               <span>📅</span>
-              <span className="font-mono">{currentDate}</span>
+              <span className="font-mono">{formatNepaliDate(currentDate)} · {currentDate}</span>
             </div>
 
             {/* Role indicator */}
@@ -581,17 +601,34 @@ export default function DashboardShell() {
         {/* ---- Active Dashboard Panel ---- */}
         <main className="app-main flex-1 p-4 md:p-6 overflow-y-auto max-h-[calc(100vh-56px)]">
           {activeTab === 'dashboard' && (
-            <RoleDashboard
-              role={authUser.role}
-              userName={authUser.name}
-              project={project}
-              activities={activities}
-              expenses={expenses}
-              resourceUsage={resourceUsage}
-              visits={employeeVisits}
-              alerts={alerts}
-              onNavigate={goToTab}
-            />
+            authUser.role === 'project_director' ? (
+              <DirectorPortfolioDashboard
+                projects={projectsList}
+                activeProjectId={project.id}
+                activities={allActivities}
+                expenses={allExpenses}
+                resourceUsage={allResourceUsage}
+                visits={allEmployeeVisits}
+                alerts={alerts}
+                onSwitchProject={handleSwitchProject}
+                onNavigate={goToTab}
+                onReload={loadData}
+              />
+            ) : authUser.role === 'super_admin' ? (
+              <SuperAdminDashboard projects={projectsList} users={users} onNavigate={goToTab} />
+            ) : (
+              <RoleDashboard
+                role={authUser.role}
+                userName={authUser.name}
+                project={project}
+                activities={activities}
+                expenses={expenses}
+                resourceUsage={resourceUsage}
+                visits={employeeVisits}
+                alerts={alerts}
+                onNavigate={goToTab}
+              />
+            )
           )}
 
           {activeTab === 'cpm' && (
@@ -724,7 +761,7 @@ export default function DashboardShell() {
           )}
 
           {activeTab === 'expenses' && (
-            <DailyExpenseDashboard key={project.id} projectId={project.id} userName={authUser.name} userRole={authUser.role} />
+            <DailyExpenseDashboard key={project.id} projectId={project.id} userName={authUser.name} userRole={authUser.role} activities={activities} />
           )}
 
           {/* ---- NEW: Document Registry ---- */}

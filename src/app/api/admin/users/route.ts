@@ -1,7 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
 import { PROJECT_ROLES } from '../../../../lib/permissions';
+import { getClientIp, rateLimit, rateLimitResponse } from '../../../../lib/server/security';
 
 export async function POST(request: Request) {
+  const ip = getClientIp(request);
+  const limit = rateLimit({ key: `admin-users:${ip}`, limit: 20, windowMs: 60_000 });
+  if (!limit.allowed) return rateLimitResponse(limit.resetAt);
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const secretKey = process.env.SUPABASE_SECRET_KEY;
   const authorization = request.headers.get('authorization');
