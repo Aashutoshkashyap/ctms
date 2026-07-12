@@ -8,11 +8,14 @@ const defaultAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 let cachedSupabaseClient: SupabaseClient | null = null;
 let cachedSupabaseConfig = '';
 
-// Initialize Supabase Client dynamically checking localStorage first
+// Production always uses the deployment-managed project. Runtime overrides are
+// intentionally limited to local development so a browser value cannot point
+// the app at an attacker-controlled authentication service.
 export const getSupabaseClient = () => {
   if (typeof window === 'undefined') return null;
-  const url = localStorage.getItem('bt_supabase_url') || defaultUrl;
-  const anonKey = localStorage.getItem('bt_supabase_anon_key') || defaultAnonKey;
+  const allowRuntimeOverride = process.env.NODE_ENV !== 'production';
+  const url = (allowRuntimeOverride ? localStorage.getItem('bt_supabase_url') : '') || defaultUrl;
+  const anonKey = (allowRuntimeOverride ? localStorage.getItem('bt_supabase_anon_key') : '') || defaultAnonKey;
   if (url && anonKey) {
     try {
       const config = `${url}|${anonKey}`;
@@ -138,6 +141,16 @@ export interface DailyExpense {
   payment_slip_path?: string;
   status: 'draft' | 'submitted' | 'approved' | 'rejected';
   recorded_by: string;
+  recorded_by_email?: string;
+}
+
+export interface ProjectMembership {
+  id: string;
+  project_id: string;
+  auth_user_id?: string | null;
+  email: string;
+  name: string;
+  role: string;
 }
 
 export interface DailyResourceUsage {
@@ -358,6 +371,7 @@ const DEMO_PROJECTS = [
 
 const MOCK_USERS = [
   { id: 'usr-1', email: 'admin@buildtrack.com', name: 'Arjun Adhikari', role: 'super_admin' },
+  { id: 'usr-11', email: 'businessadmin@buildtrack.com', name: 'Nisha Karki', role: 'business_admin' },
   { id: 'usr-2', email: 'director@buildtrack.com', name: 'Dr. Ramesh Thapa', role: 'project_director' },
   { id: 'usr-3', email: 'pm@buildtrack.com', name: 'Eng. Santosh Yadav', role: 'project_manager' },
   { id: 'usr-4', email: 'planning@buildtrack.com', name: 'Sujita Shrestha', role: 'planning_engineer' },
@@ -366,8 +380,13 @@ const MOCK_USERS = [
   { id: 'usr-7', email: 'design@buildtrack.com', name: 'Sunita Pradhan', role: 'design_coordinator' },
   { id: 'usr-8', email: 'qaqc@buildtrack.com', name: 'Kiran KC', role: 'qa_qc_engineer' },
   { id: 'usr-9', email: 'safety@buildtrack.com', name: 'Prem Chaudhary', role: 'safety_officer' },
-  { id: 'usr-10', email: 'employer@buildtrack.com', name: 'Govind Raj Pandey', role: 'employer_viewer' }
+  { id: 'usr-10', email: 'employer@buildtrack.com', name: 'Govind Raj Pandey', role: 'employer_viewer' },
+  { id: 'usr-12', email: 'employee@buildtrack.com', name: 'Maya Rai', role: 'field_employee' },
+  { id: 'usr-13', email: 'accountant@buildtrack.com', name: 'Sarita Poudel', role: 'accountant' },
+  { id: 'usr-14', email: 'store@buildtrack.com', name: 'Raju Gurung', role: 'store_officer' }
 ];
+
+const LOCAL_DEMO_EMAILS = new Set(MOCK_USERS.map(user => user.email.toLowerCase()));
 
 function resolveLoginIdentifier(identifier: string) {
   const normalized = identifier.trim().toLowerCase();
@@ -392,6 +411,17 @@ async function signInWithLocalFallback(email: string, password: string) {
   return data;
 }
 
+async function getVerifiedLocalDemoUser() {
+  const response = await fetch('/api/auth/local', {
+    method: 'GET',
+    credentials: 'same-origin',
+    cache: 'no-store',
+  });
+  if (!response.ok) return null;
+  const data = await response.json().catch(() => null);
+  return data?.user as { id?: string; name: string; email: string; role: string } | null;
+}
+
 async function fileToDataUrl(file: File): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -406,7 +436,13 @@ async function uploadToTenantGoogleDrive(
   category: 'daily_report' | 'expense' | 'employee' | 'photo' | 'document',
   metadata: { date?: string; employee?: string; boq?: string; remarks?: string; reference?: string } = {}
 ) {
-  const status = await fetch('/api/google/status').then(response => response.json()).catch(() => null);
+  const session = await storage.getAuthSession();
+  if (!session) return null;
+  const projectId = getActiveProjectId();
+  const status = await fetch(`/api/google/status?projectId=${encodeURIComponent(projectId)}`, {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+    cache: 'no-store',
+  }).then(response => response.json()).catch(() => null);
   if (!status?.connected) return null;
   const form = new FormData();
   form.append('file', file);
@@ -414,7 +450,11 @@ async function uploadToTenantGoogleDrive(
   Object.entries(metadata).forEach(([key, value]) => {
     if (value) form.append(key, value);
   });
-  const response = await fetch('/api/google/upload', { method: 'POST', body: form });
+  const response = await fetch('/api/google/upload', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${session.access_token}`, 'X-BuildTrack-Project': projectId },
+    body: form,
+  });
   const result = await response.json().catch(() => null);
   if (!response.ok || !result?.ok) throw new Error(result?.message || 'Google Drive upload failed.');
   return result.file as { id: string; name: string; webViewLink?: string; folderId?: string };
@@ -1124,6 +1164,18 @@ function getLocalItem<T>(key: string, defaultValue: T): T {
   }
 }
 
+const PERSISTENT_LOCAL_KEYS = new Set(['bt_supabase_url', 'bt_supabase_anon_key']);
+
+function clearWorkspaceCache() {
+  if (typeof window === 'undefined') return;
+  if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
+  cloudSyncTimer = null;
+  pendingCloudSyncKeys.clear();
+  const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
+    .filter((key): key is string => Boolean(key?.startsWith('bt_')) && !PERSISTENT_LOCAL_KEYS.has(key!));
+  keys.forEach(key => localStorage.removeItem(key));
+}
+
 const CLOUD_SYNC_KEYS = new Set([
   'bt_projects_list', 'bt_wbs', 'bt_activities', 'bt_dependencies', 'bt_design_packages',
   'bt_design_comments',
@@ -1188,6 +1240,7 @@ function appendNotification(key: string) {
     read: false,
   };
   localStorage.setItem('bt_notifications', JSON.stringify([next, ...rows].slice(0, 200)));
+  scheduleCloudSync('bt_notifications');
 }
 
 function scheduleCloudSync(key: string) {
@@ -1309,6 +1362,97 @@ async function syncLocalKeyToCloud(key: string) {
   await upsertCloudRows(table, rows);
 }
 
+function cloudPullMappings(): Array<[string, string]> {
+  return [
+    ['wbs_items', 'bt_wbs'],
+    ['activities', 'bt_activities'],
+    ['activity_dependencies', 'bt_dependencies'],
+    ['design_packages', 'bt_design_packages'],
+    ['design_comments', 'bt_design_comments'],
+    ['daily_reports', 'bt_daily_reports'],
+    ['daily_work_items', 'bt_daily_work_items'],
+    ['material_logs', 'bt_material_logs'],
+    ['budget_heads', 'bt_budget_heads'],
+    ['subcontractor_packages', 'bt_subcontractors'],
+    ['ipc_submissions', 'bt_ipc'],
+    ['qa_qc_inspections', 'bt_qaqc'],
+    ['safety_logs', 'bt_safety'],
+    ['variations_and_claims', 'bt_variations_claims'],
+    ['risk_register', 'bt_risks'],
+    ['handover_checklists', 'bt_handover'],
+    ['defects_liability', 'bt_defects'],
+    ['document_register', 'bt_documents'],
+    ['procurement_orders', 'bt_procurement_orders'],
+    ['store_items', 'bt_store_items'],
+    ['contract_obligations', 'bt_contract_obligations'],
+    ['daily_expenses', 'bt_daily_expenses'],
+    ['daily_resource_usage', 'bt_daily_resource_usage'],
+    ['employee_visits', 'bt_employee_visits'],
+    ['employee_profiles', 'bt_employees'],
+    ['uploaded_documents', 'bt_uploaded_documents'],
+    ['inventory_events', 'bt_inventory_events'],
+    ['app_notifications', 'bt_notifications'],
+    ['site_photos', 'bt_site_photos'],
+  ];
+}
+
+async function pullProjectSetFromCloud(projectIds: string[], replaceWorkspace: boolean) {
+  const client = getSupabaseClient();
+  if (!client || projectIds.length === 0) return { ok: false, message: 'No cloud projects are available.' };
+  const { data: { session } } = await client.auth.getSession();
+  if (!session) return { ok: false, message: 'Sign in before loading the shared workspace.' };
+
+  const mappings = cloudPullMappings();
+  cloudPullInProgress = true;
+  try {
+    const results = await Promise.all([
+      client.from('projects').select('*').in('id', projectIds),
+      client.from('project_users').select('id,project_id,auth_user_id,email,name,role').in('project_id', projectIds),
+      client.from('finance_rows').select('*').in('project_id', projectIds),
+      ...mappings.map(([table]) => client.from(table).select('*').in('project_id', projectIds)),
+    ]);
+    const projectResult = results[0];
+    const membershipResult = results[1];
+    const financeResult = results[2];
+    const tableResults = results.slice(3);
+
+    if (projectResult.error) return { ok: false, message: projectResult.error.message };
+    if (membershipResult.error) return { ok: false, message: membershipResult.error.message };
+
+    if (projectResult.data) {
+      const previous = replaceWorkspace ? [] : getLocalItem<Record<string, unknown>[]>('bt_projects_list', []);
+      const remaining = previous.filter(item => !projectIds.includes(String(item.id)));
+      localStorage.setItem('bt_projects_list', JSON.stringify([...remaining, ...projectResult.data]));
+    }
+    if (membershipResult.data) localStorage.setItem('bt_users', JSON.stringify(membershipResult.data));
+
+    tableResults.forEach((result, index) => {
+      const [table, key] = mappings[index];
+      if (result.error) {
+        console.warn(`BuildTrack cloud pull skipped ${table}:`, result.error.message);
+        return;
+      }
+      const previous = replaceWorkspace ? [] : getLocalItem<Record<string, unknown>[]>(key, []);
+      const remaining = previous.filter(row => !projectIds.includes(String(row.project_id)));
+      localStorage.setItem(key, JSON.stringify([...remaining, ...(result.data || [])]));
+    });
+
+    if (!financeResult.error) {
+      const previous = replaceWorkspace ? {} : getLocalItem<Record<string, FinanceRow[]>>('bt_finance_rows', {});
+      projectIds.forEach(projectId => {
+        previous[projectId] = (financeResult.data || [])
+          .filter(row => row.project_id === projectId)
+          .map(row => ({ id: row.row_key, name: row.name, category: row.category, values: row.monthly_values }));
+      });
+      localStorage.setItem('bt_finance_rows', JSON.stringify(previous));
+    }
+    localStorage.setItem('bt_last_cloud_sync', new Date().toISOString());
+    return { ok: true, message: `Loaded ${projectResult.data?.length || 0} shared project(s).` };
+  } finally {
+    cloudPullInProgress = false;
+  }
+}
+
 // Helper: Active Project Management
 const getActiveProjectId = () => {
   return getLocalItem('bt_active_project_id', 'proj-101');
@@ -1335,6 +1479,8 @@ export const storage = {
 
   isSupabaseConfigured,
 
+  clearWorkspaceCache,
+
   getAuthSession: async () => {
     const client = getSupabaseClient();
     if (!client) return null;
@@ -1347,22 +1493,84 @@ export const storage = {
     if (!client) return null;
     const { data: { session } } = await client.auth.getSession();
     if (!session?.user) return null;
-    const { data: profile } = await client
+    const { data: memberships } = await client
       .from('project_users')
-      .select('name,email,role')
+      .select('id,project_id,auth_user_id,name,email,role')
       .eq('auth_user_id', session.user.id)
-      .limit(1)
-      .maybeSingle();
-    return profile || {
-      name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'BuildTrack User',
-      email: session.user.email || '',
-      role: session.user.user_metadata?.role || 'project_manager'
+      .order('created_at', { ascending: true });
+    if (!memberships?.length) {
+      const { data: platformAdmin } = await client
+        .from('platform_admins')
+        .select('auth_user_id,email,name')
+        .eq('auth_user_id', session.user.id)
+        .maybeSingle();
+      return platformAdmin
+        ? { name: platformAdmin.name, email: platformAdmin.email, role: 'super_admin' }
+        : null;
+    }
+    localStorage.setItem('bt_project_memberships', JSON.stringify(memberships));
+    const activeProjectId = localStorage.getItem('bt_active_project_id');
+    const profile = memberships.find(item => item.project_id === activeProjectId) || memberships[0];
+    return { name: profile.name, email: profile.email, role: profile.role };
+  },
+
+  getVerifiedLocalDemoUser,
+
+  getProjectMemberships: (): ProjectMembership[] => {
+    if (typeof window === 'undefined') return [];
+    return getLocalItem<ProjectMembership[]>('bt_project_memberships', []);
+  },
+
+  getMembershipForProject: (projectId: string) => {
+    return storage.getProjectMemberships().find(item => item.project_id === projectId) || null;
+  },
+
+  bootstrapCloudWorkspace: async () => {
+    const client = getSupabaseClient();
+    if (!client) return { ok: false, message: 'Cloud workspace is not configured.' };
+    const { data: { session } } = await client.auth.getSession();
+    if (!session) return { ok: false, message: 'No cloud session is active.' };
+    const { data: memberships, error } = await client
+      .from('project_users')
+      .select('id,project_id,auth_user_id,email,name,role,created_at')
+      .eq('auth_user_id', session.user.id)
+      .order('created_at', { ascending: true });
+    if (error) return { ok: false, message: error.message };
+    if (!memberships?.length) {
+      const { data: platformAdmin } = await client
+        .from('platform_admins')
+        .select('auth_user_id,email,name')
+        .eq('auth_user_id', session.user.id)
+        .maybeSingle();
+      if (!platformAdmin) return { ok: false, message: 'This account has not been assigned to a business or project.' };
+      clearWorkspaceCache();
+      return {
+        ok: true,
+        message: 'Platform administration workspace loaded.',
+        user: { name: platformAdmin.name, email: platformAdmin.email, role: 'super_admin' },
+        projectIds: [] as string[],
+      };
+    }
+
+    const projectIds = [...new Set(memberships.map(item => String(item.project_id)))];
+    const current = getActiveProjectId();
+    const activeProjectId = projectIds.includes(current) ? current : projectIds[0];
+    localStorage.setItem('bt_project_memberships', JSON.stringify(memberships));
+    localStorage.setItem('bt_active_project_id', activeProjectId);
+    const pulled = await pullProjectSetFromCloud(projectIds, true);
+    if (!pulled.ok) return pulled;
+    const profile = memberships.find(item => item.project_id === activeProjectId) || memberships[0];
+    return {
+      ok: true,
+      message: pulled.message,
+      user: { name: profile.name, email: profile.email, role: profile.role },
+      projectIds,
     };
   },
 
   signUp: async (email: string, password: string, metadata: { name: string; role: string }) => {
     const client = getSupabaseClient();
-    if (!client) return { local: true, user: { email, ...metadata } };
+    if (!client) throw new Error('Account creation requires the managed cloud workspace.');
     try {
       const { data, error } = await client.auth.signUp({
         email,
@@ -1372,10 +1580,8 @@ export const storage = {
       if (error) throw error;
       return { local: false, user: data.user, session: data.session };
     } catch (error) {
-      if (!isNetworkLikeError(error)) throw error;
-      const localUser = { id: `local-${Date.now()}`, email, ...metadata };
-      storage.addUser(localUser);
-      return { local: true, user: localUser };
+      if (isNetworkLikeError(error)) throw new Error('Account creation is temporarily unavailable. Please try again when the cloud workspace is reachable.');
+      throw error;
     }
   },
 
@@ -1390,22 +1596,35 @@ export const storage = {
       if (error) throw error;
       const { data: profile } = await client
         .from('project_users')
-        .select('name,email,role')
+        .select('id,project_id,auth_user_id,name,email,role')
         .eq('auth_user_id', data.user.id)
         .limit(1)
         .maybeSingle();
+      if (!profile) {
+        const { data: platformAdmin } = await client
+          .from('platform_admins')
+          .select('auth_user_id,email,name')
+          .eq('auth_user_id', data.user.id)
+          .maybeSingle();
+        if (platformAdmin) {
+          return {
+            local: false,
+            user: { name: platformAdmin.name, email: platformAdmin.email, role: 'super_admin' },
+            session: data.session,
+          };
+        }
+        await client.auth.signOut();
+        throw new Error('This account is not assigned to a business or project yet. Ask your Director or Business Admin to grant access.');
+      }
       return {
         local: false,
-        user: profile || {
-          name: data.user.user_metadata?.name || loginEmail.split('@')[0],
-          email: loginEmail,
-          role: data.user.user_metadata?.role || 'project_manager'
-        },
+        user: { name: profile.name, email: profile.email, role: profile.role },
         session: data.session
       };
     } catch (error) {
-      if (!isNetworkLikeError(error)) return signInWithLocalFallback(loginEmail, password);
-      return signInWithLocalFallback(loginEmail, password);
+      if (LOCAL_DEMO_EMAILS.has(loginEmail)) return signInWithLocalFallback(loginEmail, password);
+      if (error instanceof Error) throw error;
+      throw new Error(isNetworkLikeError(error) ? 'The cloud workspace is temporarily unreachable.' : 'Sign-in failed.');
     }
   },
 
@@ -1422,6 +1641,8 @@ export const storage = {
   signOut: async () => {
     const client = getSupabaseClient();
     if (client) await client.auth.signOut();
+    await fetch('/api/auth/local', { method: 'DELETE', credentials: 'same-origin' }).catch(() => undefined);
+    clearWorkspaceCache();
   },
 
   onAuthStateChange: (callback: (user: { name: string; email: string; role: string } | null) => void) => {
@@ -1439,12 +1660,17 @@ export const storage = {
           .eq('auth_user_id', session.user.id)
           .limit(1)
           .maybeSingle()
-          .then(({ data: profile }) => {
-            callback(profile || {
-              name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'BuildTrack User',
-              email: session.user.email || '',
-              role: session.user.user_metadata?.role || 'project_manager'
-            });
+          .then(async ({ data: profile }) => {
+            if (profile) {
+              callback({ name: profile.name, email: profile.email, role: profile.role });
+              return;
+            }
+            const { data: platformAdmin } = await client
+              .from('platform_admins')
+              .select('auth_user_id,email,name')
+              .eq('auth_user_id', session.user.id)
+              .maybeSingle();
+            callback(platformAdmin ? { name: platformAdmin.name, email: platformAdmin.email, role: 'super_admin' } : null);
           });
       }, 0);
     });
@@ -1481,29 +1707,31 @@ export const storage = {
     if (!client) return { ok: false, message: 'Supabase is not configured.' };
     const session = await storage.getAuthSession();
     if (!session) return { ok: false, message: 'Confirm your email and sign in before cloud setup.' };
-    const project = storage.getProject();
-    const { error: projectError } = await client.from('projects').upsert({
-      ...project,
-      created_by: session.user.id
-    }, { onConflict: 'id' });
-    if (projectError && projectError.code !== '42501') {
-      return { ok: false, message: `Project setup: ${projectError.message}` };
-    }
-    const membership = await storage.syncUserToSupabase(user);
-    return membership.ok
-      ? { ok: true, message: 'Project membership is ready.' }
-      : { ok: false, message: membership.error || 'Could not create project membership.' };
+    const { data: membership, error } = await client
+      .from('project_users')
+      .select('id')
+      .eq('project_id', getActiveProjectId())
+      .eq('auth_user_id', session.user.id)
+      .maybeSingle();
+    if (error) return { ok: false, message: error.message };
+    return membership
+      ? { ok: true, message: 'Project membership is verified.' }
+      : { ok: false, message: `${user.email} has not been assigned to this project.` };
   },
 
   syncUserToSupabase: async (user: { name: string; email: string; role: string }) => {
     const client = getSupabaseClient();
     if (!client) return { ok: false, skipped: true };
     const session = await storage.getAuthSession();
-    const { error } = await client.from('project_users').upsert(
-      { ...user, project_id: getActiveProjectId(), auth_user_id: session?.user.id || null },
-      { onConflict: 'project_id,email' }
-    );
-    return { ok: !error, error: error?.message };
+    if (!session) return { ok: false, error: 'Authentication is required.' };
+    const { data, error } = await client
+      .from('project_users')
+      .select('id')
+      .eq('project_id', getActiveProjectId())
+      .eq('auth_user_id', session.user.id)
+      .eq('email', user.email.toLowerCase())
+      .maybeSingle();
+    return { ok: Boolean(data) && !error, error: error?.message || (!data ? 'Membership must be assigned by a Director or Business Admin.' : undefined) };
   },
 
   resetDatabase: () => {
@@ -1552,11 +1780,13 @@ export const storage = {
     return getLocalItem('bt_projects_list', [MOCK_PROJECT, ...DEMO_PROJECTS]);
   },
 
-  createProject: (name: string, contractAmount: number, startDate: string, duration: number) => {
+  createProject: async (name: string, contractAmount: number, startDate: string, duration: number) => {
     const list = storage.getProjectsList();
+    const sourceProjectId = getActiveProjectId();
+    const sourceProject = list.find(project => project.id === sourceProjectId);
     const targetDate = addDays(startDate, duration);
     const newProject = {
-      id: `proj-${Date.now()}`,
+      id: `proj-${crypto.randomUUID()}`,
       name,
       contract_number: `CONT-${Math.floor(Math.random() * 900) + 100}`,
       contract_amount: contractAmount,
@@ -1565,8 +1795,45 @@ export const storage = {
       contract_duration_days: duration,
       target_completion_date: targetDate,
       jv_status: 'solo' as const,
-      lead_partner: 'Lead Partner Admin'
+      lead_partner: sourceProject?.lead_partner || 'Lead Partner Admin',
+      organization_id: sourceProject?.organization_id,
+      organization_name: sourceProject?.organization_name || sourceProject?.lead_partner,
+      status: 'active',
     };
+
+    const client = getSupabaseClient();
+    const session = client ? await storage.getAuthSession() : null;
+    if (client && session) {
+      const { data: sourceMembership, error: membershipError } = await client
+        .from('project_users')
+        .select('name,email,role')
+        .eq('project_id', sourceProjectId)
+        .eq('auth_user_id', session.user.id)
+        .maybeSingle();
+      if (membershipError) throw new Error(membershipError.message);
+      if (!sourceMembership || !['project_director', 'business_admin'].includes(sourceMembership.role)) {
+        throw new Error('Only a Director or Business Admin can create a project for this business.');
+      }
+      const { error: projectError } = await client.from('projects').insert({ ...newProject, created_by: session.user.id });
+      if (projectError) throw new Error(`Project creation failed: ${projectError.message}`);
+      const { error: directoryError } = await client.from('project_users').insert({
+        id: `${newProject.id}-${session.user.id}`,
+        auth_user_id: session.user.id,
+        project_id: newProject.id,
+        email: sourceMembership.email,
+        name: sourceMembership.name,
+        role: sourceMembership.role,
+      });
+      if (directoryError) {
+        await client.from('projects').delete().eq('id', newProject.id);
+        throw new Error(`Project membership failed: ${directoryError.message}`);
+      }
+      const memberships = storage.getProjectMemberships();
+      localStorage.setItem('bt_project_memberships', JSON.stringify([
+        ...memberships,
+        { id: `${newProject.id}-${session.user.id}`, auth_user_id: session.user.id, project_id: newProject.id, ...sourceMembership },
+      ]));
+    }
     list.push(newProject);
     setLocalItem('bt_projects_list', list);
     storage.setActiveProjectId(newProject.id);
@@ -1595,14 +1862,36 @@ export const storage = {
     }
   },
 
-  archiveProject: (projectId: string) => {
+  archiveProject: async (projectId: string) => {
+    const client = getSupabaseClient();
+    const session = client ? await storage.getAuthSession() : null;
+    if (client && session) {
+      const { error } = await client.from('projects').update({ status: 'archived' }).eq('id', projectId);
+      if (error) throw new Error(error.message);
+    }
     const list = storage.getProjectsList();
     setLocalItem('bt_projects_list', list.map((project: any) => project.id === projectId ? { ...project, status: 'archived' } : project));
   },
 
-  restoreProject: (projectId: string) => {
+  restoreProject: async (projectId: string) => {
+    const client = getSupabaseClient();
+    const session = client ? await storage.getAuthSession() : null;
+    if (client && session) {
+      const { error } = await client.from('projects').update({ status: 'active' }).eq('id', projectId);
+      if (error) throw new Error(error.message);
+    }
     const list = storage.getProjectsList();
     setLocalItem('bt_projects_list', list.map((project: any) => project.id === projectId ? { ...project, status: 'active' } : project));
+  },
+
+  deleteProject: async (projectId: string) => {
+    const client = getSupabaseClient();
+    const session = client ? await storage.getAuthSession() : null;
+    if (client && session) {
+      const { error } = await client.from('projects').delete().eq('id', projectId);
+      if (error) throw new Error(error.message);
+    }
+    storage.deleteProjectLocal(projectId);
   },
 
   deleteProjectLocal: (projectId: string) => {
@@ -1920,7 +2209,13 @@ export const storage = {
     storage.recalculateSchedule();
     return newReport;
   },
-  deleteDailyReport: (reportId: string) => {
+  deleteDailyReport: async (reportId: string) => {
+    const client = getSupabaseClient();
+    const session = client ? await storage.getAuthSession() : null;
+    if (client && session) {
+      const { error } = await client.from('daily_reports').delete().eq('id', reportId);
+      if (error) throw new Error(error.message);
+    }
     const reports = getLocalItem<any[]>('bt_daily_reports', MOCK_DAILY_REPORTS);
     const remaining = reports.filter(r => r.id !== reportId);
     setLocalItem('bt_daily_reports', remaining);
@@ -2330,16 +2625,19 @@ export const storage = {
     }
     if (!storagePath && client && file.size > 0) {
       try {
+        const { data: { session } } = await client.auth.getSession();
+        if (!session) throw new Error('Sign in before uploading a document.');
         const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
-        const path = `${projectId}/${category}/${Date.now()}-${safeName}`;
-        const { error } = await client.storage.from('project-documents').upload(path, file, {
+        const bucket = category === 'payment_slip' ? 'payment-slips' : 'project-documents';
+        const path = `${projectId}/${session.user.id}/${category}/${Date.now()}-${safeName}`;
+        const { error } = await client.storage.from(bucket).upload(path, file, {
           contentType: file.type || 'application/octet-stream',
           upsert: false,
         });
         if (error) throw new Error(error.message);
         storagePath = path;
       } catch (error) {
-        if (!isNetworkLikeError(error)) throw new Error(`Document upload failed: ${error instanceof Error ? error.message : String(error)}. Check the project-documents bucket and storage RLS policies.`);
+        if (!isNetworkLikeError(error)) throw new Error(`Document upload failed: ${error instanceof Error ? error.message : String(error)}. Check the managed document storage policy.`);
         url = await fileToDataUrl(file);
         console.warn('Document saved locally because Supabase storage is unreachable.');
       }
@@ -2523,7 +2821,7 @@ export const storage = {
       uploaded_by: uploadedBy,
       evidence_type: evidenceType
     };
-    if (client && storagePath && !storagePath.startsWith('google-drive:')) {
+    if (client && storagePath) {
       try {
         const { error } = await client.from('site_photos').insert(photo);
         if (error) {
@@ -2635,76 +2933,6 @@ export const storage = {
   },
 
   pullActiveProjectFromCloud: async () => {
-    const client = getSupabaseClient();
-    if (!client) return { ok: false, message: 'Supabase is not configured.' };
-    const session = await storage.getAuthSession();
-    if (!session) return { ok: false, message: 'Sign in to Supabase before synchronizing.' };
-    const projectId = getActiveProjectId();
-    const mappings: Array<[string, string, any[]]> = [
-      ['wbs_items', 'bt_wbs', MOCK_WBS],
-      ['activities', 'bt_activities', MOCK_ACTIVITIES],
-      ['activity_dependencies', 'bt_dependencies', MOCK_DEPENDENCIES],
-      ['design_packages', 'bt_design_packages', MOCK_DESIGN_PACKAGES],
-      ['design_comments', 'bt_design_comments', []],
-      ['daily_reports', 'bt_daily_reports', MOCK_DAILY_REPORTS],
-      ['daily_work_items', 'bt_daily_work_items', MOCK_DAILY_WORK_ITEMS],
-      ['material_logs', 'bt_material_logs', MOCK_MATERIAL_LOGS],
-      ['budget_heads', 'bt_budget_heads', MOCK_BUDGET_HEADS],
-      ['subcontractor_packages', 'bt_subcontractors', MOCK_SUBCONTRACTORS],
-      ['ipc_submissions', 'bt_ipc', MOCK_IPC],
-      ['qa_qc_inspections', 'bt_qaqc', MOCK_QA_QC],
-      ['safety_logs', 'bt_safety', MOCK_SAFETY],
-      ['variations_and_claims', 'bt_variations_claims', MOCK_VARIATIONS_CLAIMS],
-      ['risk_register', 'bt_risks', MOCK_RISKS],
-      ['handover_checklists', 'bt_handover', MOCK_HANDOVER],
-      ['defects_liability', 'bt_defects', MOCK_DEFECTS],
-      ['document_register', 'bt_documents', []],
-      ['procurement_orders', 'bt_procurement_orders', []],
-      ['store_items', 'bt_store_items', []],
-      ['contract_obligations', 'bt_contract_obligations', []],
-      ['daily_expenses', 'bt_daily_expenses', []],
-      ['daily_resource_usage', 'bt_daily_resource_usage', []],
-      ['employee_visits', 'bt_employee_visits', []],
-      ['employee_profiles', 'bt_employees', []],
-      ['uploaded_documents', 'bt_uploaded_documents', []],
-      ['inventory_events', 'bt_inventory_events', []],
-      ['app_notifications', 'bt_notifications', []],
-      ['site_photos', 'bt_site_photos', []]
-    ];
-    cloudPullInProgress = true;
-    try {
-      const { data: cloudProject, error: projectError } = await client.from('projects').select('*').eq('id', projectId).maybeSingle();
-      if (projectError) return { ok: false, message: projectError.message };
-      if (cloudProject) {
-        const projects = storage.getProjectsList();
-        const next = projects.filter((item: any) => item.id !== projectId);
-        setLocalItem('bt_projects_list', [...next, cloudProject]);
-      }
-      for (const [table, key, defaults] of mappings) {
-        const { data, error } = await client.from(table).select('*').eq('project_id', projectId);
-        if (error) {
-          console.warn(`BuildTrack cloud pull skipped ${table}:`, error.message);
-          continue;
-        }
-        if (!data) continue;
-        const allRows = getLocalItem<any[]>(key, defaults);
-        const remaining = allRows.filter(row => row.project_id !== projectId);
-        setLocalItem(key, [...remaining, ...data]);
-      }
-      const { data: cloudUsers, error: usersError } = await client.from('project_users').select('id,email,name,role').eq('project_id', projectId);
-      if (usersError) return { ok: false, message: `project_users: ${usersError.message}` };
-      if (cloudUsers) setLocalItem('bt_users', cloudUsers);
-      const { data: financeRows, error: financeError } = await client.from('finance_rows').select('*').eq('project_id', projectId);
-      if (financeError) return { ok: false, message: financeError.message };
-      const allFinance = getLocalItem<Record<string, FinanceRow[]>>('bt_finance_rows', {});
-      allFinance[projectId] = (financeRows || []).map(row => ({
-        id: row.row_key, name: row.name, category: row.category, values: row.monthly_values
-      }));
-      setLocalItem('bt_finance_rows', allFinance);
-      localStorage.setItem('bt_last_cloud_sync', new Date().toISOString());
-      return { ok: true, message: 'Cloud project data downloaded into this browser.' };
-    } finally {
-      cloudPullInProgress = false;
-    }
+    return pullProjectSetFromCloud([getActiveProjectId()], false);
   }
 };

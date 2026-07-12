@@ -10,7 +10,7 @@ export default function ReportCenter(props:Props){
   const [type,setType]=useState<ReportType>('monthly');
   const generated=useMemo(()=>buildReport(type,props),[type,props]);
   const download=(format:'html'|'json'|'csv')=>{
-    let body='';let mime='text/plain';let ext=format;
+    let body='';let mime='text/plain';const ext=format;
     if(format==='html'){body=`<!doctype html><html><head><meta charset="utf-8"><title>${generated.title}</title><style>body{font-family:Arial;padding:32px;max-width:1000px;margin:auto}h1{color:#17365d}table{border-collapse:collapse;width:100%;margin:18px 0}th,td{border:1px solid #ccc;padding:8px;text-align:left}th{background:#eef3f8}.metric{display:inline-block;padding:12px;margin:4px;background:#eef3f8}</style></head><body>${generated.html}</body></html>`;mime='text/html';}
     if(format==='json'){body=JSON.stringify(generated.data,null,2);mime='application/json';}
     if(format==='csv'){const rows=generated.rows||[];body=rows.map(row=>row.map(cell=>`"${String(cell??'').replaceAll('"','""')}"`).join(',')).join('\n');mime='text/csv';}

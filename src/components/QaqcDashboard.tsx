@@ -47,7 +47,12 @@ export default function QaqcDashboard({
 
   const handleUpdateStatus = (item: any, status: 'passed' | 'failed') => {
     const isFailed = status === 'failed';
-    const ncrNum = isFailed ? `NCR-0${Math.floor(Math.random() * 900) + 100}` : null;
+    const highestNcr = qaqc.reduce((highest, record) => {
+      const code = String(record.ncr_code || record.ncr_number || '');
+      const numericPart = Number(code.match(/\d+/)?.[0] || 0);
+      return Math.max(highest, numericPart);
+    }, 0);
+    const ncrNum = isFailed ? `NCR-${String(highestNcr + 1).padStart(3, '0')}` : null;
     onUpdateQAQC({
       ...item,
       status,

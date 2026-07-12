@@ -85,24 +85,33 @@ function CreateProjectModal({
   const [name, setName] = useState('');
   const [amount, setAmount] = useState(100000000);
   const [startDate, setStartDate] = useState(
-    new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().split('T')[0]
+    () => new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().split('T')[0]
   );
   const [duration, setDuration] = useState(730);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    storage.createProject(name, amount, startDate, duration);
-    onCreated();
-    onClose();
-    alert(`Project "${name}" created and set as active project.`);
+    setSubmitting(true);
+    setError('');
+    try {
+      await storage.createProject(name, amount, startDate, duration);
+      onCreated();
+      onClose();
+    } catch (creationError) {
+      setError(creationError instanceof Error ? creationError.message : 'Could not create the project.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-5">
+      <div className="w-full max-w-md space-y-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
         <div className="flex justify-between items-center">
-          <h2 className="text-slate-100 font-bold text-sm">🏗️ Create New Project</h2>
+          <h2 className="text-sm font-bold text-slate-900">Create New Project</h2>
           <button onClick={onClose} className="text-slate-500 hover:text-slate-200 text-lg">✕</button>
         </div>
 
@@ -151,9 +160,10 @@ function CreateProjectModal({
           <div className="flex gap-3 pt-2">
             <button
               type="submit"
+              disabled={submitting}
               className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow transition"
             >
-              Create Project
+              {submitting ? 'Creating…' : 'Create Project'}
             </button>
             <button
               type="button"
@@ -163,6 +173,7 @@ function CreateProjectModal({
               Cancel
             </button>
           </div>
+          {error && <p className="rounded-lg bg-rose-50 p-3 text-rose-700">{error}</p>}
         </form>
       </div>
     </div>
@@ -277,52 +288,95 @@ export default function DashboardShell() {
     setAllEmployeeVisits(storage.getAllEmployeeVisits());
   };
 
-  // Check persisted auth on mount
+  // Restore only sessions verified by Supabase or the signed HttpOnly demo
+  // cookie. Browser storage is a display cache and is never an authority for
+  // identity or role.
   useEffect(() => {
+    let active = true;
     let unsubscribe = () => {};
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('bt_auth_user');
-      if (saved) {
-        try {
-          setAuthUser(JSON.parse(saved));
-        } catch { /* noop */ }
+    const applyUser = async (candidate: AuthUser | null) => {
+      let verified = candidate;
+      if (candidate && storage.isSupabaseConfigured()) {
+        const bootstrapped = await storage.bootstrapCloudWorkspace();
+        if (bootstrapped.ok && 'user' in bootstrapped && bootstrapped.user) verified = bootstrapped.user;
       }
-      setAuthChecked(true);
+      if (!verified) verified = await storage.getVerifiedLocalDemoUser();
+      if (!active) return;
+      setAuthUser(verified);
+      if (verified) localStorage.setItem('bt_auth_user', JSON.stringify(verified));
+      else localStorage.removeItem('bt_auth_user');
       loadData();
-      if (storage.isSupabaseConfigured()) {
-        void storage.getCurrentAuthUser().then(user => {
-          if (user) {
-            setAuthUser(user);
-            localStorage.setItem('bt_auth_user', JSON.stringify(user));
-          }
-        });
-        unsubscribe = storage.onAuthStateChange(user => {
-          setAuthUser(user);
-          if (user) localStorage.setItem('bt_auth_user', JSON.stringify(user));
-          else localStorage.removeItem('bt_auth_user');
-        });
-      }
-    }
-    return () => unsubscribe();
+      setAuthChecked(true);
+    };
+
+    void (async () => {
+      const cloudUser = storage.isSupabaseConfigured() ? await storage.getCurrentAuthUser() : null;
+      await applyUser(cloudUser);
+      if (!storage.isSupabaseConfigured()) return;
+      unsubscribe = storage.onAuthStateChange(user => {
+        void applyUser(user);
+      });
+    })();
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
 
+  // Keep shared records fresh across roles and devices. Writes remain
+  // optimistic for field connectivity; focus/online events and a lightweight
+  // interval reconcile the active project from the database.
+  useEffect(() => {
+    if (!authUser || !project?.id || !storage.isSupabaseConfigured()) return;
+    let active = true;
+    let refreshing = false;
+    const refresh = async (allProjects = false) => {
+      if (refreshing || document.visibilityState === 'hidden') return;
+      refreshing = true;
+      try {
+        if (allProjects) await storage.bootstrapCloudWorkspace();
+        else await storage.pullActiveProjectFromCloud();
+        if (active) loadData();
+      } finally {
+        refreshing = false;
+      }
+    };
+    const onFocus = () => { void refresh(true); };
+    const onOnline = () => { void refresh(false); };
+    const timer = window.setInterval(() => { void refresh(false); }, 60_000);
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('online', onOnline);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('online', onOnline);
+    };
+  }, [authUser, project?.id]);
+
   // ---- Auth Handlers ----
-  const handleAuthSuccess = (user: AuthUser) => {
-    setAuthUser(user);
+  const handleAuthSuccess = async (user: AuthUser) => {
+    storage.clearWorkspaceCache();
+    let verified = user;
+    const cloudSession = await storage.getAuthSession();
+    if (cloudSession) {
+      const bootstrapped = await storage.bootstrapCloudWorkspace();
+      if (!bootstrapped.ok || !('user' in bootstrapped) || !bootstrapped.user) throw new Error(bootstrapped.message);
+      verified = bootstrapped.user;
+    }
+    setAuthUser(verified);
     setActiveTab('dashboard');
     if (typeof window !== 'undefined') {
-      localStorage.setItem('bt_auth_user', JSON.stringify(user));
+      localStorage.setItem('bt_auth_user', JSON.stringify(verified));
     }
-    storage.addUser(user);
-    void storage.ensureActiveProjectMembership(user);
     loadData();
   };
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('bt_auth_user');
     }
-    void storage.signOut();
+    await storage.signOut();
     setAuthUser(null);
     setActiveTab('dashboard');
   };
@@ -450,11 +504,18 @@ export default function DashboardShell() {
   const handleAddDefect = (def: any) => { storage.addDefect(def); loadData(); };
   const handleAddUser = (usr: any) => { storage.addUser(usr); loadData(); };
   const handleUpdateProject = (proj: any) => { storage.updateProject(proj); loadData(); };
-  const handleDeleteDailyReport = (id: string) => { storage.deleteDailyReport(id); loadData(); };
+  const handleDeleteDailyReport = async (id: string) => { await storage.deleteDailyReport(id); loadData(); };
 
-  const handleSwitchProject = (id: string) => {
+  const handleSwitchProject = async (id: string) => {
     storage.setActiveProjectId(id);
     setActiveTab('dashboard');
+    const membership = storage.getMembershipForProject(id);
+    if (membership) {
+      const nextUser = { name: membership.name, email: membership.email, role: membership.role };
+      setAuthUser(nextUser);
+      localStorage.setItem('bt_auth_user', JSON.stringify(nextUser));
+    }
+    await storage.pullActiveProjectFromCloud();
     loadData();
   };
 
@@ -564,21 +625,25 @@ export default function DashboardShell() {
             <button onClick={() => setMobileMenuOpen(true)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-lg font-bold text-slate-700 shadow-sm md:hidden" aria-label="Open menu">
               ☰
             </button>
-            <select
-              value={project.id}
-              onChange={(e) => handleSwitchProject(e.target.value)}
-              className="bg-slate-950 border border-slate-800 px-3 py-2 rounded-lg text-xs text-slate-200 font-semibold focus:outline-none max-w-[180px] md:max-w-[300px] truncate"
-            >
-              {projectsList.map((p: any) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-            {can(authUser.role, 'manage_projects') && <button
-              onClick={() => setShowCreateProject(true)}
-              className="px-2 py-1 bg-blue-600/80 hover:bg-blue-600 text-white text-[10px] font-bold rounded transition whitespace-nowrap"
-            >
-              + New Project
-            </button>}
+            {authUser.role === 'super_admin' ? (
+              <span className="rounded-lg bg-purple-50 px-3 py-2 text-xs font-bold text-purple-700">Platform Subscription Console</span>
+            ) : <>
+              <select
+                value={project.id}
+                onChange={(e) => { void handleSwitchProject(e.target.value); }}
+                className="bg-slate-950 border border-slate-800 px-3 py-2 rounded-lg text-xs text-slate-200 font-semibold focus:outline-none max-w-[180px] md:max-w-[300px] truncate"
+              >
+                {projectsList.map((p: any) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              {can(authUser.role, 'manage_projects') && <button
+                onClick={() => setShowCreateProject(true)}
+                className="px-2 py-1 bg-blue-600/80 hover:bg-blue-600 text-white text-[10px] font-bold rounded transition whitespace-nowrap"
+              >
+                + New Project
+              </button>}
+            </>}
           </div>
 
           {/* Right: DB status + date + role switcher */}
@@ -615,7 +680,7 @@ export default function DashboardShell() {
                 onReload={loadData}
               />
             ) : authUser.role === 'super_admin' ? (
-              <SuperAdminDashboard projects={projectsList} users={users} onNavigate={goToTab} />
+              <SuperAdminDashboard />
             ) : (
               <RoleDashboard
                 role={authUser.role}
@@ -674,6 +739,7 @@ export default function DashboardShell() {
               reports={dailyReports}
               currentDate={currentDate}
               userName={authUser.name}
+              userEmail={authUser.email}
               userRole={authUser.role}
               onSubmit={handleSubmitDailyReport}
               onReload={loadData}
@@ -761,7 +827,7 @@ export default function DashboardShell() {
           )}
 
           {activeTab === 'expenses' && (
-            <DailyExpenseDashboard key={project.id} projectId={project.id} userName={authUser.name} userRole={authUser.role} activities={activities} />
+            <DailyExpenseDashboard key={project.id} projectId={project.id} userName={authUser.name} userEmail={authUser.email} userRole={authUser.role} activities={activities} />
           )}
 
           {/* ---- NEW: Document Registry ---- */}

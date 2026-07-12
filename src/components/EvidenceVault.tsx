@@ -2,19 +2,21 @@ import React, { useEffect, useState } from 'react';
 import { SitePhoto, storage } from '../lib/storage';
 
 export default function EvidenceVault({ projectId, role }: { projectId: string; role: string }) {
-  const [photos, setPhotos] = useState<SitePhoto[]>([]);
-  const [loading, setLoading] = useState(true);
+  const requestKey = `${projectId}:${role}`;
+  const [photoState, setPhotoState] = useState<{ key: string; photos: SitePhoto[] }>({ key: '', photos: [] });
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
     void storage.getSitePhotosForRole(role).then(rows => {
-      if (active) setPhotos(rows);
-    }).finally(() => {
-      if (active) setLoading(false);
+      if (active) setPhotoState({ key: requestKey, photos: rows });
+    }).catch(() => {
+      if (active) setPhotoState({ key: requestKey, photos: [] });
     });
     return () => { active = false; };
-  }, [projectId, role]);
+  }, [requestKey, role]);
+
+  const loading = photoState.key !== requestKey;
+  const photos = loading ? [] : photoState.photos;
 
   if (role !== 'project_director') return <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-rose-800">Evidence access is reserved for the Project Director.</div>;
   return <div className="space-y-5">

@@ -268,7 +268,7 @@ export default function ClaimsDashboard({
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-center p-6 border border-dashed border-slate-700 rounded-lg text-slate-500 text-xs">
               <span>No notice draft generated yet.</span>
-              <span className="text-[10px] text-slate-600 mt-1">Select "Draft Notice" on a claim in the left register to auto-generate a FIDIC compliant delay notification letter.</span>
+              <span className="text-[10px] text-slate-600 mt-1">Select &quot;Draft Notice&quot; on a claim in the left register to auto-generate a FIDIC compliant delay notification letter.</span>
             </div>
           )}
         </div>

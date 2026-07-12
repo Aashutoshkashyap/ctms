@@ -1,66 +1,43 @@
 # BuildTrack D&B Requirements Audit
 
-Audit date: 2026-06-23
+Audit date: 2026-07-12
 
-Legend:
+## Release status
 
-- **Met** — usable UI and working local persistence/calculation flow exist.
-- **Partial** — some data model or workflow exists, but the full requested module/output is not complete.
-- **Missing** — no dedicated implementation yet.
-
-## Core questions
-
-| Requirement | Status | Current coverage |
+| Area | Status | Verified coverage |
 | --- | --- | --- |
-| Ahead or behind schedule | Met | Planned/actual progress, schedule variance, SPI, CPM dates and projection dashboards |
-| Above or below budget | Met | Budget heads, actual/committed cost, CPI, forecast final cost and finance sensitivity model |
-| Activity causing delay | Met | Critical/near-critical flags, activity variance and delay analysis |
-| Projected completion date | Met | CPM forecast and projection dashboard |
-| Evidence for payment, variation and claims | Partial | Document register, claim evidence checklist and notices exist; no generated claim/IPC dossier download |
+| B2B tenancy | Met | Every cloud project and user membership is linked to a business tenant; RLS prevents cross-tenant access |
+| Platform Superadmin privacy | Met | Subscription/contact/payment metadata only; live RLS returns zero tenant projects, activities, expenses, photos, and Google connections |
+| Subscription controls | Met | Trial/active/past-due access window, suspension/cancellation, expiry, employee-seat quota, and active-project quota enforced in database triggers/RLS |
+| Role dashboards | Met | Separate Superadmin, Business Admin, Director, management, engineering, finance, site, safety, quality, stores, employer, subcontractor, and field employee access |
+| Director portfolio | Met | All projects, progress, budget spent, delay count/remarks, archived projects, notifications, employee visits, archive/restore/delete |
+| Multi-project synchronization | Met | Authorized projects and records load from Supabase, refresh after writes/focus/online, and switch roles by project membership |
+| WBS / CPM | Met | Manual activities, editable rows, BOQ item/Description of Work labels, FS/SS/FF/SF, lag/lead, float, critical path, light Gantt, delay remarks |
+| AI tender WBS | Met | Tender/BOQ scope can generate WBS and CPM activity data through the AI panel |
+| Daily reporting | Met | Mobile table, date filter, edit/delete ownership, work and rework quantity, materials/vendors, people, equipment, delays, instructions, private images |
+| Finance and expenses | Met | Employee/date filters, accumulated costs, BOQ linkage, approvals, payment slips, finance tracker, dashboard synchronization |
+| Equipment/productivity | Met | Daily machinery, manpower, fuel/work comparison, excavator efficiency/mileage, crew/resource lists, and employee site visits |
+| Procurement/inventory | Met | Vendors, location, order/delivery dates, remarks, status updates, store items, issues/receipts/moves, and inventory event history |
+| Contracts/claims/quality | Met | Obligations, notices, variation quantities/rates/differences, inspection/test dates, NCR codes, QA/QC, EHS, IPCs, and claims |
+| Documents/reports/handover | Met | General uploads, document registry, live report/export center, handover checklist, and defects workflow |
+| Image/payment storage | Met | Private Supabase buckets and RLS tested with a real upload/read denial/read approval/cleanup cycle |
+| Google tenant storage | Implemented; external approval pending | Signed OAuth state, encrypted project-scoped refresh token, server-only token access, Drive folders/Sheets, authenticated uploads; public Google OAuth still requires consent-screen publication/verification |
+| Responsive light UI | Met | Mobile hamburger, 390 px no page overflow, scrollable tables, light inputs/text, larger dense-UI typography |
+| Security baseline | Met | Supabase Auth/RLS, signed HttpOnly fallback sessions, login throttling, cache isolation on sign-out, CSP/HSTS/frame/MIME/referrer/permission headers, private env variables |
 
-## Requested modules
+## Remaining production operations
 
-| Module | Status | Notes |
-| --- | --- | --- |
-| Project Setup | Met | Multi-project creation, contract amount/dates, solo/JV seed data, switching |
-| Contract Control | Met | Dedicated obligation register covers clauses, notices, securities, insurance, approvals, reporting deadlines, evidence and compliance |
-| WBS & Activity Schedule | Met | Activities, WBS codes, quantities, weights, resources and AI tender import |
-| CPM Engine | Met | FS/SS/FF/SF, lag, early/late dates, float, critical and near-critical calculations |
-| Design Management | Met | Packages, review due dates, comments, approval status and impact |
-| Site Investigation | Partial | Represented through WBS/activity records; no dedicated survey/geotech/utility/site-possession register |
-| Daily Progress | Met | Standalone daily reporting stores work, manpower, equipment, weather, materials, delays, instructions and site photos |
-| Expected vs Actual | Met | Activity-level planned/actual and variance views |
-| Forecasting | Met | Forecast completion, productivity and recovery calculations |
-| Budget & Cost | Met | Contract, budget, actual, committed, forecast and package P/L |
-| Daily Expenses | Met | Date-wise site expenses record category, WBS, vendor, payment method, voucher reference and approval status |
-| Procurement | Met | Purchase orders, vendors, required/expected delivery, delivered quantities, commitments and late-delivery alerts |
-| Subcontractor | Partial | Data and package costs exist, but no dedicated subcontractor progress/payment dashboard |
-| QA/QC | Met | Inspections, tests, pass/fail, NCR and test details |
-| EHS / Safety | Met | Incidents, near misses, toolbox talks, permits and environmental complaints |
-| IPC / Billing | Met | Claimed, certified, paid, retention, advance recovery and VAT data model |
-| Variations & Claims | Met | Event, notice, cost/time impact, evidence and status |
-| Reports | Met | Daily, weekly lookahead, monthly, IPC, claims/EOT, QA/QC, safety and handover packs export as printable HTML, CSV and JSON |
-| Handover | Met | As-built/O&M/test/warranty/training/final-account checklist structure |
-| Defects Liability | Partial | Defect reporting and rectification workflow exists; retention release and defects liability certificate are missing |
-| Finance Tracker | Met | Editable rows, collapsible groups, sparklines, cash curve and sensitivity |
-| Document Register | Met | Contracts, securities, RFIs, notices, approvals, permits, variations and QA records |
-| Supabase Quick Connect | Met | Runtime credentials, email/password and Google authentication, RLS schema, push/pull controls, automatic mutation sync and Storage photo uploads |
+These are deployment/operations tasks rather than missing application modules:
 
-## Data architecture gaps
+1. Publish and complete Google OAuth verification for the production domain and Drive/Sheets scopes.
+2. Rotate the Google OAuth client secret that was previously shared in chat, then update Vercel.
+3. Configure Supabase automated backups/PITR appropriate to the paid plan and retention policy.
+4. Add centralized production error monitoring and an automated browser regression suite before a broad customer launch.
+5. Connect a real payment gateway if subscriptions should be charged automatically; the current console supports manual transaction verification.
 
-The current schema covers the major operational tables, but these requested entities still need implementation or expansion:
+## Optional domain expansions
 
-- contracts, employer requirements and JV partner contribution records
-- role/permission policies backed by real authentication
-- schedule versions and critical-path snapshots
-- manpower/equipment/photo/delay-event tables
-- procurement orders, stock, vendor payments and measurement books
-- method statements, material approvals, calibration, PPE and waste records
-- claim notices, EOT submissions, early warnings and downloadable evidence packs
-- retention release, punch list and defects liability certificate
-
-## Recommended next implementation sequence
-
-1. Add a dedicated site-investigation register for surveys, geotechnical findings, utilities and possession.
-2. Expand subcontractor controls into a dedicated progress, certification and payment dashboard.
-3. Add retention release and defects liability certificate workflows.
+- Dedicated survey/geotechnical/utility/site-possession register
+- Expanded subcontractor certification/payment workspace
+- Retention-release certificate and final defects-liability certificate
+- Native Bikram Sambat date picker (the current UI displays Nepali date labels alongside ISO dates)

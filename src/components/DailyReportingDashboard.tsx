@@ -9,10 +9,11 @@ interface Props {
   reports: any[];
   currentDate: string;
   userName: string;
+  userEmail: string;
   userRole: string;
   onSubmit: (report: any, workItems: any[], materials: any[]) => void;
   onReload: () => void;
-  onDelete?: (id: string) => void;
+  onDelete?: (id: string) => void | Promise<void>;
 }
 
 function nepaliDate(date: string) {
@@ -23,7 +24,7 @@ function nepaliDate(date: string) {
   }
 }
 
-export default function DailyReportingDashboard({ projectId, activities, reports, currentDate, userName, userRole, onSubmit, onReload, onDelete }: Props) {
+export default function DailyReportingDashboard({ projectId, activities, reports, currentDate, userName, userEmail, userRole, onSubmit, onReload, onDelete }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
@@ -47,13 +48,11 @@ export default function DailyReportingDashboard({ projectId, activities, reports
 
   React.useEffect(() => {
     let active = true;
-    if (!canView) {
-      setPhotos([]);
-      return;
-    }
+    if (!canView) return;
     void storage.getSitePhotosForRole(userRole).then(rows => { if (active) setPhotos(rows); });
     return () => { active = false; };
   }, [projectId, userRole, canView]);
+  const visiblePhotos = canView ? photos : [];
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setSaving(true);
@@ -63,7 +62,7 @@ export default function DailyReportingDashboard({ projectId, activities, reports
         id: reportId, report_date: form.report_date, weather: form.weather,
         manpower_total: form.manpower_total, equipment_total: form.equipment_total,
         site_instructions: form.site_instructions, obstruction_reasons: form.obstruction_reasons,
-        next_day_plan: form.next_day_plan, submitted_by: userName
+        next_day_plan: form.next_day_plan, submitted_by: userName, submitted_by_email: userEmail
       }, workItems.length ? workItems : (form.activity_id ? [{
         activity_id: form.activity_id, quantity_completed: form.quantity_completed,
         rework_quantity: form.rework_quantity,
@@ -133,14 +132,22 @@ export default function DailyReportingDashboard({ projectId, activities, reports
     setMaterialItems(storage.getDailyMaterialLogs(report.id));
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (!confirm('Delete this daily report? This cannot be undone.')) return;
-    if (typeof onDelete === 'function') {
-      onDelete(id);
-    } else {
-      storage.deleteDailyReport(id);
-      onReload();
+    try {
+      if (typeof onDelete === 'function') {
+        await onDelete(id);
+      } else {
+        await storage.deleteDailyReport(id);
+        onReload();
+      }
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Could not delete the daily report.');
     }
+  };
+  const canManageReport = (report: any) => {
+    const broadRoles = ['project_director','project_manager','planning_engineer','site_engineer'];
+    return broadRoles.includes(userRole) || report.submitted_by_email === userEmail || report.submitted_by === userName;
   };
 
   return <div className="space-y-5 text-xs" key={projectId}>
@@ -209,16 +216,16 @@ export default function DailyReportingDashboard({ projectId, activities, reports
           <td className="p-3">{work.length ? work.map((item:any)=>`${item.quantity_completed}${item.rework_quantity ? ` (rework ${item.rework_quantity})` : ''} on ${activities.find(a=>a.id===item.activity_id)?.name||item.activity_id}`).join(', ') : '—'}</td>
           <td className="p-3">{mats.length ? mats.map((item:any)=>`${item.material_name} +${item.received_qty} / -${item.consumed_qty}`).join(', ') : '—'}</td>
           <td className="p-3"><b>Instruction:</b> {report.site_instructions || '—'}<br /><b>Delay:</b> {report.obstruction_reasons || '—'}</td>
-          <td className="p-3"><div className="flex gap-2">{can(userRole,'daily_reports') && <button onClick={()=>startEditReport(report)} className="text-blue-700 font-bold">Edit</button>}{can(userRole,'daily_reports') && <button onClick={()=>handleDelete(report.id)} className="text-rose-700 font-bold">Delete</button>}</div></td>
+          <td className="p-3"><div className="flex gap-2">{canManageReport(report) && <button onClick={()=>startEditReport(report)} className="text-blue-700 font-bold">Edit</button>}{canManageReport(report) && <button onClick={()=>handleDelete(report.id)} className="text-rose-700 font-bold">Delete</button>}</div></td>
         </tr>})}</tbody>
       </table>
     </div>
-    <div className="space-y-3">{sortedReports.map(report=>{const reportPhotos=photos.filter(photo=>photo.daily_report_id===report.id);const work=storage.getDailyWorkItems(report.id);const mats=storage.getDailyMaterialLogs(report.id);const resources=storage.getDailyResourceUsage().filter(r=>r.usage_date===report.report_date);return <article key={report.id} className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-4 space-y-3">
+    <div className="space-y-3">{sortedReports.map(report=>{const reportPhotos=visiblePhotos.filter(photo=>photo.daily_report_id===report.id);const work=storage.getDailyWorkItems(report.id);const mats=storage.getDailyMaterialLogs(report.id);const resources=storage.getDailyResourceUsage().filter(r=>r.usage_date===report.report_date);return <article key={report.id} className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-4 space-y-3">
       <div className="flex justify-between"><div><h3 className="font-bold text-slate-100">{nepaliDate(report.report_date)} · {report.weather}</h3><div className="text-slate-500">{report.report_date} · Submitted by {report.submitted_by}</div></div><div className="text-right">
         <div className="mb-1"><b>{report.manpower_total}</b> people · <b>{report.equipment_total}</b> plant</div>
         <div className="flex justify-end gap-2">
-          {can(userRole,'daily_reports') && <button onClick={()=>startEditReport(report)} className="text-blue-400 hover:text-blue-300 text-xs font-semibold">Edit</button>}
-          {can(userRole,'daily_reports') && <button onClick={()=>handleDelete(report.id)} className="text-rose-400 hover:text-rose-300 text-xs font-semibold">Delete</button>}
+          {canManageReport(report) && <button onClick={()=>startEditReport(report)} className="text-blue-400 hover:text-blue-300 text-xs font-semibold">Edit</button>}
+          {canManageReport(report) && <button onClick={()=>handleDelete(report.id)} className="text-rose-400 hover:text-rose-300 text-xs font-semibold">Delete</button>}
         </div>
       </div></div>
       <div className="grid md:grid-cols-3 gap-3"><Info label="Instructions" value={report.site_instructions}/><Info label="Obstructions" value={report.obstruction_reasons}/><Info label="Next Plan" value={report.next_day_plan}/></div>

@@ -3,7 +3,7 @@ import { DailyExpense, storage } from '../lib/storage';
 import { can } from '../lib/permissions';
 import { Activity } from '../lib/cpm';
 
-export default function DailyExpenseDashboard({ projectId, userName, userRole, activities = [] }: { projectId: string; userName: string; userRole: string; activities?: Activity[] }) {
+export default function DailyExpenseDashboard({ projectId, userName, userEmail, userRole, activities = [] }: { projectId: string; userName: string; userEmail: string; userRole: string; activities?: Activity[] }) {
   const [expenses, setExpenses] = useState<DailyExpense[]>(() => storage.getDailyExpenses());
   const [employees, setEmployees] = useState(() => storage.getEmployees());
   const [showForm, setShowForm] = useState(false);
@@ -13,13 +13,13 @@ export default function DailyExpenseDashboard({ projectId, userName, userRole, a
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [slip, setSlip] = useState<File | null>(null);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState(() => ({
     expense_date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0],
     category: 'material' as DailyExpense['category'], description: '', vendor: '', amount: 0,
     payment_method: 'cash' as DailyExpense['payment_method'], reference: '', wbs_code: '', activity_id: activities[0]?.id || '',
     employee_id: '', employee_name: '',
-    status: 'submitted' as DailyExpense['status'], recorded_by: userName
-  });
+    status: 'submitted' as DailyExpense['status'], recorded_by: userName, recorded_by_email: userEmail
+  }));
   const [employeeForm, setEmployeeForm] = useState<{
     employee_id: string; name: string; email: string; phone: string; role: string; trade: string;
     site_location: string; daily_rate: number; status: 'active' | 'inactive'; assigned_to: string;
@@ -59,7 +59,7 @@ export default function DailyExpenseDashboard({ projectId, userName, userRole, a
     setExpenses(storage.getDailyExpenses());
     setShowForm(false);
     setSlip(null);
-    setForm({...form, description:'', vendor:'', amount:0, reference:'', wbs_code:'', employee_id:'', employee_name:'', status:'submitted', recorded_by:userName});
+    setForm({...form, description:'', vendor:'', amount:0, reference:'', wbs_code:'', employee_id:'', employee_name:'', status:'submitted', recorded_by:userName, recorded_by_email:userEmail});
   };
 
   const saveEmployee = (event: React.FormEvent) => {
@@ -74,30 +74,33 @@ export default function DailyExpenseDashboard({ projectId, userName, userRole, a
     storage.saveDailyExpense({...item,status});
     setExpenses(storage.getDailyExpenses());
   };
+  const ownRecordsOnly = ['field_employee', 'site_engineer', 'subcontractor'].includes(userRole);
   const visible = expenses
+    .filter(item => !ownRecordsOnly || item.recorded_by_email === userEmail || item.recorded_by === userName)
     .filter(item => filter === 'all' || item.status === filter)
     .filter(item => employeeFilter === 'all' || item.employee_id === employeeFilter || item.employee_name === employeeFilter)
     .sort((a,b)=>b.expense_date.localeCompare(a.expense_date));
   const canApprove = can(userRole, 'approve_expenses');
   const accumulatedByDate = useMemo(() => {
-    let running = 0;
     const grouped = new Map<string, number>();
     expenses
       .filter(item => item.status !== 'rejected' && (!fromDate || item.expense_date >= fromDate) && (!toDate || item.expense_date <= toDate))
       .forEach(item => grouped.set(item.expense_date, (grouped.get(item.expense_date) || 0) + item.amount));
-    return [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, amount]) => {
-      running += amount;
-      return { date, amount, accumulated: running };
-    });
+    return [...grouped.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .reduce<Array<{ date: string; amount: number; accumulated: number }>>((rows, [date, amount]) => [
+        ...rows,
+        { date, amount, accumulated: (rows.at(-1)?.accumulated || 0) + amount },
+      ], []);
   }, [expenses, fromDate, toDate]);
   const rangeTotal = accumulatedByDate.at(-1)?.accumulated || 0;
   const maxAccumulated = Math.max(1, rangeTotal);
 
   return <div className="space-y-5 text-xs" key={projectId}>
     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-      <div><h2 className="text-base font-semibold text-slate-100">Employee Daily Expense Register</h2><p className="text-slate-400">Record site spending by employee, BOQ work item, vendor, payment slip and approval status.</p></div>
+      <div><h2 className="text-base font-semibold text-slate-900">Employee Daily Expense Register</h2><p className="text-slate-600">Record site spending by employee, BOQ work item, vendor, payment slip and approval status.</p></div>
       <div className="flex flex-wrap gap-2">
-        <button onClick={()=>setShowEmployeeForm(value=>!value)} className="bg-white border border-blue-200 text-blue-700 px-4 py-2 rounded-lg font-semibold">+ Employee ID</button>
+        {can(userRole,'manage_users') && <button onClick={()=>setShowEmployeeForm(value=>!value)} className="bg-white border border-blue-200 text-blue-700 px-4 py-2 rounded-lg font-semibold">+ Employee ID</button>}
         <button onClick={()=>setShowForm(value=>!value)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-semibold">+ Record Expense</button>
       </div>
     </div>
@@ -119,7 +122,7 @@ export default function DailyExpenseDashboard({ projectId, userName, userRole, a
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4"><div className="text-xs font-bold uppercase text-emerald-700">Accumulated in range</div><div className="mt-2 text-2xl font-extrabold text-emerald-800">NPR {rangeTotal.toLocaleString()}</div><div className="mt-2 text-xs text-emerald-700">{accumulatedByDate.length} posting date(s)</div></div>
       </div>
     </section>
-    {showEmployeeForm&&<form onSubmit={saveEmployee} className="bg-white border border-blue-100 rounded-xl p-4 shadow-sm space-y-4">
+    {showEmployeeForm&&can(userRole,'manage_users')&&<form onSubmit={saveEmployee} className="bg-white border border-blue-100 rounded-xl p-4 shadow-sm space-y-4">
       <h3 className="font-bold text-slate-900">Create employee ID</h3>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <Field label="Employee ID"><input required placeholder="EMP-025" value={employeeForm.employee_id} onChange={e=>setEmployeeForm({...employeeForm,employee_id:e.target.value})}/></Field>

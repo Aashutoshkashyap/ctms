@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Activity } from '../lib/cpm';
 import { AppNotification, DailyExpense, DailyResourceUsage, EmployeeVisit, storage } from '../lib/storage';
 
@@ -32,7 +32,7 @@ export default function DirectorPortfolioDashboard({
   onReload,
 }: Props) {
   const [notifications, setNotifications] = useState<AppNotification[]>(() => storage.getAllNotifications(50));
-  const makeProjectRow = (project: any) => {
+  const makeProjectRow = useCallback((project: any) => {
     const projectActivities = projectRowsFor(activities, project.id);
     const projectExpenses = projectRowsFor(expenses, project.id).filter(item => item.status !== 'rejected');
     const projectResources = projectRowsFor(resourceUsage, project.id);
@@ -58,9 +58,9 @@ export default function DirectorPortfolioDashboard({
       workFuel: fuel ? work / fuel : 0,
       visits: projectRowsFor(visits, project.id).filter(item => item.status === 'on_site').length,
     };
-  };
-  const portfolio = useMemo(() => projects.filter(project => project.status !== 'archived').map(makeProjectRow), [projects, activities, expenses, resourceUsage, visits]);
-  const archivedPortfolio = useMemo(() => projects.filter(project => project.status === 'archived').map(makeProjectRow), [projects, activities, expenses, resourceUsage, visits]);
+  }, [activities, expenses, resourceUsage, visits]);
+  const portfolio = useMemo(() => projects.filter(project => project.status !== 'archived').map(makeProjectRow), [projects, makeProjectRow]);
+  const archivedPortfolio = useMemo(() => projects.filter(project => project.status === 'archived').map(makeProjectRow), [projects, makeProjectRow]);
 
   const totals = useMemo(() => ({
     projects: portfolio.length,
@@ -70,21 +70,33 @@ export default function DirectorPortfolioDashboard({
     archived: archivedPortfolio.length,
   }), [portfolio, archivedPortfolio]);
 
-  const archive = (id: string) => {
+  const archive = async (id: string) => {
     if (!confirm('Archive this project from active portfolio view?')) return;
-    storage.archiveProject(id);
-    onReload();
+    try {
+      await storage.archiveProject(id);
+      onReload();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Could not archive the project.');
+    }
   };
 
-  const remove = (id: string) => {
-    if (!confirm('Delete this project and its local records from this browser? Cloud deletion needs a Director sync/admin cleanup.')) return;
-    storage.deleteProjectLocal(id);
-    onReload();
+  const remove = async (id: string) => {
+    if (!confirm('Permanently delete this project and all linked database records? This cannot be undone.')) return;
+    try {
+      await storage.deleteProject(id);
+      onReload();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Could not delete the project.');
+    }
   };
 
-  const restore = (id: string) => {
-    storage.restoreProject(id);
-    onReload();
+  const restore = async (id: string) => {
+    try {
+      await storage.restoreProject(id);
+      onReload();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Could not restore the project.');
+    }
   };
 
   const markRead = () => {

@@ -30,7 +30,7 @@ export async function POST(request: Request) {
   const role = body?.role;
   const projectId = body?.projectId;
 
-  if (!name || !email || !role || !projectId || !PROJECT_ROLES.includes(role as typeof PROJECT_ROLES[number])) {
+  if (!name || !email || !role || role === 'super_admin' || !projectId || !PROJECT_ROLES.includes(role as typeof PROJECT_ROLES[number])) {
     return Response.json({ error: 'Name, email, project and a valid role are required.' }, { status: 400 });
   }
 
@@ -48,8 +48,87 @@ export async function POST(request: Request) {
     .eq('project_id', projectId)
     .eq('auth_user_id', requester.user.id)
     .maybeSingle();
-  if (membershipError || membership?.role !== 'project_director') {
-    return Response.json({ error: 'Only the Project Director can provision user accounts.' }, { status: 403 });
+  if (membershipError || !membership || !['project_director', 'business_admin'].includes(membership.role)) {
+    return Response.json({ error: 'Only the Project Director or Business Admin can provision user accounts.' }, { status: 403 });
+  }
+  if (membership.role === 'business_admin' && ['project_director', 'business_admin'].includes(role)) {
+    return Response.json({ error: 'A Business Admin cannot grant Director or administrator access.' }, { status: 403 });
+  }
+
+  const { data: projectRecord, error: projectError } = await admin
+    .from('projects')
+    .select('id,organization_id')
+    .eq('id', projectId)
+    .single();
+  if (projectError || !projectRecord?.organization_id) {
+    return Response.json({ error: 'The project is not linked to a business tenant.' }, { status: 400 });
+  }
+  const organizationId = projectRecord.organization_id;
+  const { data: organization, error: organizationError } = await admin
+    .from('organizations')
+    .select('id,subscription_status,access_until,seat_limit')
+    .eq('id', organizationId)
+    .single();
+  if (organizationError || !organization) {
+    return Response.json({ error: 'The business subscription could not be verified.' }, { status: 400 });
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  if (!['trial', 'active', 'past_due'].includes(organization.subscription_status) || (organization.access_until && organization.access_until < today)) {
+    return Response.json({ error: 'This business subscription is inactive or expired.' }, { status: 403 });
+  }
+
+  const { data: tenantProjects } = await admin.from('projects').select('id').eq('organization_id', organizationId);
+  const tenantProjectIds = (tenantProjects || []).map(item => item.id);
+  const { data: tenantMemberships } = tenantProjectIds.length
+    ? await admin.from('project_users').select('auth_user_id,email').in('project_id', tenantProjectIds)
+    : { data: [] as Array<{ auth_user_id: string | null; email: string }> };
+  const usedSeats = new Set((tenantMemberships || []).map(item => item.auth_user_id).filter(Boolean)).size;
+
+  const { data: matchingMemberships } = await admin
+    .from('project_users')
+    .select('auth_user_id,project_id,name,email,role')
+    .eq('email', email);
+  const matchingProjectIds = [...new Set((matchingMemberships || []).map(item => item.project_id))];
+  const { data: matchingProjects } = matchingProjectIds.length
+    ? await admin.from('projects').select('id,organization_id').in('id', matchingProjectIds)
+    : { data: [] as Array<{ id: string; organization_id: string | null }> };
+  const matchingOrganizations = new Set((matchingProjects || []).map(item => item.organization_id).filter(Boolean));
+  if ([...matchingOrganizations].some(id => id !== organizationId)) {
+    return Response.json({ error: 'That email already belongs to another business tenant.' }, { status: 409 });
+  }
+
+  const existingMembership = (matchingMemberships || []).find(item =>
+    (matchingProjects || []).some(projectRow => projectRow.id === item.project_id && projectRow.organization_id === organizationId)
+  );
+  if (existingMembership?.auth_user_id) {
+    const { data: assigned, error: assignmentError } = await admin.from('project_users').upsert({
+      id: `${projectId}-${existingMembership.auth_user_id}`,
+      auth_user_id: existingMembership.auth_user_id,
+      project_id: projectId,
+      email,
+      name,
+      role,
+    }, { onConflict: 'project_id,email' }).select('id,auth_user_id,project_id,email,name,role').single();
+    if (assignmentError || !assigned) {
+      return Response.json({ error: assignmentError?.message || 'Could not assign the existing employee.' }, { status: 400 });
+    }
+    if (['business_admin', 'project_director'].includes(role)) {
+      const { error: leaderError } = await admin.from('organization_members').upsert({
+        id: `${organizationId}-${existingMembership.auth_user_id}`,
+        organization_id: organizationId,
+        auth_user_id: existingMembership.auth_user_id,
+        email,
+        name,
+        role,
+        status: 'active',
+      }, { onConflict: 'organization_id,auth_user_id' });
+      if (leaderError) return Response.json({ error: leaderError.message }, { status: 400 });
+    }
+    return Response.json({ user: assigned, temporaryPassword: null, reusedAccount: true });
+  }
+
+  if (usedSeats >= Number(organization.seat_limit || 0)) {
+    return Response.json({ error: `Employee seat limit reached (${usedSeats}/${organization.seat_limit}).` }, { status: 409 });
   }
 
   const temporaryPassword = `BT-${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}!a9`;
@@ -57,7 +136,7 @@ export async function POST(request: Request) {
     email,
     password: temporaryPassword,
     email_confirm: true,
-    user_metadata: { name, role }
+    user_metadata: { name, role, organization_id: organizationId }
   });
   if (createError || !created.user) {
     return Response.json(
@@ -77,6 +156,23 @@ export async function POST(request: Request) {
   if (profileError) {
     await admin.auth.admin.deleteUser(created.user.id);
     return Response.json({ error: `Account rollback: ${profileError.message}` }, { status: 400 });
+  }
+
+  if (['business_admin', 'project_director'].includes(role)) {
+    const { error: leaderError } = await admin.from('organization_members').upsert({
+      id: `${organizationId}-${created.user.id}`,
+      organization_id: organizationId,
+      auth_user_id: created.user.id,
+      email,
+      name,
+      role,
+      status: 'active',
+    }, { onConflict: 'organization_id,auth_user_id' });
+    if (leaderError) {
+      await admin.from('project_users').delete().eq('project_id', projectId).eq('auth_user_id', created.user.id);
+      await admin.auth.admin.deleteUser(created.user.id);
+      return Response.json({ error: `Account rollback: ${leaderError.message}` }, { status: 400 });
+    }
   }
 
   return Response.json({

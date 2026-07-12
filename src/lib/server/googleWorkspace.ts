@@ -18,6 +18,88 @@ export interface GoogleTokenResponse {
   token_type: string;
 }
 
+export interface GoogleOAuthState {
+  projectId: string;
+  organizationId: string;
+  userId: string;
+  nonce: string;
+  issuedAt: number;
+  expiresAt: number;
+}
+
+export function getGoogleSecuritySecret() {
+  const configured = process.env.GOOGLE_TOKEN_ENCRYPTION_KEY?.trim();
+  if (configured) return configured;
+  if (process.env.NODE_ENV !== 'production') return process.env.BUILDTRACK_SESSION_SECRET || process.env.GOOGLE_CLIENT_SECRET || '';
+  return '';
+}
+
+function base64Url(value: string | Uint8Array) {
+  const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
+  return Buffer.from(bytes).toString('base64url');
+}
+
+async function hmac(value: string, secret: string) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
+  return base64Url(new Uint8Array(signature));
+}
+
+function constantTimeEqual(left: string, right: string) {
+  if (left.length !== right.length) return false;
+  let mismatch = 0;
+  for (let index = 0; index < left.length; index += 1) mismatch |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  return mismatch === 0;
+}
+
+export async function signGoogleOAuthState(payload: GoogleOAuthState) {
+  const secret = getGoogleSecuritySecret();
+  if (!secret) throw new Error('Google token encryption is not configured.');
+  const encoded = base64Url(JSON.stringify(payload));
+  return `${encoded}.${await hmac(encoded, secret)}`;
+}
+
+export async function verifyGoogleOAuthState(value: string): Promise<GoogleOAuthState | null> {
+  const secret = getGoogleSecuritySecret();
+  if (!secret) return null;
+  const [encoded, signature, extra] = value.split('.');
+  if (!encoded || !signature || extra) return null;
+  const expected = await hmac(encoded, secret);
+  if (!constantTimeEqual(signature, expected)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as GoogleOAuthState;
+    if (!payload.projectId || !payload.organizationId || !payload.userId || !payload.nonce || payload.expiresAt <= Date.now()) return null;
+    if (payload.issuedAt > Date.now() + 60_000 || payload.expiresAt - payload.issuedAt > 10 * 60_000) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+async function encryptionKey(secret: string) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
+  return crypto.subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+export async function encryptGoogleRefreshToken(refreshToken: string) {
+  const secret = getGoogleSecuritySecret();
+  if (!secret) throw new Error('Google token encryption is not configured.');
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await encryptionKey(secret), new TextEncoder().encode(refreshToken));
+  return `v1.${base64Url(iv)}.${base64Url(new Uint8Array(encrypted))}`;
+}
+
+export async function decryptGoogleRefreshToken(value: string) {
+  const secret = getGoogleSecuritySecret();
+  if (!secret) throw new Error('Google token encryption is not configured.');
+  const [version, encodedIv, encodedCipher, extra] = value.split('.');
+  if (version !== 'v1' || !encodedIv || !encodedCipher || extra) throw new Error('Stored Google connection is invalid.');
+  const iv = new Uint8Array(Buffer.from(encodedIv, 'base64url'));
+  const cipher = new Uint8Array(Buffer.from(encodedCipher, 'base64url'));
+  const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, await encryptionKey(secret), cipher);
+  return new TextDecoder().decode(decrypted);
+}
+
 export function getGoogleWorkspaceConfig(request?: Request): GoogleWorkspaceConfig | null {
   const clientId = process.env.GOOGLE_CLIENT_ID || '';
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
@@ -30,6 +112,8 @@ export function getGoogleWorkspaceConfig(request?: Request): GoogleWorkspaceConf
 
 export function buildGoogleAuthUrl(config: GoogleWorkspaceConfig, state: string) {
   const scopes = [
+    'openid',
+    'email',
     'https://www.googleapis.com/auth/drive.file',
     'https://www.googleapis.com/auth/spreadsheets',
   ];
@@ -170,6 +254,18 @@ export async function sendGmailMessage(accessToken: string, to: string, subject:
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ raw }),
   });
+}
+
+export async function getGoogleAccountEmail(accessToken: string) {
+  const profile = await googleFetch<{ email?: string }>('https://openidconnect.googleapis.com/v1/userinfo', accessToken);
+  return profile.email || '';
+}
+
+export async function revokeGoogleToken(token: string) {
+  await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  }).catch(() => undefined);
 }
 
 export function safeDriveName(value: string) {

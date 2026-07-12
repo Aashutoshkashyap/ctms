@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { storage } from '../lib/storage';
 
 interface AuthLayoutProps {
-  onAuthSuccess: (user: { name: string; email: string; role: string }) => void;
+  onAuthSuccess: (user: { name: string; email: string; role: string }) => void | Promise<void>;
 }
 
 export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
@@ -12,9 +12,13 @@ export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [mode, setMode] = useState<'signup' | 'signin'>('signup');
+  const [mode, setMode] = useState<'signup' | 'signin'>('signin');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [showInquiry, setShowInquiry] = useState(false);
+  const [inquirySending, setInquirySending] = useState(false);
+  const [inquiryMessage, setInquiryMessage] = useState('');
+  const [inquiry, setInquiry] = useState({ businessName: '', contactName: '', contactEmail: '', phone: '', message: '' });
 
   // Onboarding questions states
   const [jobFunction, setJobFunction] = useState('Finance');
@@ -29,7 +33,7 @@ export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
       try {
         const result = await storage.signIn(email, password);
         const user = result.user as { name: string; email: string; role: string };
-        onAuthSuccess(user);
+        await onAuthSuccess(user);
       } catch (error) {
         setMessage(error instanceof Error ? error.message : 'Sign in failed.');
       } finally {
@@ -37,8 +41,8 @@ export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
       }
       return;
     }
-    if (!firstName || !email || password.length < 6) {
-      alert('Please fill out first name and email.');
+    if (!firstName || !email || password.length < 8) {
+      setMessage('Enter your name, email, and a password of at least 8 characters.');
       return;
     }
     setShowOnboarding(true);
@@ -61,14 +65,11 @@ export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
     setLoading(true);
     setMessage('');
     try {
-      const result = await storage.signUp(email, password, { name: user.name, role });
-      if (!result.local && !result.session) {
-        setShowOnboarding(false);
-        setMessage('Account created. Check your email to confirm the account, then sign in.');
-        setMode('signin');
-        return;
-      }
-      onAuthSuccess(user);
+      await storage.signUp(email, password, { name: user.name, role });
+      await storage.signOut();
+      setShowOnboarding(false);
+      setMessage('Account created. Confirm your email, then ask your Business Admin or Director to assign project access.');
+      setMode('signin');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Account creation failed.');
     } finally {
@@ -81,6 +82,23 @@ export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
       await storage.signInWithGoogle();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Google sign-in failed.');
+    }
+  };
+
+  const submitInquiry = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setInquirySending(true);
+    setInquiryMessage('');
+    try {
+      const response = await fetch('/api/contact', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(inquiry) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not submit the request.');
+      setInquiryMessage(result.message);
+      setInquiry({ businessName: '', contactName: '', contactEmail: '', phone: '', message: '' });
+    } catch (error) {
+      setInquiryMessage(error instanceof Error ? error.message : 'Could not submit the request.');
+    } finally {
+      setInquirySending(false);
     }
   };
 
@@ -160,6 +178,7 @@ export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
             <input 
               type="password" 
               placeholder="Password"
+              minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:bg-white focus:border-blue-500"
@@ -181,7 +200,7 @@ export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
           <button type="button" onClick={() => { setMode(mode === 'signup' ? 'signin' : 'signup'); setMessage(''); }} className="text-blue-600 hover:underline">
             {mode === 'signup' ? 'Already registered? Sign in' : 'Need an account? Sign up'}
           </button>
-          <span>Secure access</span>
+          <button type="button" onClick={() => setShowInquiry(true)} className="text-purple-700 hover:underline">Request business access</button>
         </div>
         <div className="mt-4 flex flex-wrap gap-3 text-[10px] font-semibold text-slate-500">
           <a href="/privacy" className="hover:text-blue-700">Privacy Policy</a>
@@ -234,7 +253,7 @@ export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
             <span className="text-emerald-500 text-base">✓</span>
             <div>
               <p className="font-bold text-slate-900">Keep project controls portable</p>
-              <p className="text-slate-500 text-[11px] mt-0.5">Start locally, then connect the same workspace to Supabase.</p>
+              <p className="text-slate-500 text-[11px] mt-0.5">Keep every authorized role synchronized through one managed workspace.</p>
             </div>
           </div>
         </div>
@@ -257,7 +276,7 @@ export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
             <div className="space-y-4 text-xs font-semibold">
               {/* Question 1: Job Function */}
               <div>
-                <label className="block text-slate-500 mb-2">What's your job function?</label>
+                <label className="block text-slate-500 mb-2">What&apos;s your job function?</label>
                 <div className="flex flex-wrap gap-2">
                   {['Finance', 'Sales', 'Marketing', 'Engineering', 'Product', 'Executive', 'Other'].map(job => (
                     <button
@@ -318,6 +337,23 @@ export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {showInquiry && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+          <form onSubmit={submitInquiry} className="w-full max-w-lg space-y-4 rounded-2xl border border-slate-200 bg-white p-6 text-sm shadow-2xl">
+            <div className="flex items-start justify-between gap-3"><div><h2 className="text-xl font-extrabold text-slate-900">Request a business workspace</h2><p className="mt-1 text-slate-500">Tell us who should manage your company account. The platform owner can review this without seeing tenant project data.</p></div><button type="button" onClick={() => setShowInquiry(false)} className="text-lg text-slate-500">×</button></div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-slate-600">Business name<input required className="mt-1 w-full rounded-lg p-2.5" value={inquiry.businessName} onChange={event => setInquiry({ ...inquiry, businessName: event.target.value })} /></label>
+              <label className="text-slate-600">Contact name<input required className="mt-1 w-full rounded-lg p-2.5" value={inquiry.contactName} onChange={event => setInquiry({ ...inquiry, contactName: event.target.value })} /></label>
+              <label className="text-slate-600">Work email<input required type="email" className="mt-1 w-full rounded-lg p-2.5" value={inquiry.contactEmail} onChange={event => setInquiry({ ...inquiry, contactEmail: event.target.value })} /></label>
+              <label className="text-slate-600">Phone<input className="mt-1 w-full rounded-lg p-2.5" value={inquiry.phone} onChange={event => setInquiry({ ...inquiry, phone: event.target.value })} /></label>
+            </div>
+            <label className="block text-slate-600">What do you need?<textarea rows={3} className="mt-1 w-full rounded-lg p-2.5" value={inquiry.message} onChange={event => setInquiry({ ...inquiry, message: event.target.value })} /></label>
+            <button disabled={inquirySending} className="w-full rounded-lg bg-purple-600 px-4 py-3 font-bold text-white disabled:opacity-50">{inquirySending ? 'Sending…' : 'Send Request'}</button>
+            {inquiryMessage && <p className="rounded-lg bg-blue-50 p-3 text-blue-800">{inquiryMessage}</p>}
+          </form>
         </div>
       )}
     </div>

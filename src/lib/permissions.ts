@@ -1,5 +1,6 @@
 export const PROJECT_ROLES = [
   'super_admin',
+  'business_admin',
   'project_director',
   'project_manager',
   'planning_engineer',
@@ -13,6 +14,7 @@ export const PROJECT_ROLES = [
   'subcontractor',
   'jv_partner',
   'employer_viewer',
+  'field_employee',
 ] as const;
 
 export type ProjectRole = (typeof PROJECT_ROLES)[number];
@@ -55,14 +57,15 @@ const allFeatures: Feature[] = [
 
 export const ROLE_PERMISSIONS: Record<ProjectRole, Feature[]> = {
   project_director: allFeatures,
-  super_admin: ['executive', 'settings', 'manage_users', 'manage_projects'],
+  super_admin: [],
+  business_admin: ['procurement', 'obligations', 'documents', 'reports', 'settings', 'manage_users', 'manage_projects'],
   project_manager: [
     'schedule', 'forecast', 'daily_reports', 'operations', 'employee_tracking', 'design',
     'budget', 'ipc', 'claims', 'procurement', 'obligations', 'qaqc', 'safety', 'expenses',
     'documents', 'reports', 'handover', 'defects', 'ai', 'upload_evidence',
   ],
   planning_engineer: ['schedule', 'forecast', 'daily_reports', 'operations', 'reports', 'ai'],
-  site_engineer: ['schedule', 'daily_reports', 'operations', 'employee_tracking', 'qaqc', 'safety', 'upload_evidence'],
+  site_engineer: ['schedule', 'daily_reports', 'operations', 'employee_tracking', 'qaqc', 'safety', 'expenses', 'upload_evidence'],
   qs_billing_engineer: ['budget', 'ipc', 'claims', 'finance', 'expenses', 'documents', 'reports', 'approve_expenses'],
   design_coordinator: ['schedule', 'design', 'documents', 'daily_reports', 'upload_evidence'],
   qa_qc_engineer: ['daily_reports', 'operations', 'qaqc', 'documents', 'handover', 'defects', 'upload_evidence'],
@@ -72,6 +75,7 @@ export const ROLE_PERMISSIONS: Record<ProjectRole, Feature[]> = {
   subcontractor: ['schedule', 'daily_reports', 'operations', 'upload_evidence'],
   jv_partner: ['executive', 'schedule', 'forecast', 'reports'],
   employer_viewer: ['executive', 'schedule', 'forecast', 'reports', 'handover'],
+  field_employee: ['daily_reports', 'operations', 'expenses', 'upload_evidence'],
 };
 
 export function normalizeRole(role: string): ProjectRole {
@@ -84,6 +88,7 @@ export function can(role: string, feature: Feature): boolean {
 
 export const ROLE_LABELS: Record<ProjectRole, string> = {
   super_admin: 'Platform Superadmin',
+  business_admin: 'Business Administrator',
   project_director: 'Project Director',
   project_manager: 'Project Manager',
   planning_engineer: 'Planning Engineer',
@@ -97,11 +102,13 @@ export const ROLE_LABELS: Record<ProjectRole, string> = {
   subcontractor: 'Subcontractor',
   jv_partner: 'JV Partner',
   employer_viewer: 'Employer / Client Viewer',
+  field_employee: 'Field Employee',
 };
 
 export const ROLE_HOME_COPY: Record<ProjectRole, { title: string; subtitle: string }> = {
   project_director: { title: 'Director Command Centre', subtitle: 'Complete project, finance, schedule, workforce, risk and evidence oversight.' },
   super_admin: { title: 'B2B SaaS Superadmin', subtitle: 'Onboard businesses, manage plans, create tenant admins, review subscriptions and oversee platform access.' },
+  business_admin: { title: 'Business Administration', subtitle: 'Manage company projects, users, records and access without viewing restricted finance or site evidence.' },
   project_manager: { title: 'Project Delivery Dashboard', subtitle: 'Coordinate programme, site delivery, cost controls, quality and contractual actions.' },
   planning_engineer: { title: 'Planning & Progress Dashboard', subtitle: 'Maintain WBS logic, update progress, identify delays and prepare look-ahead plans.' },
   site_engineer: { title: 'Site Execution Dashboard', subtitle: 'Record work completed, manpower, equipment, fuel, delays and site evidence.' },
@@ -114,4 +121,5 @@ export const ROLE_HOME_COPY: Record<ProjectRole, { title: string; subtitle: stri
   subcontractor: { title: 'Subcontractor Workbench', subtitle: 'Submit daily quantities, resources, constraints and verification evidence.' },
   jv_partner: { title: 'JV Oversight Dashboard', subtitle: 'Read-only progress, commercial and programme visibility for JV governance.' },
   employer_viewer: { title: 'Employer Progress View', subtitle: 'Read-only project status, schedule, forecasts, reporting and handover visibility.' },
+  field_employee: { title: 'My Site Work', subtitle: 'Quickly record today’s work, expenses, equipment use and verification photos from a phone.' },
 };

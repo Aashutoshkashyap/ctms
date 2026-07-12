@@ -1,7 +1,18 @@
-import { getClientIp, rateLimit, rateLimitResponse } from '../../../../lib/server/security';
+import { cookies } from 'next/headers';
+import {
+  createDemoSession,
+  DEMO_SESSION_COOKIE,
+  DEMO_SESSION_MAX_AGE_SECONDS,
+  getClientIp,
+  rateLimit,
+  rateLimitResponse,
+  readDemoSession,
+  secureCompare,
+} from '../../../../lib/server/security';
 
 const DEMO_USERS: Record<string, { id: string; email: string; name: string; role: string }> = {
   'admin@buildtrack.com': { id: 'usr-1', email: 'admin@buildtrack.com', name: 'Arjun Adhikari', role: 'super_admin' },
+  'businessadmin@buildtrack.com': { id: 'usr-11', email: 'businessadmin@buildtrack.com', name: 'Nisha Karki', role: 'business_admin' },
   'director@buildtrack.com': { id: 'usr-2', email: 'director@buildtrack.com', name: 'Dr. Ramesh Thapa', role: 'project_director' },
   'pm@buildtrack.com': { id: 'usr-3', email: 'pm@buildtrack.com', name: 'Eng. Santosh Yadav', role: 'project_manager' },
   'planning@buildtrack.com': { id: 'usr-4', email: 'planning@buildtrack.com', name: 'Sujita Shrestha', role: 'planning_engineer' },
@@ -11,19 +22,26 @@ const DEMO_USERS: Record<string, { id: string; email: string; name: string; role
   'qaqc@buildtrack.com': { id: 'usr-8', email: 'qaqc@buildtrack.com', name: 'Kiran KC', role: 'qa_qc_engineer' },
   'safety@buildtrack.com': { id: 'usr-9', email: 'safety@buildtrack.com', name: 'Prem Chaudhary', role: 'safety_officer' },
   'employer@buildtrack.com': { id: 'usr-10', email: 'employer@buildtrack.com', name: 'Govind Raj Pandey', role: 'employer_viewer' },
+  'employee@buildtrack.com': { id: 'usr-12', email: 'employee@buildtrack.com', name: 'Maya Rai', role: 'field_employee' },
+  'accountant@buildtrack.com': { id: 'usr-13', email: 'accountant@buildtrack.com', name: 'Sarita Poudel', role: 'accountant' },
+  'store@buildtrack.com': { id: 'usr-14', email: 'store@buildtrack.com', name: 'Raju Gurung', role: 'store_officer' },
 };
 
 const DEV_PASSWORD_HASHES: Record<string, string> = {
-  'admin@buildtrack.com': 'a694e84f2b660407754266f002bf366f512afd7cfe30c81030f0754ab8467894',
-  'director@buildtrack.com': 'b93d7233cc55fa0b328287da91a7c4115231613acb4c571f7dc791a06ddf982e',
-  'pm@buildtrack.com': '12315a34b708e294e082469019a1179c3389d1823748e7b8aaddfa082fe2046f',
-  'planning@buildtrack.com': '11b28573909936b104322321ce6402eecc43bc35d713e8433161fbc2baf6d53b',
-  'site@buildtrack.com': '3898c38138801ceef4e6928cb26c900e606fe36cdb0c8a28f27816059c079018',
-  'qs@buildtrack.com': '4871ba064128efa26fe5971aebecd6836c9a532a5cd2576f2790f4dbe7e03150',
-  'design@buildtrack.com': '81a32c2fca6b2ca8684ddfa607199c786328926da8a795a010d86b14cb10ce81',
-  'qaqc@buildtrack.com': '4a843c5d593920926dfaa54c22d81992bd423d2170c9d73b6aa3f852428a7248',
-  'safety@buildtrack.com': 'e12cfa57c9e0022612a3b8e3bbf3b33c4b67ecc47ebc98ab594fab5e1541b9b0',
-  'employer@buildtrack.com': '3a37793ea99816b4565b42a627bc37b7fdf7fc98e7f4d2b89823743bb6f5d143',
+  'admin@buildtrack.com': 'e875eabef9aa055350481cb7519af33124185b62eb38ca0897ce5767f73de93c',
+  'director@buildtrack.com': '8484da40847caf78a24126fdb17cbf9182288343e3e3ef4d39d732f647c75ead',
+  'pm@buildtrack.com': 'f3843f841dc4f4422cf060e7c52f2b095fc4272b388cbad95818ddc54e82fc58',
+  'planning@buildtrack.com': '10c301f0c4fe4a9924ecc71c8ce854f48b47f56a98d7ccab9e91540160d9b77a',
+  'site@buildtrack.com': '2ff296772bd2c62aab7cc8bab9f0f45960e2fbe7be01d935491da5b0b87b6255',
+  'qs@buildtrack.com': '4e65e090b536afafdea8aa2e75e9468101f5fe8ff558dbc5179ea42144afb51b',
+  'design@buildtrack.com': 'b876f82bfe5a047c17004bc5193bc15a3d4cb7a0e50a45cb2aff1da67e2f0ce2',
+  'qaqc@buildtrack.com': '6d7a2db20135fa89fba519865f405ff0132fc40fa35d720d7b71e2fd7ab6a0f5',
+  'safety@buildtrack.com': '8d61f0a46e3695c7693de9d405f40cb39bc26925d4dc33215a432fd98333ad9f',
+  'employer@buildtrack.com': '558097718b4d2a4cfbf02900a594d2b09bdfa20e03810c11d12e8f31d79eeb70',
+  'businessadmin@buildtrack.com': '30b5f8a2eb304edffc7aaf9ef181d04789215ccdcf495ba62675e1fdcbc3077d',
+  'employee@buildtrack.com': '7ddf4257aedb1f782455d722c97b3eabad65f4b0cdc7240fe9b2e953890aa785',
+  'accountant@buildtrack.com': 'a93747747f8ee142bc9085e370e447f8a32eb75d2b783dd7ef13593f0fd8eb5a',
+  'store@buildtrack.com': 'a8b8747e639166ca68603768f75eb987b8ac3961280fc7f03c5fa9b329ee04d5',
 };
 
 function resolveLoginIdentifier(identifier: string) {
@@ -58,6 +76,8 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null) as { email?: string; password?: string } | null;
   const loginEmail = resolveLoginIdentifier(body?.email || '');
   const password = body?.password || '';
+  const accountLimit = rateLimit({ key: `local-auth-account:${loginEmail || 'unknown'}`, limit: 12, windowMs: 15 * 60_000 });
+  if (!accountLimit.allowed) return rateLimitResponse(accountLimit.resetAt);
   const hashes = getConfiguredHashes();
   const expectedHash = hashes[loginEmail];
 
@@ -66,7 +86,7 @@ export async function POST(request: Request) {
   }
 
   const submittedHash = await sha256(password);
-  if (submittedHash !== expectedHash) {
+  if (!secureCompare(submittedHash, expectedHash)) {
     return Response.json({ error: 'Invalid email or password.' }, { status: 401 });
   }
 
@@ -75,5 +95,26 @@ export async function POST(request: Request) {
     return Response.json({ error: 'No local user exists for this account.' }, { status: 404 });
   }
 
-  return Response.json({ local: true, user });
+  const cookieStore = await cookies();
+  cookieStore.set(DEMO_SESSION_COOKIE, await createDemoSession(user), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/',
+    maxAge: DEMO_SESSION_MAX_AGE_SECONDS,
+  });
+  return Response.json({ local: true, user }, { headers: { 'Cache-Control': 'no-store' } });
+}
+
+export async function GET() {
+  const cookieStore = await cookies();
+  const user = await readDemoSession(cookieStore.get(DEMO_SESSION_COOKIE)?.value);
+  if (!user) return Response.json({ error: 'No verified demo session.' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+  return Response.json({ local: true, user }, { headers: { 'Cache-Control': 'no-store' } });
+}
+
+export async function DELETE() {
+  const cookieStore = await cookies();
+  cookieStore.delete(DEMO_SESSION_COOKIE);
+  return Response.json({ ok: true }, { headers: { 'Cache-Control': 'no-store' } });
 }

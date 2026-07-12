@@ -1,76 +1,90 @@
 # BuildTrack D&B Project Control System
 
-A browser-ready Design & Build project controls workspace built with Next.js 16, Tailwind CSS, local persistence, and optional Supabase connectivity.
+BuildTrack D&B is a multi-tenant construction project-control SaaS built with Next.js 16, Tailwind CSS, Supabase Auth/Postgres/Storage, and optional Google Drive integration.
 
-Included modules:
+## Product coverage
 
-- Signup and role-based onboarding
-- Multi-project project controls
-- WBS/CPM scheduling and AI tender scanning
-- Manual WBS/activity entry with predecessor logic
-- Earned value, budgets, IPCs, claims, QA/QC, safety, and handover
-- Expandable finance model with cash-flow charts
-- Project-scoped document status register
-- Procurement, delivery and stores ledger
-- Daily expense register with WBS, vendor and approval tracking
-- Contract obligations and expiry/deadline control
-- Daily site reporting with progress photos
-- Printable/CSV/JSON report and evidence packs
-- Browser-based Supabase Auth, Storage and project synchronization
-- Director-only cloud account provisioning with temporary passwords
+- Role-specific dashboards for Platform Superadmin, Business Admin, Director, project controls, site, finance, quality, safety, stores, employer, subcontractor, and field employees
+- Director-only all-project portfolio with progress, cost, delays, archives, employee movement, notifications, and project lifecycle actions
+- Multi-project WBS/CPM scheduling, manual activity entry, editable Gantt records, delay remarks, and AI tender-to-WBS generation
+- Daily mobile site reports with work quantities, rework, people, equipment, materials, vendors, delays, and private verification photos
+- Daily expenses by employee/date with approvals, accumulated cost, BOQ linkage, and private payment slips
+- Procurement, inventory/stores, vendors, deliveries, equipment/fuel/productivity, QA/QC/NCR, safety, IPCs, variations/claims, obligations, documents, handover, and defects
+- Printable HTML, CSV, and JSON report packs based on synchronized records
+- B2B onboarding, subscription periods, seat/project limits, contact requests, and transaction verification
+- Tenant-isolated Supabase RLS. Platform Superadmins can access subscription metadata but not tenant projects, employees, expenses, documents, or images
 
-## Getting Started
+## Local development
 
-First, run the development server:
+Use Node.js 20 or newer.
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-The app starts in local sandbox mode. Data is saved in browser local storage.
-
-## Optional configuration
-
-For AI-assisted analysis, create `.env.local`:
+Release checks:
 
 ```bash
-OPENAI_API_KEY=your_key
-OPENAI_MODEL=gpt-4o-mini
+npm run lint
+npx tsc --noEmit
+npm run build
 ```
 
-To use OpenRouter or another OpenAI-compatible provider, also set `OPENAI_BASE_URL` and the provider-specific model name.
+## Supabase setup
 
-For Supabase:
+1. Create a Supabase project and enable Email authentication.
+2. Run `supabase_final_product.sql` in the Supabase SQL Editor. It is the authoritative, idempotent migration and creates tenant metadata, operational upgrades, RLS policies, and the private `site-photos`, `project-documents`, and `payment-slips` buckets.
+3. Configure server-managed environment variables; do not paste database keys into the dashboard.
+4. Optionally seed the live demo workspace with `npm run seed:demo`.
 
-1. Run `supabase_schema.sql` in the Supabase SQL editor.
-   - On a new or empty database, always run the complete schema first.
-   - Only run `supabase_role_upgrade.sql` when the original BuildTrack tables already exist.
-2. Enable Email authentication and optionally configure the Google provider.
-3. Paste the project URL and anon/publishable key into **System Settings → Supabase Integration Status**.
-4. Sign out and create/sign into a Supabase-backed account.
-5. Use **Push Project to Cloud** for the first upload. Later changes synchronize automatically; **Pull Project from Cloud** restores the cloud copy into the browser.
+Required production variables:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+NEXT_PUBLIC_APP_URL=https://your-domain.example
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_publishable_or_anon_key
+SUPABASE_SECRET_KEY=your_server_only_secret_key
+BUILDTRACK_SESSION_SECRET=a_random_32_byte_or_longer_secret
+BUILDTRACK_DEMO_PASSWORD_HASHES_JSON={"demo@example.com":"sha256_hash"}
+```
 
-## Learn More
+Optional services:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+OPENAI_API_KEY=your_server_only_openai_key
+OPENAI_MODEL=gpt-4o-mini
+GOOGLE_CLIENT_ID=your_google_oauth_client_id
+GOOGLE_CLIENT_SECRET=your_server_only_google_oauth_secret
+GOOGLE_REDIRECT_URI=https://your-domain.example/api/google/callback
+GOOGLE_TOKEN_ENCRYPTION_KEY=a_random_32_byte_or_longer_secret
+CRON_SECRET=a_random_secret
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+`.env*` and `.vercel` are ignored by Git. Never expose `SUPABASE_SECRET_KEY`, OAuth client secrets, encryption keys, session secrets, or AI keys through `NEXT_PUBLIC_*` variables.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Demo data
 
-## Deploy on Vercel
+With `.env.local` configured:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npm run seed:demo
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The seeder is idempotent and creates four projects plus representative schedule, report, finance, procurement, inventory, employee, and notification records. Authentication users are managed separately through Supabase Auth.
+
+## Google Drive
+
+Google Drive/Sheets integration is tenant-owned and optional. Each business authorizes its own Google account; server-encrypted refresh tokens are scoped to that tenant/project. Public use requires configuring the production OAuth redirect URI, publishing the consent screen, and completing any Google verification required for the requested Drive/Sheets scopes.
+
+## Deployment
+
+The repository is linked to Vercel. Add the variables above to the Production environment, then deploy with:
+
+```bash
+npx vercel --prod --yes
+```
+
+Production responses include HSTS, frame protection, MIME-sniffing protection, a Content Security Policy, restricted browser permissions, and no framework disclosure header.
