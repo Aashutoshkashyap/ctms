@@ -1,6 +1,7 @@
 // Storage and Database Adapter Layer - Multi-Project and Supabase Connect wizard
 import { calculateCPM, Activity, Dependency, ProjectInfo, diffDays, addDays } from './cpm';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { FeaturePermissions } from './permissions';
 
 // Environment variables fallback
 const defaultUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -55,13 +56,24 @@ export interface DocumentItem {
   project_id?: string;
   ref_number: string;
   title: string;
-  category: 'contract' | 'security' | 'rfi' | 'notice' | 'approval' | 'variation' | 'test_record' | 'permit';
+  category: 'contract' | 'security' | 'insurance' | 'rfi' | 'notice' | 'approval' | 'variation' | 'test_record' | 'permit' | 'compliance_report' | 'ipc_claim' | 'ipc_certificate' | 'payment_proof' | 'safety_report' | 'quality_report' | 'handover' | 'other';
   version: string;
   submitted_date: string;
   action_date: string | null;
   status: 'draft' | 'under_review' | 'approved' | 'rejected';
   owner: string;
   remarks: string;
+  period_start?: string | null;
+  period_end?: string | null;
+  due_date?: string | null;
+  expiry_date?: string | null;
+  issued_by?: string | null;
+  responsible_person?: string | null;
+  linked_record_id?: string | null;
+  storage_path?: string | null;
+  url?: string | null;
+  uploaded_by?: string | null;
+  uploaded_by_email?: string | null;
 }
 
 export interface ProcurementOrder {
@@ -108,6 +120,10 @@ export interface ContractObligation {
   status: 'open' | 'due_soon' | 'overdue' | 'complied' | 'waived';
   evidence: string;
   notes: string;
+  complied_date?: string | null;
+  compliance_remarks?: string | null;
+  evidence_document_path?: string | null;
+  evidence_document_url?: string | null;
 }
 
 export interface SitePhoto {
@@ -151,6 +167,7 @@ export interface ProjectMembership {
   email: string;
   name: string;
   role: string;
+  feature_permissions?: FeaturePermissions | null;
 }
 
 export interface DailyResourceUsage {
@@ -211,7 +228,7 @@ export interface UploadedDocument {
   id: string;
   project_id?: string;
   name: string;
-  category: 'payment_slip' | 'contract' | 'report' | 'drawing' | 'photo' | 'other';
+  category: 'payment_slip' | 'ipc_claim' | 'ipc_certificate' | 'ipc_payment' | 'compliance_report' | 'test_report' | 'contract' | 'report' | 'drawing' | 'photo' | 'other';
   storage_path?: string;
   url?: string;
   linked_record_id?: string;
@@ -252,6 +269,12 @@ export interface HandoverItem {
   status: 'pending' | 'approved';
   approved_by: string | null;
   approved_date: string | null;
+  responsible_party?: string | null;
+  due_date?: string | null;
+  remarks?: string | null;
+  completion_remarks?: string | null;
+  evidence_document_path?: string | null;
+  evidence_document_url?: string | null;
 }
 
 export interface DefectEntry {
@@ -262,6 +285,16 @@ export interface DefectEntry {
   responsible_team: string;
   rectification_deadline: string;
   status: 'pending' | 'rectified' | 'verified';
+  location?: string | null;
+  severity?: 'low' | 'medium' | 'high' | 'critical';
+  activity_id?: string | null;
+  reported_document_path?: string | null;
+  reported_document_url?: string | null;
+  closure_document_path?: string | null;
+  closure_document_url?: string | null;
+  closure_remarks?: string | null;
+  verified_by?: string | null;
+  verified_date?: string | null;
 }
 
 export interface IpcEntry {
@@ -277,6 +310,36 @@ export interface IpcEntry {
   submitted_date: string;
   certified_date?: string | null;
   paid_date?: string | null;
+  billing_period_start?: string | null;
+  billing_period_end?: string | null;
+  invoice_reference?: string | null;
+  claim_remarks?: string | null;
+  claim_document_path?: string | null;
+  claim_document_url?: string | null;
+  certificate_reference?: string | null;
+  certified_by?: string | null;
+  certification_remarks?: string | null;
+  certificate_document_path?: string | null;
+  certificate_document_url?: string | null;
+}
+
+export interface IpcPayment {
+  id: string;
+  project_id?: string;
+  ipc_id: string;
+  payment_date: string;
+  amount: number;
+  tax_deducted: number;
+  payment_method: 'bank_transfer' | 'cheque' | 'cash' | 'other';
+  bank_reference: string;
+  paid_by?: string;
+  received_in_account?: string;
+  remarks?: string;
+  proof_storage_path?: string;
+  proof_url?: string;
+  recorded_by?: string;
+  recorded_by_email?: string;
+  created_at?: string;
 }
 
 const MOCK_IPC: IpcEntry[] = [
@@ -309,6 +372,13 @@ const MOCK_IPC: IpcEntry[] = [
     paid_date: null,
   }
 ];
+
+const MOCK_IPC_PAYMENTS: IpcPayment[] = [{
+  id: 'ipc-payment-1', project_id: 'proj-101', ipc_id: 'ipc-1', payment_date: '2025-04-02',
+  amount: 20200000, tax_deducted: 0, payment_method: 'bank_transfer', bank_reference: 'NIMB-IPC1-0402',
+  paid_by: 'Employer', received_in_account: 'Project Operating Account', remarks: 'First IPC settlement.',
+  recorded_by: 'Sarita Poudel', recorded_by_email: 'accountant@buildtrack.com', created_at: '2025-04-02T10:00:00Z',
+}];
 
 // ==========================================
 // MOCK DATA GENERATOR FOR LOCAL STORAGE FALLBACK
@@ -1136,6 +1206,7 @@ function ensureDemoProjects() {
   mergeSeedRows('bt_design_packages', MOCK_DESIGN_PACKAGES, DEMO_DESIGN_PACKAGES);
   mergeSeedRows('bt_budget_heads', MOCK_BUDGET_HEADS, DEMO_BUDGET_HEADS);
   mergeSeedRows('bt_ipc', MOCK_IPC, DEMO_IPCS);
+  mergeSeedRows('bt_ipc_payments', MOCK_IPC_PAYMENTS, []);
   mergeSeedRows('bt_qaqc', MOCK_QA_QC, DEMO_QA_QC);
   mergeSeedRows('bt_safety', MOCK_SAFETY, DEMO_SAFETY);
   mergeSeedRows('bt_variations_claims', MOCK_VARIATIONS_CLAIMS, DEMO_CLAIMS);
@@ -1180,7 +1251,7 @@ const CLOUD_SYNC_KEYS = new Set([
   'bt_projects_list', 'bt_wbs', 'bt_activities', 'bt_dependencies', 'bt_design_packages',
   'bt_design_comments',
   'bt_daily_reports', 'bt_daily_work_items', 'bt_material_logs', 'bt_budget_heads',
-  'bt_subcontractors', 'bt_ipc', 'bt_qaqc', 'bt_safety', 'bt_variations_claims',
+  'bt_subcontractors', 'bt_ipc', 'bt_ipc_payments', 'bt_qaqc', 'bt_safety', 'bt_variations_claims',
   'bt_risks', 'bt_handover', 'bt_defects', 'bt_finance_rows', 'bt_documents',
   'bt_procurement_orders', 'bt_store_items', 'bt_contract_obligations',
   'bt_daily_expenses', 'bt_daily_resource_usage', 'bt_employee_visits', 'bt_employees',
@@ -1192,7 +1263,7 @@ const pendingCloudSyncKeys = new Set<string>();
 const CLOUD_SYNC_ORDER = [
   'bt_projects_list', 'bt_wbs', 'bt_activities', 'bt_dependencies', 'bt_design_packages',
   'bt_design_comments', 'bt_daily_reports', 'bt_daily_work_items', 'bt_material_logs',
-  'bt_budget_heads', 'bt_subcontractors', 'bt_ipc', 'bt_qaqc', 'bt_safety',
+  'bt_budget_heads', 'bt_subcontractors', 'bt_ipc', 'bt_ipc_payments', 'bt_qaqc', 'bt_safety',
   'bt_variations_claims', 'bt_risks', 'bt_handover', 'bt_defects', 'bt_finance_rows',
   'bt_documents', 'bt_procurement_orders', 'bt_store_items', 'bt_contract_obligations',
   'bt_daily_expenses', 'bt_daily_resource_usage', 'bt_employee_visits', 'bt_employees',
@@ -1208,6 +1279,8 @@ const SYNC_LABELS: Record<string, { module: string; action: string }> = {
   bt_daily_work_items: { module: 'Daily Site Reporting', action: 'Completed work updated' },
   bt_material_logs: { module: 'Daily Site Reporting', action: 'Material log updated' },
   bt_daily_expenses: { module: 'Finance', action: 'Daily expense updated' },
+  bt_ipc: { module: 'Finance', action: 'IPC record updated' },
+  bt_ipc_payments: { module: 'Finance', action: 'IPC payment recorded' },
   bt_daily_resource_usage: { module: 'Resources', action: 'Resource usage updated' },
   bt_employee_visits: { module: 'Employees', action: 'Site visit updated' },
   bt_employees: { module: 'Employees', action: 'Employee record updated' },
@@ -1305,6 +1378,7 @@ async function syncLocalKeyToCloud(key: string) {
     bt_budget_heads: ['budget_heads', 'bt_budget_heads'],
     bt_subcontractors: ['subcontractor_packages', 'bt_subcontractors'],
     bt_ipc: ['ipc_submissions', 'bt_ipc'],
+    bt_ipc_payments: ['ipc_payments', 'bt_ipc_payments'],
     bt_qaqc: ['qa_qc_inspections', 'bt_qaqc'],
     bt_safety: ['safety_logs', 'bt_safety'],
     bt_variations_claims: ['variations_and_claims', 'bt_variations_claims'],
@@ -1375,6 +1449,7 @@ function cloudPullMappings(): Array<[string, string]> {
     ['budget_heads', 'bt_budget_heads'],
     ['subcontractor_packages', 'bt_subcontractors'],
     ['ipc_submissions', 'bt_ipc'],
+    ['ipc_payments', 'bt_ipc_payments'],
     ['qa_qc_inspections', 'bt_qaqc'],
     ['safety_logs', 'bt_safety'],
     ['variations_and_claims', 'bt_variations_claims'],
@@ -1407,7 +1482,7 @@ async function pullProjectSetFromCloud(projectIds: string[], replaceWorkspace: b
   try {
     const results = await Promise.all([
       client.from('projects').select('*').in('id', projectIds),
-      client.from('project_users').select('id,project_id,auth_user_id,email,name,role').in('project_id', projectIds),
+      client.from('project_users').select('id,project_id,auth_user_id,email,name,role,feature_permissions').in('project_id', projectIds),
       client.from('finance_rows').select('*').in('project_id', projectIds),
       ...mappings.map(([table]) => client.from(table).select('*').in('project_id', projectIds)),
     ]);
@@ -1495,7 +1570,7 @@ export const storage = {
     if (!session?.user) return null;
     const { data: memberships } = await client
       .from('project_users')
-      .select('id,project_id,auth_user_id,name,email,role')
+      .select('id,project_id,auth_user_id,name,email,role,feature_permissions')
       .eq('auth_user_id', session.user.id)
       .order('created_at', { ascending: true });
     if (!memberships?.length) {
@@ -1511,7 +1586,7 @@ export const storage = {
     localStorage.setItem('bt_project_memberships', JSON.stringify(memberships));
     const activeProjectId = localStorage.getItem('bt_active_project_id');
     const profile = memberships.find(item => item.project_id === activeProjectId) || memberships[0];
-    return { name: profile.name, email: profile.email, role: profile.role };
+    return { name: profile.name, email: profile.email, role: profile.role, feature_permissions: profile.feature_permissions || null };
   },
 
   getVerifiedLocalDemoUser,
@@ -1532,7 +1607,7 @@ export const storage = {
     if (!session) return { ok: false, message: 'No cloud session is active.' };
     const { data: memberships, error } = await client
       .from('project_users')
-      .select('id,project_id,auth_user_id,email,name,role,created_at')
+      .select('id,project_id,auth_user_id,email,name,role,feature_permissions,created_at')
       .eq('auth_user_id', session.user.id)
       .order('created_at', { ascending: true });
     if (error) return { ok: false, message: error.message };
@@ -1563,7 +1638,7 @@ export const storage = {
     return {
       ok: true,
       message: pulled.message,
-      user: { name: profile.name, email: profile.email, role: profile.role },
+      user: { name: profile.name, email: profile.email, role: profile.role, feature_permissions: profile.feature_permissions || null },
       projectIds,
     };
   },
@@ -1596,7 +1671,7 @@ export const storage = {
       if (error) throw error;
       const { data: profile } = await client
         .from('project_users')
-        .select('id,project_id,auth_user_id,name,email,role')
+        .select('id,project_id,auth_user_id,name,email,role,feature_permissions')
         .eq('auth_user_id', data.user.id)
         .limit(1)
         .maybeSingle();
@@ -1618,7 +1693,7 @@ export const storage = {
       }
       return {
         local: false,
-        user: { name: profile.name, email: profile.email, role: profile.role },
+        user: { name: profile.name, email: profile.email, role: profile.role, feature_permissions: profile.feature_permissions || null },
         session: data.session
       };
     } catch (error) {
@@ -1638,6 +1713,32 @@ export const storage = {
     if (error) throw error;
   },
 
+  requestPasswordReset: async (email: string) => {
+    const client = getSupabaseClient();
+    if (!client) throw new Error('Password recovery requires the managed cloud workspace.');
+    const normalizedEmail = resolveLoginIdentifier(email.trim());
+    if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) throw new Error('Enter the email address assigned to your BuildTrack account.');
+    const { error } = await client.auth.resetPasswordForEmail(normalizedEmail, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    if (error) throw error;
+    return { ok: true };
+  },
+
+  updatePassword: async (password: string) => {
+    const client = getSupabaseClient();
+    if (!client) throw new Error('Password recovery requires the managed cloud workspace.');
+    if (password.length < 10 || !/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password)) {
+      throw new Error('Use at least 10 characters with upper-case, lower-case and a number.');
+    }
+    const { data: { session } } = await client.auth.getSession();
+    if (!session) throw new Error('This recovery link is invalid or expired. Request a new one from the sign-in page.');
+    const { error } = await client.auth.updateUser({ password });
+    if (error) throw error;
+    await client.auth.signOut();
+    return { ok: true };
+  },
+
   signOut: async () => {
     const client = getSupabaseClient();
     if (client) await client.auth.signOut();
@@ -1645,7 +1746,7 @@ export const storage = {
     clearWorkspaceCache();
   },
 
-  onAuthStateChange: (callback: (user: { name: string; email: string; role: string } | null) => void) => {
+  onAuthStateChange: (callback: (user: { name: string; email: string; role: string; feature_permissions?: FeaturePermissions | null } | null) => void) => {
     const client = getSupabaseClient();
     if (!client) return () => {};
     const { data } = client.auth.onAuthStateChange((_event, session) => {
@@ -1656,13 +1757,13 @@ export const storage = {
       window.setTimeout(() => {
         void client
           .from('project_users')
-          .select('name,email,role')
+          .select('name,email,role,feature_permissions')
           .eq('auth_user_id', session.user.id)
           .limit(1)
           .maybeSingle()
           .then(async ({ data: profile }) => {
             if (profile) {
-              callback({ name: profile.name, email: profile.email, role: profile.role });
+              callback({ name: profile.name, email: profile.email, role: profile.role, feature_permissions: profile.feature_permissions || null });
               return;
             }
             const { data: platformAdmin } = await client
@@ -1749,6 +1850,7 @@ export const storage = {
     localStorage.removeItem('bt_budget_heads');
     localStorage.removeItem('bt_subcontractors');
     localStorage.removeItem('bt_ipc');
+    localStorage.removeItem('bt_ipc_payments');
     localStorage.removeItem('bt_qaqc');
     localStorage.removeItem('bt_safety');
     localStorage.removeItem('bt_variations_claims');
@@ -1806,7 +1908,7 @@ export const storage = {
     if (client && session) {
       const { data: sourceMembership, error: membershipError } = await client
         .from('project_users')
-        .select('name,email,role')
+        .select('name,email,role,feature_permissions')
         .eq('project_id', sourceProjectId)
         .eq('auth_user_id', session.user.id)
         .maybeSingle();
@@ -1823,6 +1925,7 @@ export const storage = {
         email: sourceMembership.email,
         name: sourceMembership.name,
         role: sourceMembership.role,
+        feature_permissions: sourceMembership.feature_permissions || {},
       });
       if (directoryError) {
         await client.from('projects').delete().eq('id', newProject.id);
@@ -1900,7 +2003,7 @@ export const storage = {
     if (getActiveProjectId() === projectId) setLocalItem('bt_active_project_id', (list[0] || MOCK_PROJECT).id);
     [
       'bt_wbs','bt_activities','bt_dependencies','bt_design_packages','bt_design_comments','bt_daily_reports',
-      'bt_daily_work_items','bt_material_logs','bt_budget_heads','bt_subcontractors','bt_ipc','bt_qaqc','bt_safety',
+      'bt_daily_work_items','bt_material_logs','bt_budget_heads','bt_subcontractors','bt_ipc','bt_ipc_payments','bt_qaqc','bt_safety',
       'bt_variations_claims','bt_risks','bt_handover','bt_defects','bt_documents','bt_procurement_orders',
       'bt_store_items','bt_contract_obligations','bt_site_photos','bt_daily_expenses','bt_daily_resource_usage',
       'bt_employee_visits','bt_employees','bt_uploaded_documents','bt_inventory_events','bt_notifications'
@@ -1913,11 +2016,9 @@ export const storage = {
   // 2. Users
   getUsers: () => {
     const users = getLocalItem<any[]>('bt_users', MOCK_USERS);
-    const uniqueUsers = [...new Map(users.map(user => [user.email.toLowerCase(), user])).values()];
-    if (typeof window !== 'undefined' && uniqueUsers.length !== users.length) {
-      localStorage.setItem('bt_users', JSON.stringify(uniqueUsers));
-    }
-    return uniqueUsers;
+    const projectId = getActiveProjectId();
+    const projectUsers = users.filter(user => !user.project_id || user.project_id === projectId);
+    return [...new Map(projectUsers.map(user => [`${user.project_id || projectId}:${user.email.toLowerCase()}`, user])).values()];
   },
   addUser: (user: any) => {
     const users = storage.getUsers();
@@ -1936,6 +2037,17 @@ export const storage = {
       });
     }
     return newUser;
+  },
+
+  updateCachedProjectUser: (user: any) => {
+    const projectId = user.project_id || getActiveProjectId();
+    const users = getLocalItem<any[]>('bt_users', MOCK_USERS);
+    const index = users.findIndex(item => (item.project_id || projectId) === projectId && item.email.toLowerCase() === user.email.toLowerCase());
+    const next = { ...(index >= 0 ? users[index] : {}), ...user, project_id: projectId };
+    if (index >= 0) users[index] = next;
+    else users.push(next);
+    if (typeof window !== 'undefined') localStorage.setItem('bt_users', JSON.stringify(users));
+    return next;
   },
 
   // 3. WBS (filtered by project)
@@ -2269,6 +2381,13 @@ export const storage = {
     const ipcs = getLocalItem('bt_ipc', MOCK_IPC);
     return ipcs.filter(i => i.project_id === projId);
   },
+
+  getIPCPayments: (ipcId?: string): IpcPayment[] => {
+    const projectId = getActiveProjectId();
+    return getLocalItem<IpcPayment[]>('bt_ipc_payments', MOCK_IPC_PAYMENTS)
+      .filter(item => item.project_id === projectId && (!ipcId || item.ipc_id === ipcId))
+      .sort((left, right) => right.payment_date.localeCompare(left.payment_date));
+  },
   
   submitIPC: (ipc: any) => {
     const projId = getActiveProjectId();
@@ -2291,17 +2410,35 @@ export const storage = {
     return newIpc;
   },
 
-  certifyIPC: (id: string, certAmount: number, retention: number, advance: number) => {
+  certifyIPC: (
+    id: string,
+    certification: number | {
+      certified_amount: number;
+      retention_deducted: number;
+      advance_recovered: number;
+      certified_date?: string;
+      certificate_reference?: string;
+      certified_by?: string;
+      certification_remarks?: string;
+      certificate_document_path?: string;
+      certificate_document_url?: string;
+    },
+    legacyRetention = 0,
+    legacyAdvance = 0,
+  ) => {
     const ipcs = getLocalItem('bt_ipc', MOCK_IPC);
     const idx = ipcs.findIndex(i => i.id === id);
     if (idx !== -1) {
-      ipcs[idx].certified_amount = certAmount;
-      ipcs[idx].retention_deducted = retention;
-      ipcs[idx].advance_recovered = advance;
+      const details = typeof certification === 'number'
+        ? { certified_amount: certification, retention_deducted: legacyRetention, advance_recovered: legacyAdvance }
+        : certification;
+      ipcs[idx] = { ...ipcs[idx], ...details };
       ipcs[idx].status = 'certified';
-      ipcs[idx].certified_date = new Date().toISOString().split('T')[0];
+      ipcs[idx].certified_date = details.certified_date || new Date().toISOString().split('T')[0];
       setLocalItem('bt_ipc', ipcs);
+      return ipcs[idx];
     }
+    return null;
   },
 
   payIPC: (id: string, paidAmount: number) => {
@@ -2313,6 +2450,55 @@ export const storage = {
       ipcs[idx].paid_date = new Date().toISOString().split('T')[0];
       setLocalItem('bt_ipc', ipcs);
     }
+  },
+
+  recordIPCPayment: async (
+    payment: Omit<IpcPayment, 'id' | 'project_id' | 'proof_storage_path' | 'proof_url' | 'created_at'> & { id?: string },
+    proof?: File | null,
+  ) => {
+    const projectId = getActiveProjectId();
+    const id = payment.id || `ipc-payment-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    let proof_storage_path = '';
+    let proof_url = '';
+    if (proof) {
+      const uploaded = await storage.uploadProjectDocument(
+        proof,
+        'ipc_payment',
+        payment.ipc_id,
+        payment.recorded_by || 'Finance User',
+        `IPC payment ${payment.bank_reference}`,
+      );
+      proof_storage_path = uploaded.storage_path || '';
+      proof_url = uploaded.url || '';
+    }
+    const record: IpcPayment = {
+      ...payment,
+      id,
+      project_id: projectId,
+      proof_storage_path,
+      proof_url,
+      created_at: new Date().toISOString(),
+    };
+    const rows = getLocalItem<IpcPayment[]>('bt_ipc_payments', MOCK_IPC_PAYMENTS);
+    const existing = rows.findIndex(item => item.id === id);
+    if (existing >= 0) rows[existing] = record;
+    else rows.push(record);
+    setLocalItem('bt_ipc_payments', rows);
+
+    const ipcs = getLocalItem<IpcEntry[]>('bt_ipc', MOCK_IPC);
+    const ipcIndex = ipcs.findIndex(item => item.id === payment.ipc_id);
+    if (ipcIndex >= 0) {
+      const totalPaid = rows.filter(item => item.ipc_id === payment.ipc_id).reduce((sum, item) => sum + Number(item.amount || 0), 0);
+      const netPayable = Math.max(0, Number(ipcs[ipcIndex].certified_amount || 0) - Number(ipcs[ipcIndex].retention_deducted || 0) - Number(ipcs[ipcIndex].advance_recovered || 0));
+      ipcs[ipcIndex] = {
+        ...ipcs[ipcIndex],
+        paid_amount: totalPaid,
+        paid_date: rows.filter(item => item.ipc_id === payment.ipc_id).map(item => item.payment_date).sort().at(-1) || null,
+        status: totalPaid >= netPayable ? 'paid' : 'partially_paid',
+      };
+      setLocalItem('bt_ipc', ipcs);
+    }
+    return record;
   },
 
   // 11. QAQC tests (filtered by project)
@@ -2412,6 +2598,30 @@ export const storage = {
     const list = getLocalItem('bt_handover', MOCK_HANDOVER);
     return list.filter(h => h.project_id === projId || !h.project_id); // Fallback for baseline
   },
+
+  addHandoverItem: (item: Omit<HandoverItem, 'id' | 'project_id' | 'status' | 'approved_by' | 'approved_date'>) => {
+    const list = getLocalItem<HandoverItem[]>('bt_handover', MOCK_HANDOVER);
+    const record: HandoverItem = {
+      ...item,
+      id: `handover-${Date.now()}`,
+      project_id: getActiveProjectId(),
+      status: 'pending',
+      approved_by: null,
+      approved_date: null,
+    };
+    list.push(record);
+    setLocalItem('bt_handover', list);
+    return record;
+  },
+
+  completeHandoverItem: (id: string, completion: Partial<HandoverItem>) => {
+    const list = getLocalItem<HandoverItem[]>('bt_handover', MOCK_HANDOVER);
+    const index = list.findIndex(item => item.id === id);
+    if (index < 0) return null;
+    list[index] = { ...list[index], ...completion, status: 'approved' };
+    setLocalItem('bt_handover', list);
+    return list[index];
+  },
   
   toggleHandoverItem: (id: string, approvedBy: string) => {
     const list = getLocalItem('bt_handover', MOCK_HANDOVER);
@@ -2440,11 +2650,11 @@ export const storage = {
     return newDefect;
   },
 
-  updateDefectStatus: (id: string, status: 'pending' | 'rectified' | 'verified') => {
+  updateDefectStatus: (id: string, status: 'pending' | 'rectified' | 'verified', updates: Partial<DefectEntry> = {}) => {
     const list = getLocalItem('bt_defects', MOCK_DEFECTS);
     const idx = list.findIndex(d => d.id === id);
     if (idx !== -1) {
-      list[idx].status = status;
+      list[idx] = { ...list[idx], ...updates, status };
       setLocalItem('bt_defects', list);
     }
   },
@@ -2662,6 +2872,17 @@ export const storage = {
     return record;
   },
 
+  getPrivateDocumentUrl: async (storagePath: string, category: UploadedDocument['category'] = 'other') => {
+    if (!storagePath) return '';
+    if (storagePath.startsWith('google-drive:')) return '';
+    const client = getSupabaseClient();
+    if (!client) return '';
+    const bucket = category === 'payment_slip' ? 'payment-slips' : 'project-documents';
+    const { data, error } = await client.storage.from(bucket).createSignedUrl(storagePath, 60);
+    if (error) throw new Error(error.message);
+    return data.signedUrl;
+  },
+
   getDailyResourceUsage: (): DailyResourceUsage[] => {
     const projectId = getActiveProjectId();
     return getLocalItem<DailyResourceUsage[]>('bt_daily_resource_usage', []).filter(item => item.project_id === projectId);
@@ -2868,6 +3089,7 @@ export const storage = {
       ['budget_heads', storage.getBudgetHeads()],
       ['subcontractor_packages', storage.getSubcontractors()],
       ['ipc_submissions', storage.getIPCs()],
+      ['ipc_payments', storage.getIPCPayments()],
       ['qa_qc_inspections', storage.getQAQC()],
       ['safety_logs', storage.getSafetyLogs()],
       ['variations_and_claims', storage.getClaims()],
@@ -2896,7 +3118,7 @@ export const storage = {
       'daily_work_items','material_logs','daily_reports','design_comments','design_packages',
       'activity_dependencies','qa_qc_inspections','activities','wbs_items','finance_rows','document_register',
       'procurement_orders','store_items','contract_obligations','budget_heads','subcontractor_packages',
-      'daily_resource_usage','employee_visits','daily_expenses','ipc_submissions','safety_logs','variations_and_claims','risk_register','handover_checklists','defects_liability'
+      'daily_resource_usage','employee_visits','daily_expenses','ipc_payments','ipc_submissions','safety_logs','variations_and_claims','risk_register','handover_checklists','defects_liability'
       ,'employee_profiles','uploaded_documents','inventory_events','app_notifications'
     ];
     for (const table of deleteOrder) {

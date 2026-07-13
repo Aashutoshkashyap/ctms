@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { SitePhoto, storage } from '../lib/storage';
+import { formatBsDateTime } from '../lib/nepaliDate';
 
 export default function EvidenceVault({ projectId, role }: { projectId: string; role: string }) {
   const requestKey = `${projectId}:${role}`;
@@ -25,7 +26,7 @@ export default function EvidenceVault({ projectId, role }: { projectId: string; 
       photos.length === 0 ? <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-slate-500">No evidence has been uploaded for this project yet.</div> :
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{photos.map(photo => <figure key={photo.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         {photo.url ? <img src={photo.url} alt={photo.caption || photo.name} className="h-56 w-full object-cover" /> : <div className="flex h-56 items-center justify-center bg-slate-100 text-slate-500">Protected image unavailable</div>}
-        <figcaption className="space-y-1 p-4"><div className="flex justify-between gap-2"><b className="text-slate-900">{photo.caption || photo.name}</b><span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold capitalize text-blue-700">{photo.evidence_type || 'progress'}</span></div><div className="text-xs text-slate-500">Uploaded by {photo.uploaded_by || 'Site team'} · {new Date(photo.captured_at).toLocaleString()}</div></figcaption>
+        <figcaption className="space-y-1 p-4"><div className="flex justify-between gap-2"><b className="text-slate-900">{photo.caption || photo.name}</b><span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold capitalize text-blue-700">{photo.evidence_type || 'progress'}</span></div><div className="text-xs text-slate-500">Uploaded by {photo.uploaded_by || 'Site team'} · {formatBsDateTime(photo.captured_at)}</div></figcaption>
       </figure>)}</div>}
   </div>;
 }

@@ -21,7 +21,7 @@ export default function BudgetDashboard({
   const [editActualCost, setEditActualCost] = useState(0);
 
   const selectedBdg = budgetHeads.find(b => b.id === selectedBdgId);
-  const isEditable = ['super_admin', 'project_manager', 'accountant', 'qs_billing_engineer'].includes(userRole);
+  const isEditable = ['project_director', 'project_manager', 'accountant', 'qs_billing_engineer'].includes(userRole);
 
   const handleStartEdit = (bh: any) => {
     setSelectedBdgId(bh.id);
@@ -73,19 +73,20 @@ export default function BudgetDashboard({
 
       {/* Budget Heads list */}
       <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-5 shadow-lg space-y-4">
-        <h3 className="text-slate-200 text-sm font-semibold">Project Cost & Budget Breakdown</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
+        <div><h3 className="text-slate-200 text-sm font-semibold">Project Cost & Budget Breakdown</h3><p className="mt-1 text-xs text-slate-500">Amounts are in NPR. On smaller screens, scroll horizontally; BOQ item and budget head remain visible.</p></div>
+        <div className="overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200">
+          <table className="budget-table w-full min-w-[1180px] table-fixed text-left border-collapse text-xs">
+            <colgroup><col className="w-24"/><col className="w-64"/><col className="w-36"/><col className="w-36"/><col className="w-36"/><col className="w-36"/><col className="w-36"/><col className="w-36"/>{isEditable&&<col className="w-24"/>}</colgroup>
             <thead>
               <tr className="border-b border-slate-700 text-slate-400 font-semibold">
-                <th className="pb-3">WBS</th>
+                <th className="pb-3">BOQ Item</th>
                 <th className="pb-3">Budget Head Name</th>
-                <th className="pb-3 text-right">Contract Value</th>
-                <th className="pb-3 text-right">Internal Budget</th>
-                <th className="pb-3 text-right">Actual Cost</th>
-                <th className="pb-3 text-right">Committed Cost</th>
-                <th className="pb-3 text-right">Forecast Cost</th>
-                <th className="pb-3 text-right">Projected Margin</th>
+                <th className="pb-3 text-right">Contract Value (NPR)</th>
+                <th className="pb-3 text-right">Internal Budget (NPR)</th>
+                <th className="pb-3 text-right">Actual Cost (NPR)</th>
+                <th className="pb-3 text-right">Committed (NPR)</th>
+                <th className="pb-3 text-right">Forecast (NPR)</th>
+                <th className="pb-3 text-right">Margin (NPR)</th>
                 {isEditable && <th className="pb-3 text-right pr-2">Action</th>}
               </tr>
             </thead>

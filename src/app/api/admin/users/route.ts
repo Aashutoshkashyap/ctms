@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
-import { PROJECT_ROLES } from '../../../../lib/permissions';
+import { buildDefaultPermissions, DIRECTOR_MANAGED_FEATURES, PROJECT_ROLES } from '../../../../lib/permissions';
+import type { Feature, FeaturePermissions, PermissionLevel } from '../../../../lib/permissions';
 import { getClientIp, rateLimit, rateLimitResponse } from '../../../../lib/server/security';
 
 export async function POST(request: Request) {
@@ -24,14 +25,20 @@ export async function POST(request: Request) {
     email?: string;
     role?: string;
     projectId?: string;
+    temporaryPassword?: string;
+    featurePermissions?: FeaturePermissions;
   } | null;
   const name = body?.name?.trim();
   const email = body?.email?.trim().toLowerCase();
   const role = body?.role;
   const projectId = body?.projectId;
+  const requestedPassword = body?.temporaryPassword || '';
 
   if (!name || !email || !role || role === 'super_admin' || !projectId || !PROJECT_ROLES.includes(role as typeof PROJECT_ROLES[number])) {
     return Response.json({ error: 'Name, email, project and a valid role are required.' }, { status: 400 });
+  }
+  if (requestedPassword && (requestedPassword.length < 10 || !/[a-z]/.test(requestedPassword) || !/[A-Z]/.test(requestedPassword) || !/\d/.test(requestedPassword))) {
+    return Response.json({ error: 'The temporary password must be at least 10 characters and include upper-case, lower-case and a number.' }, { status: 400 });
   }
 
   const admin = createClient(url, secretKey, {
@@ -54,6 +61,9 @@ export async function POST(request: Request) {
   if (membership.role === 'business_admin' && ['project_director', 'business_admin'].includes(role)) {
     return Response.json({ error: 'A Business Admin cannot grant Director or administrator access.' }, { status: 403 });
   }
+  const featurePermissions = membership.role === 'project_director'
+    ? sanitizeFeaturePermissions(body?.featurePermissions || buildDefaultPermissions(role))
+    : buildDefaultPermissions(role);
 
   const { data: projectRecord, error: projectError } = await admin
     .from('projects')
@@ -108,7 +118,8 @@ export async function POST(request: Request) {
       email,
       name,
       role,
-    }, { onConflict: 'project_id,email' }).select('id,auth_user_id,project_id,email,name,role').single();
+      feature_permissions: featurePermissions,
+    }, { onConflict: 'project_id,email' }).select('id,auth_user_id,project_id,email,name,role,feature_permissions').single();
     if (assignmentError || !assigned) {
       return Response.json({ error: assignmentError?.message || 'Could not assign the existing employee.' }, { status: 400 });
     }
@@ -131,7 +142,7 @@ export async function POST(request: Request) {
     return Response.json({ error: `Employee seat limit reached (${usedSeats}/${organization.seat_limit}).` }, { status: 409 });
   }
 
-  const temporaryPassword = `BT-${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}!a9`;
+  const temporaryPassword = requestedPassword || `BT-${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}!a9`;
   const { data: created, error: createError } = await admin.auth.admin.createUser({
     email,
     password: temporaryPassword,
@@ -151,7 +162,8 @@ export async function POST(request: Request) {
     project_id: projectId,
     email,
     name,
-    role
+    role,
+    feature_permissions: featurePermissions,
   }, { onConflict: 'project_id,email' });
   if (profileError) {
     await admin.auth.admin.deleteUser(created.user.id);
@@ -176,7 +188,45 @@ export async function POST(request: Request) {
   }
 
   return Response.json({
-    user: { id: created.user.id, auth_user_id: created.user.id, name, email, role },
+    user: { id: created.user.id, auth_user_id: created.user.id, project_id: projectId, name, email, role, feature_permissions: featurePermissions },
     temporaryPassword
   });
+}
+
+const permissionValues = new Set<PermissionLevel>(['none', 'read', 'write']);
+const managedFeatures = new Set(DIRECTOR_MANAGED_FEATURES.map(item => item.feature));
+
+function sanitizeFeaturePermissions(input: FeaturePermissions) {
+  return Object.fromEntries(Object.entries(input).filter(([feature, value]) => managedFeatures.has(feature as Feature) && permissionValues.has(value as PermissionLevel))) as FeaturePermissions;
+}
+
+export async function PATCH(request: Request) {
+  const ip = getClientIp(request);
+  const limit = rateLimit({ key: `admin-users-update:${ip}`, limit: 30, windowMs: 60_000 });
+  if (!limit.allowed) return rateLimitResponse(limit.resetAt);
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const secretKey = process.env.SUPABASE_SECRET_KEY;
+  const authorization = request.headers.get('authorization');
+  const accessToken = authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
+  if (!url || !secretKey) return Response.json({ error: 'Server-side Supabase administration is not configured.' }, { status: 503 });
+  if (!accessToken) return Response.json({ error: 'Authentication is required.' }, { status: 401 });
+  const body = await request.json().catch(() => null) as { projectId?: string; membershipId?: string; role?: string; featurePermissions?: FeaturePermissions } | null;
+  if (!body?.projectId || !body.membershipId || !body.role || !PROJECT_ROLES.includes(body.role as typeof PROJECT_ROLES[number]) || ['super_admin','project_director','business_admin'].includes(body.role)) {
+    return Response.json({ error: 'Project, staff membership and a staff role are required.' }, { status: 400 });
+  }
+  const admin = createClient(url, secretKey, { auth: { autoRefreshToken: false, persistSession: false } });
+  const { data: requester, error: requesterError } = await admin.auth.getUser(accessToken);
+  if (requesterError || !requester.user) return Response.json({ error: 'Your session could not be verified.' }, { status: 401 });
+  const { data: director } = await admin.from('project_users').select('role').eq('project_id', body.projectId).eq('auth_user_id', requester.user.id).maybeSingle();
+  if (director?.role !== 'project_director') return Response.json({ error: 'Only the Project Director can change staff feature access.' }, { status: 403 });
+  const { data: target } = await admin.from('project_users').select('id,role,auth_user_id').eq('id', body.membershipId).eq('project_id', body.projectId).maybeSingle();
+  if (!target || ['project_director','business_admin','super_admin'].includes(target.role) || target.auth_user_id === requester.user.id) {
+    return Response.json({ error: 'Director and administrator memberships cannot be changed from the staff access editor.' }, { status: 403 });
+  }
+  const { data, error } = await admin.from('project_users').update({
+    role: body.role,
+    feature_permissions: sanitizeFeaturePermissions(body.featurePermissions || buildDefaultPermissions(body.role)),
+  }).eq('id', target.id).select('id,auth_user_id,project_id,email,name,role,feature_permissions').single();
+  if (error) return Response.json({ error: error.message }, { status: 400 });
+  return Response.json({ user: data });
 }

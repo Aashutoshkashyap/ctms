@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { Activity } from '../lib/cpm';
 import { DailyResourceUsage, EmployeeVisit, storage } from '../lib/storage';
 import { can } from '../lib/permissions';
+import BsDatePicker from './BsDatePicker';
+import { formatBsDate } from '../lib/nepaliDate';
 
 interface Props {
   projectId: string;
@@ -97,7 +99,7 @@ export default function OperationalControlDashboard({ projectId, role, userName,
     {showUsage && <form onSubmit={saveResource} className="rounded-xl border border-blue-200 bg-white p-5 shadow-sm">
       <h3 className="mb-4 font-bold text-slate-900">Daily equipment, manpower and completed-work input</h3>
       <div className="grid gap-3 md:grid-cols-4">
-        <Field label="Date"><input type="date" required value={resource.usage_date} onChange={e => setResource({ ...resource, usage_date: e.target.value })} /></Field>
+        <Field label="Date (BS)"><BsDatePicker required value={resource.usage_date} onChange={usage_date => setResource({ ...resource, usage_date })} /></Field>
         <Field label="Activity"><select value={resource.activity_id} onChange={e => setResource({ ...resource, activity_id: e.target.value })}>{activities.map(item => <option key={item.id} value={item.id}>{item.wbs_code} — {item.name}</option>)}</select></Field>
         <Field label="Site / Location"><input required value={resource.location} onChange={e => setResource({ ...resource, location: e.target.value })} /></Field>
         <Field label="Crew / Resource Name"><input value={resource.crew_name} onChange={e => setResource({ ...resource, crew_name: e.target.value })} /></Field>
@@ -122,7 +124,7 @@ export default function OperationalControlDashboard({ projectId, role, userName,
     {showVisit && <form onSubmit={saveVisit} className="rounded-xl border border-emerald-200 bg-white p-5 shadow-sm">
       <h3 className="mb-4 font-bold text-slate-900">Employee and site-visit tracking</h3>
       <div className="grid gap-3 md:grid-cols-4">
-        <Field label="Visit Date"><input type="date" required value={visit.visit_date} onChange={e => setVisit({ ...visit, visit_date: e.target.value })} /></Field>
+        <Field label="Visit Date (BS)"><BsDatePicker required value={visit.visit_date} onChange={visit_date => setVisit({ ...visit, visit_date })} /></Field>
         <Field label="Employee"><input required value={visit.employee_name} onChange={e => setVisit({ ...visit, employee_name: e.target.value })} /></Field>
         <Field label="Role / Team"><input required value={visit.employee_role} onChange={e => setVisit({ ...visit, employee_role: e.target.value })} /></Field>
         <Field label="Site Location"><input required value={visit.site_location} onChange={e => setVisit({ ...visit, site_location: e.target.value })} /></Field>
@@ -137,16 +139,16 @@ export default function OperationalControlDashboard({ projectId, role, userName,
 
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <h3 className="mb-3 font-bold text-slate-900">Fuel vs work and excavator efficiency comparison</h3>
-      <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-sm"><thead><tr>{['Date', 'Activity / Location', 'Manpower', 'Plant Hours', 'Fuel', 'Work Completed', 'Work / Litre', 'Excavator Hours', 'Excavator Output / Hr', 'Remarks'].map(title => <th key={title} className="border-b border-slate-200 p-2 text-left text-xs text-slate-500">{title}</th>)}</tr></thead>
+      <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-sm"><thead><tr>{['Date (BS)', 'Activity / Location', 'Manpower', 'Plant Hours', 'Fuel', 'Work Completed', 'Work / Litre', 'Excavator Hours', 'Excavator Output / Hr', 'Remarks'].map(title => <th key={title} className="border-b border-slate-200 p-2 text-left text-xs text-slate-500">{title}</th>)}</tr></thead>
         <tbody>{[...usage].sort((a, b) => b.usage_date.localeCompare(a.usage_date)).map(row => {
           const excavatorHours = Math.max(0, row.excavator_end_meter - row.excavator_start_meter);
-          return <tr key={row.id} className="border-b border-slate-100"><td className="p-2 font-mono">{row.usage_date}</td><td className="p-2"><b>{activities.find(item => item.id === row.activity_id)?.name || 'General works'}</b><div className="text-xs text-slate-500">{row.location} · {row.crew_name || 'Crew not named'}</div></td><td className="p-2">{row.manpower_skilled + row.manpower_unskilled}</td><td className="p-2"><b className="capitalize">{row.equipment_type || 'equipment'}</b><div className="text-xs text-slate-500">{row.equipment_name} · {row.equipment_hours}h · {row.machinery_day || 0} day</div></td><td className="p-2">{row.fuel_litres} L</td><td className="p-2">{row.work_quantity} {row.work_unit}</td><td className="p-2 font-bold text-blue-700">{row.fuel_litres ? (row.work_quantity / row.fuel_litres).toFixed(2) : '—'}</td><td className="p-2">{excavatorHours.toFixed(1)}</td><td className="p-2 font-bold text-emerald-700">{excavatorHours ? (row.excavator_output / excavatorHours).toFixed(2) : '—'}</td><td className="p-2 text-slate-600">{row.remarks || '—'}{canRecordResources&&<button onClick={()=>startEditUsage(row)} className="ml-3 font-bold text-blue-700">Edit</button>}</td></tr>;
+          return <tr key={row.id} className="border-b border-slate-100"><td className="p-2 font-mono">{formatBsDate(row.usage_date)}</td><td className="p-2"><b>{activities.find(item => item.id === row.activity_id)?.name || 'General works'}</b><div className="text-xs text-slate-500">{row.location} · {row.crew_name || 'Crew not named'}</div></td><td className="p-2">{row.manpower_skilled + row.manpower_unskilled}</td><td className="p-2"><b className="capitalize">{row.equipment_type || 'equipment'}</b><div className="text-xs text-slate-500">{row.equipment_name} · {row.equipment_hours}h · {row.machinery_day || 0} day</div></td><td className="p-2">{row.fuel_litres} L</td><td className="p-2">{row.work_quantity} {row.work_unit}</td><td className="p-2 font-bold text-blue-700">{row.fuel_litres ? (row.work_quantity / row.fuel_litres).toFixed(2) : '—'}</td><td className="p-2">{excavatorHours.toFixed(1)}</td><td className="p-2 font-bold text-emerald-700">{excavatorHours ? (row.excavator_output / excavatorHours).toFixed(2) : '—'}</td><td className="p-2 text-slate-600">{row.remarks || '—'}{canRecordResources&&<button onClick={()=>startEditUsage(row)} className="ml-3 font-bold text-blue-700">Edit</button>}</td></tr>;
         })}</tbody></table></div>
     </section>
 
     {canTrackEmployees && <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <h3 className="mb-3 font-bold text-slate-900">Employee movement and site visits</h3>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{[...visits].sort((a, b) => b.visit_date.localeCompare(a.visit_date)).map(row => <div key={row.id} className="rounded-lg border border-slate-200 p-3"><div className="flex justify-between"><b>{row.employee_name}</b><span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold capitalize text-blue-700">{row.status.replace('_', ' ')}</span></div><div className="mt-1 text-sm text-slate-600">{row.employee_role} · {row.site_location}</div><div className="mt-2 text-xs text-slate-500">{row.visit_date} · {row.check_in}–{row.check_out} · {row.purpose || 'General visit'}</div><button onClick={()=>startEditVisit(row)} className="mt-2 text-xs font-bold text-blue-700">Edit visit</button></div>)}</div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{[...visits].sort((a, b) => b.visit_date.localeCompare(a.visit_date)).map(row => <div key={row.id} className="rounded-lg border border-slate-200 p-3"><div className="flex justify-between"><b>{row.employee_name}</b><span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold capitalize text-blue-700">{row.status.replace('_', ' ')}</span></div><div className="mt-1 text-sm text-slate-600">{row.employee_role} · {row.site_location}</div><div className="mt-2 text-xs text-slate-500">{formatBsDate(row.visit_date)} · {row.check_in}–{row.check_out} · {row.purpose || 'General visit'}</div><button onClick={()=>startEditVisit(row)} className="mt-2 text-xs font-bold text-blue-700">Edit visit</button></div>)}</div>
     </section>}
   </div>;
 }

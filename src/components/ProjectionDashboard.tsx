@@ -3,7 +3,7 @@ import React from 'react';
 import { Activity } from '../lib/cpm';
 import { EVMMetrics } from '../lib/evm';
 import { calculateActivityRiskScore, RiskScoreDetails } from '../lib/evm';
-import { formatDate } from '../lib/cpm';
+import { formatBsDate } from '../lib/nepaliDate';
 
 interface ProjectionDashboardProps {
   project: any;
@@ -74,11 +74,11 @@ export default function ProjectionDashboard({
           <div className="space-y-2 text-xs">
             <div className="flex justify-between border-b border-slate-800 pb-1.5">
               <span className="text-slate-400">Contractual Completion:</span>
-              <span className="font-semibold text-slate-200">{formatDate(project.target_completion_date)}</span>
+              <span className="font-semibold text-slate-200">{formatBsDate(project.target_completion_date)}</span>
             </div>
             <div className="flex justify-between border-b border-slate-800 pb-1.5">
               <span className="text-slate-400">Current Forecast:</span>
-              <span className="font-semibold text-rose-400">{formatDate(calculatedFinish)}</span>
+              <span className="font-semibold text-rose-400">{formatBsDate(calculatedFinish)}</span>
             </div>
             <div className="flex justify-between pb-1">
               <span className="text-slate-400">Delay Deviation:</span>

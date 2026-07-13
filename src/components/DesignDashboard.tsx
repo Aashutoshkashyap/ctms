@@ -1,5 +1,6 @@
 // Design Management Dashboard Component (Page 5)
 import React, { useState } from 'react';
+import { formatBsDate } from '../lib/nepaliDate';
 
 interface DesignDashboardProps {
   designPackages: any[];
@@ -23,7 +24,7 @@ export default function DesignDashboard({
   const selectedPkg = designPackages.find(p => p.id === selectedPkgId);
   const comments = selectedPkg ? getComments(selectedPkg.id) : [];
 
-  const canEdit = ['super_admin', 'project_manager', 'design_coordinator'].includes(userRole);
+  const canEdit = ['project_director', 'project_manager', 'design_coordinator'].includes(userRole);
 
   const handleSelectPkg = (id: string) => {
     setSelectedPkgId(id);
@@ -151,7 +152,7 @@ export default function DesignDashboard({
                       <div key={c.id} className="border-b border-slate-850 pb-2 last:border-b-0 space-y-1">
                         <div className="flex justify-between text-[9px]">
                           <span className="font-semibold text-purple-400 capitalize">{c.commenter_name} ({c.commenter_role.replace(/_/g, ' ')})</span>
-                          <span className="text-slate-500">{new Date(c.created_at).toLocaleDateString()}</span>
+                          <span className="text-slate-500">{formatBsDate(String(c.created_at).slice(0, 10))}</span>
                         </div>
                         <p className="text-[11px] text-slate-300">{c.comment_text}</p>
                       </div>

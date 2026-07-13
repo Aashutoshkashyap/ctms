@@ -50,6 +50,16 @@ body {
   }
 }
 
+@keyframes upload-progress {
+  0% { width: 12%; transform: translateX(-100%); }
+  55% { width: 58%; }
+  100% { width: 28%; transform: translateX(360%); }
+}
+
+.upload-progress-bar {
+  animation: upload-progress 1.2s ease-in-out infinite;
+}
+
 .animate-glow {
   animation: pulse-glow 2s infinite ease-in-out;
 }
@@ -79,12 +89,16 @@ body {
 
 /* Translate the original slate cockpit palette into a consistent light UI. */
 [class~="bg-slate-950"] { background-color: #f4f7fb !important; }
+[class~="bg-slate-950/30"],
+[class~="bg-slate-950/20"] { background-color: #f8fafc !important; }
 [class~="bg-slate-900"],
 [class~="bg-slate-900/80"],
 [class~="bg-slate-900/60"],
 [class~="bg-slate-900/40"],
 [class~="bg-slate-900/30"],
 [class~="bg-slate-900/20"] { background-color: #f8fafc !important; }
+[class~="bg-slate-900/35"],
+[class~="bg-slate-900/10"] { background-color: #f8fafc !important; }
 [class~="bg-slate-850"] { background-color: #f8fafc !important; }
 [class~="bg-slate-800"],
 [class~="bg-slate-800/80"],
@@ -99,6 +113,8 @@ body {
 [class~="bg-slate-700"],
 [class~="bg-slate-700/40"],
 [class~="bg-slate-700/30"] { background-color: #eef3f8 !important; }
+[class~="bg-slate-700/60"],
+[class~="bg-slate-600"] { background-color: #e5edf6 !important; }
 
 [class~="text-slate-100"] { color: #0f172a !important; }
 [class~="text-slate-200"] { color: #1e293b !important; }
@@ -121,6 +137,9 @@ body {
 [class~="text-rose-300"],
 [class~="text-rose-400"],
 [class~="text-rose-500"] { color: #be123c !important; }
+[class~="text-red-300"],
+[class~="text-red-400"],
+[class~="text-red-500"] { color: #b91c1c !important; }
 [class~="text-purple-300"],
 [class~="text-purple-400"] { color: #7e22ce !important; }
 
@@ -169,7 +188,7 @@ select,
 textarea {
   background-color: #ffffff !important;
   color: #172033 !important;
-  border: 1px solid #cbd7e5;
+  border: 1px solid #b9c7d8;
   color-scheme: light;
   caret-color: #2563eb;
   min-height: 40px;
@@ -195,7 +214,7 @@ select option {
 
 input::placeholder,
 textarea::placeholder {
-  color: #94a3b8 !important;
+  color: #64748b !important;
   opacity: 1;
 }
 
@@ -243,6 +262,125 @@ a:focus-visible {
 [class*="bg-purple-"],
 [class*="bg-rose-"] {
   --tw-shadow-color: rgba(15, 23, 42, 0.12);
+}
+
+/* Accessible action colours: white labels remain above WCAG AA contrast. */
+[class~="text-white"][class*="bg-blue-500"],
+[class~="text-white"][class*="bg-blue-600"],
+[class~="text-white"][class*="bg-blue-700"] { background-color: #1d4ed8 !important; }
+[class~="text-white"][class*="bg-emerald-500"],
+[class~="text-white"][class*="bg-emerald-600"],
+[class~="text-white"][class*="bg-emerald-700"] { background-color: #047857 !important; }
+[class~="text-white"][class*="bg-purple-500"],
+[class~="text-white"][class*="bg-purple-600"],
+[class~="text-white"][class*="bg-purple-700"] { background-color: #6b21a8 !important; }
+[class~="text-white"][class*="bg-rose-500"],
+[class~="text-white"][class*="bg-rose-600"],
+[class~="text-white"][class*="bg-rose-700"] { background-color: #be123c !important; }
+[class~="text-white"][class*="bg-amber-500"],
+[class~="text-white"][class*="bg-amber-600"],
+[class~="text-white"][class*="bg-orange-500"],
+[class~="text-white"][class*="bg-orange-600"] { background-color: #9a3412 !important; }
+
+/* Legacy feature buttons did not all declare a foreground colour. Exact strong
+   fills are action surfaces, so keep their labels readable in the light UI. */
+[class~="bg-blue-500"],
+[class~="bg-blue-600"],
+[class~="bg-blue-700"],
+[class~="bg-emerald-500"],
+[class~="bg-emerald-600"],
+[class~="bg-emerald-700"],
+[class~="bg-purple-500"],
+[class~="bg-purple-600"],
+[class~="bg-purple-700"],
+[class~="bg-rose-500"],
+[class~="bg-rose-600"],
+[class~="bg-rose-700"] {
+  color: #ffffff;
+}
+
+.app-menu-overlay {
+  background: rgba(15, 23, 42, 0.48) !important;
+}
+
+.filter-button,
+.filter-active {
+  min-height: 36px;
+  border-radius: 0.5rem;
+  border: 1px solid #cbd5e1;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.filter-button {
+  background: #fff;
+  color: #334155;
+}
+
+.filter-active {
+  border-color: #1d4ed8;
+  background: #1d4ed8;
+  color: #fff;
+}
+
+.bs-date-picker input {
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.bs-date-picker button:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.28);
+  outline-offset: 1px;
+}
+
+.feature-read-only form,
+.feature-read-only button,
+.feature-read-only input,
+.feature-read-only select,
+.feature-read-only textarea {
+  pointer-events: none !important;
+}
+
+.feature-read-only button,
+.feature-read-only input,
+.feature-read-only select,
+.feature-read-only textarea {
+  opacity: 0.72;
+}
+
+.budget-table th,
+.budget-table td {
+  padding: 0.75rem;
+  vertical-align: middle;
+}
+
+.budget-table th:nth-child(n+3),
+.budget-table td:nth-child(n+3) {
+  white-space: nowrap;
+}
+
+.budget-table th:first-child,
+.budget-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: #ffffff;
+}
+
+.budget-table th:nth-child(2),
+.budget-table td:nth-child(2) {
+  position: sticky;
+  left: 6rem;
+  z-index: 3;
+  background: #ffffff;
+  box-shadow: 8px 0 12px -12px rgba(15, 23, 42, 0.45);
+}
+
+.budget-table thead th:first-child,
+.budget-table thead th:nth-child(2) {
+  background: #f8fafc;
+  z-index: 6;
 }
 
 @media (max-width: 767px) {

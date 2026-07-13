@@ -1,7 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Activity } from '../lib/cpm';
 import { SitePhoto, storage } from '../lib/storage';
 import { can } from '../lib/permissions';
+import BsDatePicker from './BsDatePicker';
+import { formatBsDate } from '../lib/nepaliDate';
+import UploadProgress from './UploadProgress';
 
 interface Props {
   projectId: string;
@@ -16,17 +19,12 @@ interface Props {
   onDelete?: (id: string) => void | Promise<void>;
 }
 
-function nepaliDate(date: string) {
-  try {
-    return new Intl.DateTimeFormat('ne-NP-u-ca-bikram-sambat', { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(date));
-  } catch {
-    return date;
-  }
-}
+const nepaliDate = (date: string) => formatBsDate(date, { long: true });
 
 export default function DailyReportingDashboard({ projectId, activities, reports, currentDate, userName, userEmail, userRole, onSubmit, onReload, onDelete }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
+  const uploadLock = useRef(false);
   const [files, setFiles] = useState<File[]>([]);
   const [caption, setCaption] = useState('');
   const [logDate, setLogDate] = useState('');
@@ -55,7 +53,8 @@ export default function DailyReportingDashboard({ projectId, activities, reports
   const visiblePhotos = canView ? photos : [];
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    setSaving(true);
+    if (uploadLock.current) return;
+    uploadLock.current = true; setSaving(true);
     try {
       const reportId = editingReportId || `rep-${Date.now()}`;
       onSubmit({
@@ -86,6 +85,7 @@ export default function DailyReportingDashboard({ projectId, activities, reports
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Could not save daily report.');
     } finally {
+      uploadLock.current = false;
       setSaving(false);
     }
   };
@@ -150,11 +150,11 @@ export default function DailyReportingDashboard({ projectId, activities, reports
     return broadRoles.includes(userRole) || report.submitted_by_email === userEmail || report.submitted_by === userName;
   };
 
-  return <div className="space-y-5 text-xs" key={projectId}>
-    <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between"><div><h2 className="text-base font-semibold">Daily Site Reporting</h2><p className="text-slate-400">Progress quantities, labour, plant, materials, delays, instructions and photographic evidence.</p></div><div className="flex flex-wrap items-end gap-2"><Field label="Filter logs by date"><input type="date" value={logDate} onChange={e=>setLogDate(e.target.value)}/></Field><button onClick={()=>setShowForm(v=>!v)} className="bg-blue-600 px-3 py-2 rounded-lg font-semibold">+ New Daily Report</button></div></div>
+  return <div className="space-y-5 text-xs" key={projectId}><UploadProgress active={saving} label={files.length ? `Uploading ${files.length} protected image(s) and saving the daily report…` : 'Saving the daily report…'}/>
+    <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between"><div><h2 className="text-base font-semibold">Daily Site Reporting</h2><p className="text-slate-400">Progress quantities, labour, plant, materials, delays, instructions and photographic evidence.</p></div><div className="flex flex-wrap items-end gap-2"><Field label="Filter logs by date (BS)"><BsDatePicker value={logDate} onChange={setLogDate}/></Field><button onClick={()=>setShowForm(v=>!v)} className="bg-blue-600 px-3 py-2 rounded-lg font-semibold">+ New Daily Report</button></div></div>
     {showForm&&<form onSubmit={submit} className="space-y-4 bg-slate-800/60 border border-slate-700 p-4 rounded-xl">
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <Field label="Report Date"><input type="date" value={form.report_date} onChange={e=>setForm({...form,report_date:e.target.value})}/></Field>
+        <Field label="Report Date (BS)"><BsDatePicker value={form.report_date} onChange={report_date=>setForm({...form,report_date})}/></Field>
         <Field label="Weather"><input value={form.weather} onChange={e=>setForm({...form,weather:e.target.value})}/></Field>
         <Field label="Total Manpower"><input type="number" value={form.manpower_total || ''} onChange={e=>setForm({...form,manpower_total:Number(e.target.value)})}/></Field>
         <Field label="Total Equipment"><input type="number" value={form.equipment_total || ''} onChange={e=>setForm({...form,equipment_total:Number(e.target.value)})}/></Field>
@@ -209,9 +209,9 @@ export default function DailyReportingDashboard({ projectId, activities, reports
     </form>}
     <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
       <table className="w-full min-w-[960px] text-sm">
-        <thead><tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-500">{['Date','People/Plant','Work done','Materials','Instructions / Delays','Actions'].map(title=><th key={title} className="p-3">{title}</th>)}</tr></thead>
+        <thead><tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-500">{['Date (BS)','People/Plant','Work done','Materials','Instructions / Delays','Actions'].map(title=><th key={title} className="p-3">{title}</th>)}</tr></thead>
         <tbody>{sortedReports.map(report=>{const work=storage.getDailyWorkItems(report.id);const mats=storage.getDailyMaterialLogs(report.id);return <tr key={report.id} className="border-b border-slate-100 align-top">
-          <td className="p-3 font-mono"><b>{nepaliDate(report.report_date)}</b><div className="text-xs text-slate-500">{report.report_date}</div><div className="text-xs text-slate-500">{report.weather}</div><div className="text-xs text-slate-500">By {report.submitted_by}</div></td>
+          <td className="p-3 font-mono"><b>{nepaliDate(report.report_date)}</b><div className="text-xs text-slate-500">{report.weather}</div><div className="text-xs text-slate-500">By {report.submitted_by}</div></td>
           <td className="p-3">{report.manpower_total} people<br />{report.equipment_total} plant</td>
           <td className="p-3">{work.length ? work.map((item:any)=>`${item.quantity_completed}${item.rework_quantity ? ` (rework ${item.rework_quantity})` : ''} on ${activities.find(a=>a.id===item.activity_id)?.name||item.activity_id}`).join(', ') : '—'}</td>
           <td className="p-3">{mats.length ? mats.map((item:any)=>`${item.material_name} +${item.received_qty} / -${item.consumed_qty}`).join(', ') : '—'}</td>
@@ -221,7 +221,7 @@ export default function DailyReportingDashboard({ projectId, activities, reports
       </table>
     </div>
     <div className="space-y-3">{sortedReports.map(report=>{const reportPhotos=visiblePhotos.filter(photo=>photo.daily_report_id===report.id);const work=storage.getDailyWorkItems(report.id);const mats=storage.getDailyMaterialLogs(report.id);const resources=storage.getDailyResourceUsage().filter(r=>r.usage_date===report.report_date);return <article key={report.id} className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-4 space-y-3">
-      <div className="flex justify-between"><div><h3 className="font-bold text-slate-100">{nepaliDate(report.report_date)} · {report.weather}</h3><div className="text-slate-500">{report.report_date} · Submitted by {report.submitted_by}</div></div><div className="text-right">
+      <div className="flex justify-between"><div><h3 className="font-bold text-slate-100">{nepaliDate(report.report_date)} · {report.weather}</h3><div className="text-slate-500">Submitted by {report.submitted_by}</div></div><div className="text-right">
         <div className="mb-1"><b>{report.manpower_total}</b> people · <b>{report.equipment_total}</b> plant</div>
         <div className="flex justify-end gap-2">
           {canManageReport(report) && <button onClick={()=>startEditReport(report)} className="text-blue-400 hover:text-blue-300 text-xs font-semibold">Edit</button>}

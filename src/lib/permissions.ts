@@ -18,6 +18,7 @@ export const PROJECT_ROLES = [
 ] as const;
 
 export type ProjectRole = (typeof PROJECT_ROLES)[number];
+export type PermissionLevel = 'none' | 'read' | 'write';
 
 export type Feature =
   | 'executive'
@@ -40,6 +41,7 @@ export type Feature =
   | 'reports'
   | 'handover'
   | 'defects'
+  | 'subscription'
   | 'ai'
   | 'settings'
   | 'manage_users'
@@ -48,17 +50,42 @@ export type Feature =
   | 'view_evidence'
   | 'approve_expenses';
 
+export type FeaturePermissions = Partial<Record<Feature, PermissionLevel>>;
+
+export const DIRECTOR_MANAGED_FEATURES: Array<{ feature: Feature; label: string }> = [
+  { feature: 'schedule', label: 'BOQ & Work Schedule' },
+  { feature: 'daily_reports', label: 'Daily Site Reporting' },
+  { feature: 'operations', label: 'Resources & Productivity' },
+  { feature: 'employee_tracking', label: 'Employee & Site Visits' },
+  { feature: 'design', label: 'Design Control' },
+  { feature: 'budget', label: 'Budget & Costs' },
+  { feature: 'ipc', label: 'IPC Billing' },
+  { feature: 'claims', label: 'Variations & Claims' },
+  { feature: 'procurement', label: 'Procurement & Stores' },
+  { feature: 'obligations', label: 'Contract Obligations' },
+  { feature: 'qaqc', label: 'QA / QC Inspections' },
+  { feature: 'safety', label: 'Safety / EHS' },
+  { feature: 'expenses', label: 'Daily Expenses' },
+  { feature: 'documents', label: 'Compliance & Documents' },
+  { feature: 'reports', label: 'Reports & Exports' },
+  { feature: 'handover', label: 'Handover Checklist' },
+  { feature: 'defects', label: 'Defects Maintenance' },
+  { feature: 'upload_evidence', label: 'Upload Verification Evidence' },
+  { feature: 'view_evidence', label: 'View Director Evidence Vault' },
+  { feature: 'approve_expenses', label: 'Approve Expenses' },
+];
+
 const allFeatures: Feature[] = [
   'executive', 'schedule', 'forecast', 'daily_reports', 'operations', 'employee_tracking',
   'design', 'budget', 'ipc', 'claims', 'procurement', 'obligations', 'qaqc', 'safety',
-  'finance', 'expenses', 'documents', 'reports', 'handover', 'defects', 'ai', 'settings',
+  'finance', 'expenses', 'documents', 'reports', 'handover', 'defects', 'subscription', 'ai', 'settings',
   'manage_users', 'manage_projects', 'upload_evidence', 'view_evidence', 'approve_expenses',
 ];
 
 export const ROLE_PERMISSIONS: Record<ProjectRole, Feature[]> = {
   project_director: allFeatures,
   super_admin: [],
-  business_admin: ['procurement', 'obligations', 'documents', 'reports', 'settings', 'manage_users', 'manage_projects'],
+  business_admin: ['procurement', 'obligations', 'documents', 'reports', 'subscription', 'settings', 'manage_users', 'manage_projects', 'upload_evidence'],
   project_manager: [
     'schedule', 'forecast', 'daily_reports', 'operations', 'employee_tracking', 'design',
     'budget', 'ipc', 'claims', 'procurement', 'obligations', 'qaqc', 'safety', 'expenses',
@@ -66,12 +93,12 @@ export const ROLE_PERMISSIONS: Record<ProjectRole, Feature[]> = {
   ],
   planning_engineer: ['schedule', 'forecast', 'daily_reports', 'operations', 'reports', 'ai'],
   site_engineer: ['schedule', 'daily_reports', 'operations', 'employee_tracking', 'qaqc', 'safety', 'expenses', 'upload_evidence'],
-  qs_billing_engineer: ['budget', 'ipc', 'claims', 'finance', 'expenses', 'documents', 'reports', 'approve_expenses'],
+  qs_billing_engineer: ['budget', 'ipc', 'claims', 'finance', 'expenses', 'documents', 'reports', 'approve_expenses', 'upload_evidence'],
   design_coordinator: ['schedule', 'design', 'documents', 'daily_reports', 'upload_evidence'],
   qa_qc_engineer: ['daily_reports', 'operations', 'qaqc', 'documents', 'handover', 'defects', 'upload_evidence'],
   safety_officer: ['daily_reports', 'operations', 'employee_tracking', 'safety', 'documents', 'upload_evidence'],
-  store_officer: ['operations', 'procurement', 'expenses', 'documents'],
-  accountant: ['budget', 'ipc', 'finance', 'expenses', 'reports', 'approve_expenses'],
+  store_officer: ['operations', 'procurement', 'expenses', 'documents', 'upload_evidence'],
+  accountant: ['budget', 'ipc', 'finance', 'expenses', 'reports', 'approve_expenses', 'upload_evidence'],
   subcontractor: ['schedule', 'daily_reports', 'operations', 'upload_evidence'],
   jv_partner: ['executive', 'schedule', 'forecast', 'reports'],
   employer_viewer: ['executive', 'schedule', 'forecast', 'reports', 'handover'],
@@ -82,8 +109,25 @@ export function normalizeRole(role: string): ProjectRole {
   return PROJECT_ROLES.includes(role as ProjectRole) ? role as ProjectRole : 'employer_viewer';
 }
 
-export function can(role: string, feature: Feature): boolean {
-  return ROLE_PERMISSIONS[normalizeRole(role)].includes(feature);
+export function defaultPermissionLevel(role: string, feature: Feature): PermissionLevel {
+  const normalized = normalizeRole(role);
+  if (!ROLE_PERMISSIONS[normalized].includes(feature)) return 'none';
+  if (['jv_partner', 'employer_viewer'].includes(normalized) || ['executive', 'view_evidence'].includes(feature)) return 'read';
+  return 'write';
+}
+
+export function buildDefaultPermissions(role: string): FeaturePermissions {
+  return Object.fromEntries(DIRECTOR_MANAGED_FEATURES.map(item => [item.feature, defaultPermissionLevel(role, item.feature)])) as FeaturePermissions;
+}
+
+export function can(role: string, feature: Feature, permissions?: FeaturePermissions | null, access: 'read' | 'write' = 'read'): boolean {
+  const normalized = normalizeRole(role);
+  if (normalized === 'project_director') return true;
+  const baseline = defaultPermissionLevel(normalized, feature);
+  if (baseline === 'none') return false;
+  const assigned = permissions?.[feature];
+  if (assigned) return assigned === 'write' && (access === 'read' || baseline === 'write') || (assigned === 'read' && access === 'read');
+  return access === 'read' || baseline === 'write';
 }
 
 export const ROLE_LABELS: Record<ProjectRole, string> = {

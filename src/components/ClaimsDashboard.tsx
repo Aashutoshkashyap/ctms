@@ -1,6 +1,11 @@
 // Claims & Variation Register Dashboard Component (Page 8)
 import React, { useState } from 'react';
 import { draftClaimLetter } from '../lib/ai';
+import BsDatePicker from './BsDatePicker';
+import { storage } from '../lib/storage';
+import { formatBsDate, todayAdDate } from '../lib/nepaliDate';
+import UploadProgress from './UploadProgress';
+import { useSubmissionLock } from '../lib/useSubmissionLock';
 
 interface ClaimsDashboardProps {
   claims: any[];
@@ -24,23 +29,31 @@ export default function ClaimsDashboard({
   const [quantity, setQuantity] = useState(0);
   const [previousRate, setPreviousRate] = useState(0);
   const [newRate, setNewRate] = useState(0);
+  const [eventDate, setEventDate] = useState(todayAdDate());
+  const [noticeDate, setNoticeDate] = useState(todayAdDate());
+  const [supportingFile, setSupportingFile] = useState<File | null>(null);
+  const { busy: saving, run: runUpload } = useSubmissionLock();
 
   // AI draft states
   const [draftedLetter, setDraftedLetter] = useState<string | null>(null);
   const [draftingId, setDraftingId] = useState<string | null>(null);
 
-  const canEdit = ['super_admin', 'project_manager', 'qs_billing_engineer'].includes(userRole);
+  const canEdit = ['project_director', 'project_manager', 'qs_billing_engineer'].includes(userRole);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !refId) return;
-    
+    if (!title || !refId || !supportingFile) {
+      window.alert('Reference, description and a supporting notice/instruction file are required.');
+      return;
+    }
+    await runUpload(async () => { try {
+    const uploaded = await storage.uploadProjectDocument(supportingFile, 'contract', refId, 'Commercial Team', `${refId}: ${title}`);
     onAddClaim({
       type,
       reference_id: refId,
       title,
-      event_date: new Date().toISOString().split('T')[0],
-      notice_date: new Date().toISOString().split('T')[0],
+      event_date: eventDate,
+      notice_date: noticeDate,
       time_impact_days: timeImpact,
       cost_impact_amount: costImpact,
       variation_item: title,
@@ -48,7 +61,7 @@ export default function ClaimsDashboard({
       previous_rate: previousRate,
       new_rate: newRate,
       rate_difference: newRate - previousRate,
-      supporting_docs: ['Joint_Site_Survey_Minutes.pdf']
+      supporting_docs: [uploaded.storage_path || uploaded.url || supportingFile.name]
     });
 
     setTitle('');
@@ -58,8 +71,14 @@ export default function ClaimsDashboard({
     setQuantity(0);
     setPreviousRate(0);
     setNewRate(0);
+    setEventDate(todayAdDate());
+    setNoticeDate(todayAdDate());
+    setSupportingFile(null);
     setShowAddForm(false);
     alert('Claim/Variation event registered.');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not save the claim evidence.');
+    } });
   };
 
   const handleGenerateDraft = async (claim: any) => {
@@ -81,7 +100,7 @@ export default function ClaimsDashboard({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6"><UploadProgress active={saving} label="Uploading and registering the claim evidence…"/>
       {/* Top Header */}
       <div className="flex justify-between items-center bg-slate-800/40 p-4 border border-slate-700/30 rounded-xl shadow">
         <div>
@@ -137,6 +156,14 @@ export default function ClaimsDashboard({
               />
             </div>
             <div>
+              <label className="block text-slate-400 mb-1">Event Date (BS)</label>
+              <BsDatePicker required value={eventDate} onChange={setEventDate} />
+            </div>
+            <div>
+              <label className="block text-slate-400 mb-1">Notice Date (BS)</label>
+              <BsDatePicker required value={noticeDate} onChange={setNoticeDate} min={eventDate} />
+            </div>
+            <div>
               <label className="block text-slate-400 mb-1">Estimated Time Impact (Days)</label>
               <input
                 type="number"
@@ -170,9 +197,13 @@ export default function ClaimsDashboard({
               <label className="block text-slate-400 mb-1">Rate Difference</label>
               <input readOnly value={(newRate - previousRate).toLocaleString()} className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200" />
             </div>
+            <div className="col-span-2">
+              <label className="block text-slate-400 mb-1">Notice / Instruction / Supporting File</label>
+              <input required type="file" accept="application/pdf,image/*,.doc,.docx,.xls,.xlsx" onChange={event=>setSupportingFile(event.target.files?.[0]||null)} className="w-full" />
+            </div>
           </div>
-          <button type="submit" className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded shadow transition">
-            Save Claim Record
+          <button disabled={saving} type="submit" className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded shadow transition">
+            {saving ? 'Uploading…' : 'Save Claim Record'}
           </button>
         </form>
       )}
@@ -202,7 +233,7 @@ export default function ClaimsDashboard({
                     <td className="py-3 font-mono font-bold text-slate-400">{claim.reference_id}</td>
                     <td className="py-3">
                       <div className="font-semibold text-slate-100">{claim.title}</div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">Notice date: {claim.notice_date}</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">Notice: {formatBsDate(claim.notice_date)} · Event: {formatBsDate(claim.event_date)}</div>
                     </td>
                     <td className="py-3">
                       <span className="capitalize text-[10px] bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded text-slate-400">

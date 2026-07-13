@@ -18,14 +18,24 @@ export interface GoogleTokenResponse {
   token_type: string;
 }
 
-export interface GoogleOAuthState {
-  projectId: string;
-  organizationId: string;
+interface GoogleOAuthStateBase {
   userId: string;
   nonce: string;
   issuedAt: number;
   expiresAt: number;
 }
+
+export interface GoogleProjectOAuthState extends GoogleOAuthStateBase {
+  purpose?: 'project_workspace';
+  projectId: string;
+  organizationId: string;
+}
+
+export interface GooglePlatformEmailOAuthState extends GoogleOAuthStateBase {
+  purpose: 'platform_email';
+}
+
+export type GoogleOAuthState = GoogleProjectOAuthState | GooglePlatformEmailOAuthState;
 
 export function getGoogleSecuritySecret() {
   const configured = process.env.GOOGLE_TOKEN_ENCRYPTION_KEY?.trim();
@@ -68,7 +78,8 @@ export async function verifyGoogleOAuthState(value: string): Promise<GoogleOAuth
   if (!constantTimeEqual(signature, expected)) return null;
   try {
     const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as GoogleOAuthState;
-    if (!payload.projectId || !payload.organizationId || !payload.userId || !payload.nonce || payload.expiresAt <= Date.now()) return null;
+    if (!payload.userId || !payload.nonce || payload.expiresAt <= Date.now()) return null;
+    if (payload.purpose !== 'platform_email' && (!payload.projectId || !payload.organizationId)) return null;
     if (payload.issuedAt > Date.now() + 60_000 || payload.expiresAt - payload.issuedAt > 10 * 60_000) return null;
     return payload;
   } catch {
@@ -128,6 +139,24 @@ export function buildGoogleAuthUrl(config: GoogleWorkspaceConfig, state: string)
     prompt: 'consent',
     include_granted_scopes: 'true',
     scope: scopes.join(' '),
+    state,
+  });
+  return `${GOOGLE_AUTH_URL}?${params.toString()}`;
+}
+
+export function buildPlatformEmailAuthUrl(config: GoogleWorkspaceConfig, state: string) {
+  const params = new URLSearchParams({
+    client_id: config.clientId,
+    redirect_uri: config.redirectUri,
+    response_type: 'code',
+    access_type: 'offline',
+    prompt: 'consent',
+    include_granted_scopes: 'true',
+    scope: [
+      'openid',
+      'email',
+      'https://www.googleapis.com/auth/gmail.send',
+    ].join(' '),
     state,
   });
   return `${GOOGLE_AUTH_URL}?${params.toString()}`;

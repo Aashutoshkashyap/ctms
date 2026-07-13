@@ -100,6 +100,9 @@ const inventoryEvents = [];
 const obligations = [];
 const notifications = [];
 const financeRows = [];
+const ipcs = [];
+const ipcPayments = [];
+const documents = [];
 
 projects.forEach((project, projectIndex) => {
   const prefix = project.id.replaceAll('proj-', '').replaceAll('-', '_');
@@ -132,7 +135,53 @@ projects.forEach((project, projectIndex) => {
     { id: `${prefix}-finance-cogs`, project_id: project.id, row_key: 'direct-cost', name: 'Direct Works Cost', category: 'cogs', monthly_values: [900000, 1100000, 1250000, 1420000, 1600000, 1750000] },
     { id: `${prefix}-finance-opex`, project_id: project.id, row_key: 'site-overhead', name: 'Site Overheads', category: 'opex', monthly_values: [240000, 255000, 260000, 275000, 280000, 295000] },
   );
+  const ipcId = `${prefix}-ipc-demo`;
+  const claimPath = `${project.id}/${director.id}/ipc_claim/${prefix}-ipc-claim.pdf`;
+  const certificatePath = `${project.id}/${director.id}/ipc_certificate/${prefix}-ipc-certificate.pdf`;
+  const certifiedAmount = 12000000 + projectIndex * 2500000;
+  const retention = certifiedAmount * 0.1;
+  const advance = certifiedAmount * 0.05;
+  const netPayable = certifiedAmount - retention - advance;
+  const paymentAmount = projectIndex === 1 ? 0 : projectIndex === 3 ? netPayable * 0.55 : netPayable;
+  ipcs.push({
+    id: ipcId, project_id: project.id, ipc_number: projectIndex + 3,
+    claimed_amount: certifiedAmount * 1.08, certified_amount: certifiedAmount,
+    paid_amount: paymentAmount, retention_deducted: retention, advance_recovered: advance, vat_amount: certifiedAmount * 0.13,
+    status: projectIndex === 1 ? 'certified' : projectIndex === 3 ? 'partially_paid' : 'paid',
+    submitted_date: `2026-06-${String(3 + projectIndex).padStart(2, '0')}`, certified_date: `2026-06-${String(12 + projectIndex).padStart(2, '0')}`,
+    paid_date: paymentAmount ? `2026-06-${String(20 + projectIndex).padStart(2, '0')}` : null,
+    billing_period_start: '2026-05-01', billing_period_end: '2026-05-31', invoice_reference: `IPC-DEMO-${projectIndex + 3}`,
+    claim_remarks: 'Monthly measured work and approved materials on site.', claim_document_path: claimPath,
+    certificate_reference: `CERT-DEMO-${projectIndex + 3}`, certified_by: 'Dr. Ramesh Thapa',
+    certification_remarks: 'Certified after quantity and quality verification.', certificate_document_path: certificatePath,
+  });
+  if (paymentAmount) ipcPayments.push({
+    id: `${prefix}-ipc-payment-demo`, project_id: project.id, ipc_id: ipcId,
+    payment_date: `2026-06-${String(20 + projectIndex).padStart(2, '0')}`, amount: paymentAmount, tax_deducted: 0,
+    payment_method: 'bank_transfer', bank_reference: `BANK-DEMO-${projectIndex + 1}`, paid_by: 'Employer',
+    received_in_account: `Project Account ${projectIndex + 1}`, remarks: projectIndex === 3 ? 'First part-payment.' : 'Net certified amount settled.',
+    proof_storage_path: `${project.id}/${director.id}/ipc_payment/${prefix}-ipc-payment.pdf`, recorded_by: 'Sarita Poudel', recorded_by_email: 'accountant@buildtrack.com',
+  });
+  documents.push({
+    id: `${prefix}-compliance-demo`, project_id: project.id, ref_number: `COMP-DEMO-${projectIndex + 1}`,
+    title: 'Monthly environmental, safety and labour compliance report', category: 'compliance_report', version: 'Rev 0',
+    submitted_date: '2026-07-05', action_date: '2026-07-08', status: 'approved', owner: 'Prem Chaudhary',
+    remarks: 'Monthly compliance return accepted for demonstration.', period_start: '2026-06-01', period_end: '2026-06-30',
+    due_date: '2026-07-07', expiry_date: '2027-06-30', issued_by: 'Project EHS Team', responsible_person: 'Prem Chaudhary',
+    storage_path: `${project.id}/${director.id}/compliance_report/${prefix}-monthly-compliance.pdf`, uploaded_by: 'Prem Chaudhary', uploaded_by_email: 'safety@buildtrack.com',
+  });
 });
+
+const demoPdf = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n');
+const evidencePaths = [
+  ...ipcs.flatMap(item => [item.claim_document_path, item.certificate_document_path]),
+  ...ipcPayments.map(item => item.proof_storage_path),
+  ...documents.map(item => item.storage_path),
+].filter(Boolean);
+for (const path of evidencePaths) {
+  const { error } = await admin.storage.from('project-documents').upload(path, demoPdf, { contentType: 'application/pdf', upsert: true });
+  if (error) throw new Error(`project-documents/${path}: ${error.message}`);
+}
 
 await upsert('wbs_items', wbs, 'project_id,wbs_code');
 await upsert('activities', activities);
@@ -148,5 +197,14 @@ await upsert('inventory_events', inventoryEvents);
 await upsert('contract_obligations', obligations);
 await upsert('app_notifications', notifications);
 await upsert('finance_rows', financeRows, 'project_id,row_key');
+await upsert('ipc_submissions', ipcs, 'project_id,ipc_number');
+await upsert('ipc_payments', ipcPayments);
+await upsert('document_register', documents, 'project_id,ref_number');
 
-console.log(JSON.stringify({ ok: true, businesses: 1, projects: projects.length, projectUsers: projectMembers.length, seededRecords: wbs.length + activities.length + reports.length + workItems.length + expenses.length + resources.length + visits.length + employees.length + purchaseOrders.length + storeItems.length + inventoryEvents.length + obligations.length + notifications.length + financeRows.length }));
+await upsert('subscription_transactions', [
+  { id: 'subscription-demo-verified', organization_id: organizationId, reference: 'BT-DEMO-RENEW-001', amount: 125000, currency: 'NPR', paid_at: '2026-07-10T08:15:00Z', period_start: '2026-07-12', period_end: '2026-08-11', payment_method: 'bank_transfer', notes: 'Verified demo renewal transaction.', status: 'verified', verified_by: platformAdmin.id, verified_at: '2026-07-10T09:00:00Z' },
+  { id: 'subscription-demo-pending', organization_id: organizationId, reference: 'BT-DEMO-RENEW-002', amount: 250000, currency: 'NPR', paid_at: '2026-07-12T07:30:00Z', period_start: '2026-08-12', period_end: '2027-08-11', payment_method: 'bank_transfer', notes: 'Pending transaction for Superadmin verify-and-extend testing.', status: 'pending' },
+], 'organization_id,reference');
+await upsert('organization_notifications', [{ id: 'subscription-demo-payment-notice', organization_id: organizationId, kind: 'payment_received', title: 'Subscription payment awaiting verification', message: 'Payment reference BT-DEMO-RENEW-002 was recorded and is awaiting platform verification.', severity: 'info', alert_for_date: '2026-07-12', visible_until: '2026-08-11' }]);
+
+console.log(JSON.stringify({ ok: true, businesses: 1, projects: projects.length, projectUsers: projectMembers.length, ipcs: ipcs.length, ipcPayments: ipcPayments.length, complianceDocuments: documents.length, subscriptionTransactions: 2, seededRecords: wbs.length + activities.length + reports.length + workItems.length + expenses.length + resources.length + visits.length + employees.length + purchaseOrders.length + storeItems.length + inventoryEvents.length + obligations.length + notifications.length + financeRows.length + ipcs.length + ipcPayments.length + documents.length }));

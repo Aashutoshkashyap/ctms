@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,31 +14,44 @@ export async function GET(request: Request) {
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const secretKey = process.env.SUPABASE_SECRET_KEY;
   if (!url || !anonKey) {
     return NextResponse.json({ ok: true, mode: 'local-only', message: 'Supabase config is not set; app remains locally functional.' });
   }
+  const baseUrl = url;
+  const publicKey = anonKey;
 
   const startedAt = new Date().toISOString();
-  const headers = {
-    apikey: anonKey,
-    authorization: `Bearer ${anonKey}`,
-  };
   const checks: Array<{ name: string; ok: boolean; status?: number; message?: string }> = [];
 
-  async function ping(name: string, endpoint: string) {
+  async function pingRest() {
     try {
-      const response = await fetch(endpoint, { headers, cache: 'no-store' });
-      checks.push({ name, ok: response.ok, status: response.status });
+      const response = await fetch(`${baseUrl}/rest/v1/projects?select=id&limit=1`, {
+        headers: { apikey: publicKey },
+        cache: 'no-store',
+      });
+      checks.push({ name: 'rest-projects', ok: response.ok, status: response.status });
     } catch (error) {
-      checks.push({ name, ok: false, message: error instanceof Error ? error.message : String(error) });
+      checks.push({ name: 'rest-projects', ok: false, message: error instanceof Error ? error.message : String(error) });
     }
   }
 
-  await Promise.all([
-    ping('rest-projects', `${url}/rest/v1/projects?select=id&limit=1`),
-    ping('storage-site-photos', `${url}/storage/v1/bucket/site-photos`),
-    ping('storage-project-documents', `${url}/storage/v1/bucket/project-documents`),
-  ]);
+  async function pingStorage(bucket: string) {
+    const serverKey = secretKey;
+    if (!serverKey) {
+      checks.push({ name: `storage-${bucket}`, ok: false, message: 'Server storage key is not configured.' });
+      return;
+    }
+    try {
+      const admin = createClient(baseUrl, serverKey, { auth: { autoRefreshToken: false, persistSession: false } });
+      const { error } = await admin.storage.from(bucket).list('', { limit: 1 });
+      checks.push({ name: `storage-${bucket}`, ok: !error, message: error?.message });
+    } catch (error) {
+      checks.push({ name: `storage-${bucket}`, ok: false, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  await Promise.all([pingRest(), pingStorage('site-photos'), pingStorage('project-documents')]);
 
   const cloudReachable = checks.some(check => check.ok);
   return NextResponse.json({

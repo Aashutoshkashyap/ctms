@@ -26,11 +26,17 @@ export async function GET(request: Request) {
   ]);
   if ('error' in authorization) return NextResponse.json({ configured: true, connected: false, message: authorization.error }, { status: authorization.status });
   const connection = await readGoogleConnection(authorization.admin, projectId);
+  const { data: previousConnection } = connection ? { data: null } : await authorization.admin
+    .from('google_connections')
+    .select('status')
+    .eq('project_id', projectId)
+    .maybeSingle();
   const director = authorization.role === 'project_director';
   const leader = director || authorization.role === 'business_admin';
   return NextResponse.json({
     configured: true,
     connected: Boolean(connection),
+    reconnect_required: previousConnection?.status === 'error',
     google_email: leader ? connection?.google_email || null : null,
     project_folder_id: director ? connection?.project_folder_id || null : null,
     sheet_id: director ? connection?.sheet_id || null : null,

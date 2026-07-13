@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { authorizeGoogleCallbackUser } from '../../../../lib/server/googleConnection';
+import { authorizePlatformOwnerById } from '../../../../lib/server/platformAdmin';
 import {
   createDriveFolder,
   createSpreadsheet,
@@ -15,9 +16,9 @@ import { getClientIp, rateLimit, rateLimitResponse } from '../../../../lib/serve
 
 export const dynamic = 'force-dynamic';
 
-function redirectWithStatus(origin: string, status: 'connected' | 'error', message?: string) {
+function redirectWithStatus(origin: string, status: 'connected' | 'error', message?: string, purpose: 'workspace' | 'platform_email' = 'workspace') {
   const destination = new URL('/', origin);
-  destination.searchParams.set('google', status);
+  destination.searchParams.set(purpose === 'platform_email' ? 'platform_email' : 'google', status);
   if (message) destination.searchParams.set('message', message.slice(0, 160));
   return NextResponse.redirect(destination);
 }
@@ -35,6 +36,30 @@ export async function GET(request: Request) {
   const code = url.searchParams.get('code');
   const state = await verifyGoogleOAuthState(url.searchParams.get('state') || '');
   if (!code || !state) return redirectWithStatus(url.origin, 'error', 'Google authorization request expired or was invalid.');
+
+  if (state.purpose === 'platform_email') {
+    const platformAuthorization = await authorizePlatformOwnerById(state.userId);
+    if ('error' in platformAuthorization) return redirectWithStatus(url.origin, 'error', platformAuthorization.error, 'platform_email');
+    try {
+      const token = await exchangeCodeForToken(config, code);
+      if (!token.refresh_token) throw new Error('Google did not return an offline refresh token. Revoke the app grant and reconnect.');
+      const googleEmail = await getGoogleAccountEmail(token.access_token);
+      const encryptedRefreshToken = await encryptGoogleRefreshToken(token.refresh_token);
+      const { error } = await platformAuthorization.admin.from('platform_email_connections').upsert({
+        id: 'platform-gmail',
+        connected_by: platformAuthorization.actorId,
+        google_email: googleEmail || null,
+        encrypted_refresh_token: encryptedRefreshToken,
+        status: 'connected',
+        updated_at: new Date().toISOString(),
+      });
+      if (error) throw new Error(error.message);
+      return redirectWithStatus(url.origin, 'connected', undefined, 'platform_email');
+    } catch (error) {
+      console.error('Platform Gmail connection failed:', error instanceof Error ? error.message : 'unknown error');
+      return redirectWithStatus(url.origin, 'error', 'Platform Gmail setup failed. Review the OAuth scopes and try again.', 'platform_email');
+    }
+  }
 
   const authorization = await authorizeGoogleCallbackUser(state.userId, state.projectId, ['project_director']);
   if ('error' in authorization || authorization.project.organizationId !== state.organizationId) {

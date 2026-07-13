@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ProcurementOrder, StoreItem, storage } from '../lib/storage';
+import BsDatePicker from './BsDatePicker';
+import { formatBsDate } from '../lib/nepaliDate';
 
 export default function ProcurementStoresDashboard({ projectId }: { projectId: string }) {
   const [orders, setOrders] = useState<ProcurementOrder[]>(() => storage.getProcurementOrders());
@@ -78,7 +80,7 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
           <h2 className="text-base font-semibold text-slate-100">Procurement & Stores Control</h2>
           <p className="text-slate-400">Purchase commitments, delivery dates, receipts, issues and reorder alerts.</p>
         </div>
-        <button onClick={() => setShowForm(value => !value)} className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg font-semibold">
+        <button onClick={() => setShowForm(value => !value)} className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg font-semibold text-white">
           + {view === 'procurement' ? 'New Purchase Order' : 'New Store Item'}
         </button>
       </div>
@@ -102,11 +104,11 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
           <Field label="Unit"><input value={po.unit} onChange={e => setPo({...po, unit:e.target.value})} /></Field>
           <Field label="Quantity"><input type="number" value={po.quantity} onChange={e => setPo({...po, quantity:Number(e.target.value)})} /></Field>
           <Field label="Unit Rate"><input type="number" value={po.unit_rate} onChange={e => setPo({...po, unit_rate:Number(e.target.value)})} /></Field>
-          <Field label="Order Date"><input type="date" value={po.order_date} onChange={e => setPo({...po, order_date:e.target.value, required_date:e.target.value})} /></Field>
-          <Field label="Delivery Date"><input type="date" value={po.delivery_date} onChange={e => setPo({...po, delivery_date:e.target.value, expected_date:e.target.value})} /></Field>
+          <Field label="Order Date (BS)"><BsDatePicker value={po.order_date || ''} onChange={order_date => setPo({...po, order_date, required_date:order_date})} /></Field>
+          <Field label="Delivery Date (BS)"><BsDatePicker value={po.delivery_date || ''} onChange={delivery_date => setPo({...po, delivery_date, expected_date:delivery_date})} /></Field>
           <Field label="Status"><select value={po.status} onChange={e => setPo({...po, status:e.target.value as ProcurementOrder['status']})}>{['draft','approved','ordered','partially_delivered','delivered','cancelled'].map(value => <option key={value}>{value}</option>)}</select></Field>
           <Field label="Remarks"><input value={po.remarks} onChange={e => setPo({...po, remarks:e.target.value})} /></Field>
-          <button className="self-end bg-emerald-600 hover:bg-emerald-500 p-2 rounded font-semibold">{editingPoId ? 'Update Purchase Order' : 'Save Purchase Order'}</button>
+          <button className="self-end bg-emerald-600 hover:bg-emerald-500 p-2 rounded font-semibold text-white">{editingPoId ? 'Update Purchase Order' : 'Save Purchase Order'}</button>
         </form>
       )}
 
@@ -122,14 +124,14 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
           <Field label="Issued"><input type="number" value={stock.issued || ''} onChange={e => setStock({...stock, issued:Number(e.target.value)})} /></Field>
           <Field label="Reorder Level"><input type="number" value={stock.reorder_level || ''} onChange={e => setStock({...stock, reorder_level:Number(e.target.value)})} /></Field>
           <Field label="Status"><select value={stock.status} onChange={e => setStock({...stock,status:e.target.value as StoreItem['status']})}>{['available','low_stock','ordered','inactive'].map(value=><option key={value}>{value}</option>)}</select></Field>
-          <button className="self-end bg-emerald-600 hover:bg-emerald-500 p-2 rounded font-semibold">{editingStockId ? 'Update Store Item' : 'Save Store Item'}</button>
+          <button className="self-end bg-emerald-600 hover:bg-emerald-500 p-2 rounded font-semibold text-white">{editingStockId ? 'Update Store Item' : 'Save Store Item'}</button>
         </form>
       )}
 
       <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-4 overflow-x-auto">
         {view === 'procurement' ? (
-          <table className="w-full min-w-[980px]"><thead><tr className="text-slate-400 border-b border-slate-700">{['PO','Vendor / Item','Qty','Value','Order Date','Delivery Date','Delivered','Status','Remarks','Action'].map(h => <th key={h} className="text-left py-2">{h}</th>)}</tr></thead>
-            <tbody>{orders.map(order => <tr key={order.id} className="border-b border-slate-800"><td className="py-3 font-mono">{order.po_number}</td><td><b>{order.vendor}</b><div className="text-slate-500">{order.item}</div></td><td>{order.quantity} {order.unit}</td><td>NPR {(order.quantity * order.unit_rate).toLocaleString()}</td><td>{order.order_date || order.required_date}</td><td>{order.delivery_date || order.expected_date}</td><td>{order.delivered_quantity}</td><td><Badge value={order.status} /></td><td>{order.remarks || '—'}</td><td><div className="flex gap-2"><button onClick={()=>startEditOrder(order)} className="font-bold text-blue-700">Edit</button><button onClick={()=>deleteOrder(order.id)} className="font-bold text-rose-700">Delete</button></div></td></tr>)}</tbody>
+          <table className="w-full min-w-[980px]"><thead><tr className="text-slate-400 border-b border-slate-700">{['PO','Vendor / Item','Qty','Value','Order Date (BS)','Delivery Date (BS)','Delivered','Status','Remarks','Action'].map(h => <th key={h} className="text-left py-2">{h}</th>)}</tr></thead>
+            <tbody>{orders.map(order => <tr key={order.id} className="border-b border-slate-800"><td className="py-3 font-mono">{order.po_number}</td><td><b>{order.vendor}</b><div className="text-slate-500">{order.item}</div></td><td>{order.quantity} {order.unit}</td><td>NPR {(order.quantity * order.unit_rate).toLocaleString()}</td><td>{formatBsDate(order.order_date || order.required_date)}</td><td>{formatBsDate(order.delivery_date || order.expected_date)}</td><td>{order.delivered_quantity}</td><td><Badge value={order.status} /></td><td>{order.remarks || '—'}</td><td><div className="flex gap-2"><button onClick={()=>startEditOrder(order)} className="font-bold text-blue-700">Edit</button><button onClick={()=>deleteOrder(order.id)} className="font-bold text-rose-700">Delete</button></div></td></tr>)}</tbody>
           </table>
         ) : (
           <table className="w-full min-w-[850px]"><thead><tr className="text-slate-400 border-b border-slate-700">{['Code','Material','Vendor','Location','Opening','Received','Issued','Balance','Status','Action'].map(h => <th key={h} className="text-left py-2">{h}</th>)}</tr></thead>

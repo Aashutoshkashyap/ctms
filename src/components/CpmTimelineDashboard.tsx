@@ -1,6 +1,9 @@
-// CPM Timeline and WBS Dashboard Component (Page 2)
+// BOQ-linked work schedule and critical-path dashboard.
 import React, { useState } from 'react';
 import { Activity, Dependency, diffDays, addDays } from '../lib/cpm';
+import BsDatePicker from './BsDatePicker';
+import { formatBsDate } from '../lib/nepaliDate';
+import { generateWbsFromTender } from '../lib/ai';
 
 interface CpmTimelineDashboardProps {
   activities: Activity[];
@@ -13,6 +16,7 @@ interface CpmTimelineDashboardProps {
     activity: Omit<Activity, 'id' | 'status' | 'actual_quantity'>,
     predecessor?: { id: string; type: Dependency['type']; lag: number }
   ) => void;
+  onImportTender: (result: Awaited<ReturnType<typeof generateWbsFromTender>>) => Promise<void>;
   userRole: string;
 }
 
@@ -24,10 +28,16 @@ export default function CpmTimelineDashboard({
   onDeleteDependency,
   onUpdateActivity,
   onAddActivity,
+  onImportTender,
   userRole
 }: CpmTimelineDashboardProps) {
   const [showAddDep, setShowAddDep] = useState(false);
   const [showAddActivity, setShowAddActivity] = useState(false);
+  const [showTenderImport, setShowTenderImport] = useState(false);
+  const [tenderText, setTenderText] = useState('');
+  const [tenderResult, setTenderResult] = useState<Awaited<ReturnType<typeof generateWbsFromTender>> | null>(null);
+  const [tenderBusy, setTenderBusy] = useState(false);
+  const [tenderMessage, setTenderMessage] = useState('');
   const [predId, setPredId] = useState('');
   const [succId, setSuccId] = useState('');
   const [depType, setDepType] = useState<'FS' | 'SS' | 'FF' | 'SF'>('FS');
@@ -140,35 +150,88 @@ export default function CpmTimelineDashboard({
     setShowAddActivity(false);
   };
 
+  const handleGenerateTender = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (tenderText.trim().length < 30) return setTenderMessage('Paste at least one meaningful BOQ or tender paragraph.');
+    setTenderBusy(true);
+    setTenderMessage('');
+    try {
+      const result = await generateWbsFromTender(tenderText.trim(), project.start_date);
+      setTenderResult(result);
+      setTenderMessage(`Draft ready: ${result.activities.length} BOQ work items and ${result.dependencies.length} predecessor links.`);
+    } catch (error) {
+      setTenderMessage(error instanceof Error ? error.message : 'Could not generate the BOQ schedule.');
+    } finally {
+      setTenderBusy(false);
+    }
+  };
+
+  const applyTenderSchedule = async () => {
+    if (!tenderResult || activities.length > 0) return;
+    setTenderBusy(true);
+    setTenderMessage('Saving generated BOQ schedule…');
+    try {
+      await onImportTender(tenderResult);
+      setTenderMessage('Generated BOQ schedule saved to the shared project workspace.');
+      setTenderText('');
+      setTenderResult(null);
+      setShowTenderImport(false);
+    } catch (error) {
+      setTenderMessage(error instanceof Error ? error.message : 'Could not save the generated schedule.');
+    } finally {
+      setTenderBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Interactive controls */}
       <div className="flex justify-between items-center bg-slate-800/40 p-4 border border-slate-700/30 rounded-xl shadow">
         <div>
-          <h2 className="text-slate-200 text-base font-semibold">WBS & Critical Path Method (CPM) Schedule</h2>
-          <p className="text-xs text-slate-400">Total Activities: {activities.length} | Critical Path: {activities.filter(a => a.is_critical).length} Activities</p>
+          <h2 className="text-slate-200 text-base font-semibold">BOQ & Work Schedule</h2>
+          <p className="text-xs text-slate-400">{activities.length} work item(s) · {activities.filter(a => a.is_critical).length} critical item(s). Date and dependency calculations run automatically.</p>
         </div>
         
         {isEditable && <div className="flex flex-wrap gap-2">
-          <button onClick={() => { setShowAddActivity(!showAddActivity); setShowAddDep(false); }} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow transition">
-            {showAddActivity ? 'Cancel' : '+ Add WBS Activity Manually'}
+          <button onClick={() => { setShowAddActivity(!showAddActivity); setShowAddDep(false); setShowTenderImport(false); }} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow transition">
+            {showAddActivity ? 'Cancel' : '+ Add BOQ Work Item'}
           </button>
-          <button onClick={() => { setShowAddDep(!showAddDep); setShowAddActivity(false); }} className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow transition">
+          <button onClick={() => { setShowTenderImport(!showTenderImport); setShowAddActivity(false); setShowAddDep(false); }} className="rounded-lg bg-purple-700 px-3 py-2 text-xs font-semibold text-white shadow transition">
+            {showTenderImport ? 'Cancel' : '✨ Build BOQ from Tender'}
+          </button>
+          <button onClick={() => { setShowAddDep(!showAddDep); setShowAddActivity(false); setShowTenderImport(false); }} className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow transition">
             {showAddDep ? 'Cancel' : '🔗 Add Predecessor Link'}
           </button>
         </div>}
       </div>
 
+      {showTenderImport && isEditable && (
+        <form onSubmit={handleGenerateTender} className="space-y-4 rounded-xl border border-purple-200 bg-white p-4 shadow-lg">
+          <div>
+            <h3 className="text-sm font-bold text-slate-950">Tender / BOQ schedule builder</h3>
+            <p className="text-xs text-slate-600">Paste BOQ descriptions or tender scope. The service uses configured AI when available and a construction-rule fallback when offline. Review the draft before saving.</p>
+          </div>
+          <textarea required rows={7} value={tenderText} onChange={event=>setTenderText(event.target.value)} className="w-full rounded-lg p-3" placeholder="Example: Item 1 site establishment; Item 2 excavation in soil 12,000 m3; Item 3 PCC bedding 450 m3; Item 4 RCC foundation…" />
+          <div className="flex flex-wrap gap-2">
+            <button disabled={tenderBusy} className="rounded-lg bg-purple-700 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60">{tenderBusy?'Generating…':'Generate BOQ draft'}</button>
+            {tenderResult&&<button type="button" disabled={tenderBusy||activities.length>0} onClick={()=>void applyTenderSchedule()} className="rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">Use generated BOQ schedule</button>}
+          </div>
+          {tenderMessage&&<div className="rounded-lg bg-purple-50 p-3 text-sm text-purple-900">{tenderMessage}</div>}
+          {activities.length>0&&<div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">This project already has BOQ work items. To protect linked daily reports and finance records, generated schedules can only be applied to a blank project. Manual BOQ entry remains available.</div>}
+          {tenderResult&&<div className="max-h-64 overflow-auto rounded-lg border border-slate-200"><table className="w-full text-left text-xs"><thead><tr><th className="p-2">BOQ</th><th className="p-2">Description of work</th><th className="p-2">Duration</th><th className="p-2">Quantity</th></tr></thead><tbody>{tenderResult.activities.map(item=><tr key={item.id}><td className="p-2 font-mono">{item.wbs_code}</td><td className="p-2 font-semibold text-slate-900">{item.name}</td><td className="p-2">{item.planned_duration} days</td><td className="p-2">{item.planned_quantity} {item.unit}</td></tr>)}</tbody></table></div>}
+        </form>
+      )}
+
       {showAddActivity && (
         <form onSubmit={handleAddActivity} className="bg-white border border-slate-700 p-4 rounded-xl space-y-4 shadow-lg">
           <div>
-            <h3 className="text-slate-200 text-sm font-semibold">Manual WBS / Activity Entry</h3>
-            <p className="text-slate-400 text-xs">Use this for direct planning entry. The AI Tender WBS Scanner remains available in AI Assistant for bulk generation.</p>
+            <h3 className="text-slate-200 text-sm font-semibold">Manual BOQ Work Entry</h3>
+            <p className="text-slate-400 text-xs">Add the BOQ item number, description, date, duration, quantity and predecessor.</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
             <Control label="BOQ Item No."><input required placeholder="e.g. 03.02" value={manual.wbs_code} onChange={e=>setManual({...manual,wbs_code:e.target.value})}/></Control>
             <Control label="Description of Work"><input required placeholder="Foundation excavation" value={manual.name} onChange={e=>setManual({...manual,name:e.target.value})}/></Control>
-            <Control label="Baseline Start"><input type="date" required value={manual.baseline_start} onChange={e=>setManual({...manual,baseline_start:e.target.value})}/></Control>
+            <Control label="Baseline Start (BS)"><BsDatePicker required value={manual.baseline_start} onChange={baseline_start=>setManual({...manual,baseline_start})}/></Control>
             <Control label="Duration (days)"><input type="number" min="1" required value={manual.planned_duration} onChange={e=>setManual({...manual,planned_duration:Number(e.target.value)})}/></Control>
             <Control label="Planned Quantity"><input type="number" min="0" step="any" value={manual.planned_quantity} onChange={e=>setManual({...manual,planned_quantity:Number(e.target.value)})}/></Control>
             <Control label="Unit"><input value={manual.unit} onChange={e=>setManual({...manual,unit:e.target.value})}/></Control>
@@ -178,7 +241,7 @@ export default function CpmTimelineDashboard({
             <Control label="Relationship"><select value={manual.dependency_type} onChange={e=>setManual({...manual,dependency_type:e.target.value as Dependency['type']})}>{['FS','SS','FF','SF'].map(type=><option key={type}>{type}</option>)}</select></Control>
             <Control label="Lag / Lead (days)"><input type="number" placeholder="Use -2 for lead" value={manual.lag || ''} onChange={e=>setManual({...manual,lag:Number(e.target.value)})}/></Control>
           </div>
-          <button className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg">Save Activity & Recalculate CPM</button>
+          <button className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg">Save Work Item & Recalculate Schedule</button>
         </form>
       )}
 
@@ -300,14 +363,14 @@ export default function CpmTimelineDashboard({
                     <div 
                       className="absolute h-1.5 bg-slate-700/60 rounded top-[4px]"
                       style={{ left: `${baseStartOffset}%`, width: `${baseWidth}%` }}
-                      title={`Baseline: ${act.baseline_start} to ${act.baseline_finish}`}
+                      title={`Baseline: ${formatBsDate(act.baseline_start)} to ${formatBsDate(act.baseline_finish)}`}
                     ></div>
                     
                     {/* Actual/Forecast Bar (Main colored bar) */}
                     <div 
                       className={`absolute h-3 rounded bottom-[4px] opacity-90 ${barColor}`}
                       style={{ left: `${startOffset}%`, width: `${durationWidth}%` }}
-                      title={`Forecast: ${act.early_start} to ${act.early_finish}`}
+                      title={`Forecast: ${formatBsDate(act.early_start)} to ${formatBsDate(act.early_finish)}`}
                     >
                       {/* Show completion shading inside bar */}
                       {act.status === 'in_progress' && (
@@ -334,7 +397,7 @@ export default function CpmTimelineDashboard({
 
       {/* CPM Grid Tables */}
       <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-5 shadow-lg">
-        <h3 className="text-slate-200 text-sm font-semibold mb-4">CPM Scheduled Activities Register</h3>
+        <h3 className="text-slate-200 text-sm font-semibold mb-4">BOQ Work Schedule Register</h3>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
@@ -343,10 +406,10 @@ export default function CpmTimelineDashboard({
                 <th className="pb-3">Description of Work</th>
                 <th className="pb-3 text-right">Planned Dur</th>
                 <th className="pb-3 text-right">Qty / Unit</th>
-                <th className="pb-3 text-right">Early Start</th>
-                <th className="pb-3 text-right">Early Finish</th>
-                <th className="pb-3 text-right">Late Start</th>
-                <th className="pb-3 text-right">Late Finish</th>
+                <th className="pb-3 text-right">Early Start (BS)</th>
+                <th className="pb-3 text-right">Early Finish (BS)</th>
+                <th className="pb-3 text-right">Late Start (BS)</th>
+                <th className="pb-3 text-right">Late Finish (BS)</th>
                 <th className="pb-3 text-right">Float</th>
                 <th className="pb-3 text-center">Status</th>
                 <th className="pb-3">Delay / Management Remark</th>
@@ -380,10 +443,10 @@ export default function CpmTimelineDashboard({
                         `${act.planned_quantity} ${act.unit}`
                       )}
                     </td>
-                    <td className="py-2.5 text-right font-mono">{isEditing ? <input type="date" value={String(editAct.baseline_start || act.baseline_start)} onChange={e=>setEditAct({...editAct,baseline_start:e.target.value})} className="rounded border px-1" /> : act.early_start}</td>
-                    <td className="py-2.5 text-right font-mono">{isEditing ? <input type="date" value={String(editAct.baseline_finish || act.baseline_finish)} onChange={e=>setEditAct({...editAct,baseline_finish:e.target.value})} className="rounded border px-1" /> : act.early_finish}</td>
-                    <td className="py-2.5 text-right font-mono">{act.late_start}</td>
-                    <td className="py-2.5 text-right font-mono">{act.late_finish}</td>
+                    <td className="py-2.5 text-right font-mono">{isEditing ? <BsDatePicker value={String(editAct.baseline_start || act.baseline_start)} onChange={baseline_start=>setEditAct({...editAct,baseline_start})} className="min-w-40" /> : formatBsDate(act.early_start)}</td>
+                    <td className="py-2.5 text-right font-mono">{isEditing ? <BsDatePicker value={String(editAct.baseline_finish || act.baseline_finish)} onChange={baseline_finish=>setEditAct({...editAct,baseline_finish})} className="min-w-40" /> : formatBsDate(act.early_finish)}</td>
+                    <td className="py-2.5 text-right font-mono">{formatBsDate(act.late_start)}</td>
+                    <td className="py-2.5 text-right font-mono">{formatBsDate(act.late_finish)}</td>
                     <td className="py-2.5 text-right font-mono">
                       <span className={`px-1 py-0.5 rounded font-bold ${act.total_float! <= 0 ? 'bg-red-500/10 text-red-400' : 'text-slate-400'}`}>
                         {act.total_float}d
@@ -421,7 +484,7 @@ export default function CpmTimelineDashboard({
 
       {/* Dependencies list */}
       <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-5 shadow-lg">
-        <h3 className="text-slate-200 text-sm font-semibold mb-3">CPM Network Logic (Dependencies)</h3>
+        <h3 className="text-slate-200 text-sm font-semibold mb-3">Work Dependencies</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {dependencies.map(d => {
             const pred = activities.find(a => a.id === d.predecessor_id);

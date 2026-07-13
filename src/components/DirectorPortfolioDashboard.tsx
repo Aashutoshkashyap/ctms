@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Activity } from '../lib/cpm';
 import { AppNotification, DailyExpense, DailyResourceUsage, EmployeeVisit, storage } from '../lib/storage';
+import { formatBsDateTime } from '../lib/nepaliDate';
 
 interface Props {
   projects: any[];
@@ -181,7 +182,7 @@ export default function DirectorPortfolioDashboard({
           <div className="mt-3 space-y-2">
             {notifications.length === 0 ? <p className="text-sm text-slate-500">No activity yet.</p> : notifications.slice(0, 10).map(note => <div key={note.id} className={`rounded-lg border p-3 text-sm ${note.read ? 'border-slate-200 bg-slate-50' : 'border-blue-200 bg-blue-50'}`}>
               <div className="font-bold text-slate-900">{note.action}</div>
-              <div className="text-xs text-slate-500">{note.module} · {note.actor || 'User'} · {new Date(note.created_at).toLocaleString()}</div>
+              <div className="text-xs text-slate-500">{note.module} · {note.actor || 'User'} · {formatBsDateTime(note.created_at)}</div>
             </div>)}
           </div>
         </div>

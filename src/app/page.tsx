@@ -8,7 +8,6 @@ import { Activity, Dependency, diffDays } from '../lib/cpm';
 // Dashboard views imports
 import CpmTimelineDashboard from '../components/CpmTimelineDashboard';
 import ExpectedActualDashboard from '../components/ExpectedActualDashboard';
-import ProjectionDashboard from '../components/ProjectionDashboard';
 import DesignDashboard from '../components/DesignDashboard';
 import BudgetDashboard from '../components/BudgetDashboard';
 import IpcDashboard from '../components/IpcDashboard';
@@ -18,9 +17,7 @@ import SafetyDashboard from '../components/SafetyDashboard';
 import HandoverDashboard from '../components/HandoverDashboard';
 import DefectsDashboard from '../components/DefectsDashboard';
 import SettingsPanel from '../components/SettingsPanel';
-import AiAssistant from '../components/AiAssistant';
 import AuthLayout from '../components/AuthLayout';
-import FinanceTracker from '../components/FinanceTracker';
 import DocumentTracker from '../components/DocumentTracker';
 import ProcurementStoresDashboard from '../components/ProcurementStoresDashboard';
 import ContractObligationsDashboard from '../components/ContractObligationsDashboard';
@@ -32,44 +29,36 @@ import OperationalControlDashboard from '../components/OperationalControlDashboa
 import EvidenceVault from '../components/EvidenceVault';
 import DirectorPortfolioDashboard from '../components/DirectorPortfolioDashboard';
 import SuperAdminDashboard from '../components/SuperAdminDashboard';
+import SubscriptionDashboard from '../components/SubscriptionDashboard';
+import BsDatePicker from '../components/BsDatePicker';
+import { formatBsDate } from '../lib/nepaliDate';
 import { can, ROLE_LABELS, normalizeRole } from '../lib/permissions';
-import type { Feature } from '../lib/permissions';
+import type { Feature, FeaturePermissions } from '../lib/permissions';
 
 type ActiveTab =
-  | 'dashboard' | 'cpm' | 'expected_actual' | 'projection'
+  | 'dashboard' | 'cpm' | 'expected_actual'
   | 'design' | 'budget' | 'ipc' | 'claims'
   | 'qaqc' | 'safety'
   | 'handover' | 'defects'
-  | 'finance' | 'documents'
+  | 'documents'
   | 'procurement' | 'obligations' | 'daily' | 'reports' | 'expenses'
-  | 'operations' | 'evidence'
-  | 'ai' | 'settings';
+  | 'operations' | 'evidence' | 'subscription'
+  | 'settings';
 
 const TAB_FEATURES: Partial<Record<ActiveTab, Feature>> = {
-  cpm: 'schedule', expected_actual: 'schedule', projection: 'forecast', daily: 'daily_reports',
+  cpm: 'schedule', expected_actual: 'schedule', daily: 'daily_reports',
   operations: 'operations', evidence: 'view_evidence', design: 'design', budget: 'budget',
   ipc: 'ipc', claims: 'claims', procurement: 'procurement', obligations: 'obligations',
-  qaqc: 'qaqc', safety: 'safety', finance: 'finance', expenses: 'expenses',
+  qaqc: 'qaqc', safety: 'safety', expenses: 'expenses',
   documents: 'documents', reports: 'reports', handover: 'handover', defects: 'defects',
-  ai: 'ai', settings: 'settings',
+  subscription: 'subscription', settings: 'settings',
 };
 
 interface AuthUser {
   name: string;
   email: string;
   role: string;
-}
-
-function formatNepaliDate(date: string) {
-  try {
-    return new Intl.DateTimeFormat('ne-NP-u-ca-bikram-sambat', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    }).format(new Date(date));
-  } catch {
-    return date;
-  }
+  feature_permissions?: FeaturePermissions | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -130,12 +119,7 @@ function CreateProjectModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-400 mb-1">Contract Start Date</label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-slate-200 focus:outline-none focus:border-blue-500"
-              />
+              <BsDatePicker value={startDate} onChange={setStartDate} />
             </div>
             <div>
               <label className="block text-slate-400 mb-1">Duration (Days)</label>
@@ -249,7 +233,6 @@ export default function DashboardShell() {
   const [qaqc, setQaqc] = useState<any[]>([]);
   const [safety, setSafety] = useState<any[]>([]);
   const [claims, setClaims] = useState<any[]>([]);
-  const [risks, setRisks] = useState<any[]>([]);
   const [handover, setHandover] = useState<any[]>([]);
   const [defects, setDefects] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
@@ -275,7 +258,6 @@ export default function DashboardShell() {
     setQaqc(storage.getQAQC());
     setSafety(storage.getSafetyLogs());
     setClaims(storage.getClaims());
-    setRisks(storage.getRisks());
     setHandover(storage.getHandoverChecklist());
     setDefects(storage.getDefects());
     setUsers(storage.getUsers());
@@ -485,6 +467,22 @@ export default function DashboardShell() {
     storage.addManualActivity(activity, predecessor);
     loadData();
   };
+  const handleImportTender = async (result: Awaited<ReturnType<typeof import('../lib/ai').generateWbsFromTender>>) => {
+    const prefix = `${project.id}-${Date.now()}`;
+    const activityIds = new Map(result.activities.map(item => [item.id, `${prefix}-${item.id}`]));
+    const activitiesWithUniqueIds = result.activities.map(item => ({ ...item, id: activityIds.get(item.id)! }));
+    const dependenciesWithUniqueIds = result.dependencies.map((item, index) => ({
+      ...item,
+      id: `${prefix}-dep-${index + 1}`,
+      predecessor_id: activityIds.get(item.predecessor_id) || item.predecessor_id,
+      successor_id: activityIds.get(item.successor_id) || item.successor_id,
+    }));
+    const wbsWithUniqueIds = result.wbsItems.map((item, index) => ({ ...item, id: `${prefix}-wbs-${index + 1}` }));
+    storage.applyGeneratedSchedule(wbsWithUniqueIds, activitiesWithUniqueIds, dependenciesWithUniqueIds);
+    const sync = await storage.syncActiveProjectToCloud();
+    if (!sync.ok) throw new Error(sync.message);
+    loadData();
+  };
   const handleAddDependency = (dep: any) => { storage.addDependency(dep); loadData(); };
   const handleDeleteDependency = (id: string) => { storage.deleteDependency(id); loadData(); };
   const handleUpdatePackage = (pkg: any) => { storage.updateDesignPackage(pkg); loadData(); };
@@ -492,16 +490,10 @@ export default function DashboardShell() {
   const handleSubmitDailyReport = (rep: any, work: any[], mats: any[]) => { storage.submitDailyReport(rep, work, mats); loadData(); };
   const handleUpdateBudget = (bdg: any) => { storage.updateBudgetHead(bdg); loadData(); };
   const handleUpdateClaimStatus = (id: string, status: string) => { storage.updateClaim({ id, status }); loadData(); };
-  const handleSubmitIPC = (ipc: any) => { storage.submitIPC(ipc); loadData(); };
-  const handleCertifyIPC = (id: string, certAmount: number, retention: number, advance: number) => { storage.certifyIPC(id, certAmount, retention, advance); loadData(); };
-  const handlePayIPC = (id: string, paidAmount: number) => { storage.payIPC(id, paidAmount); loadData(); };
   const handleAddClaim = (clm: any) => { storage.addClaim(clm); loadData(); };
   const handleAddQAQC = (qa: any) => { storage.addQAQC(qa); loadData(); };
   const handleUpdateQAQC = (qa: any) => { storage.updateQAQC(qa); loadData(); };
   const handleAddSafetyLog = (sf: any) => { storage.addSafetyLog(sf); loadData(); };
-  const handleToggleHandoverItem = (id: string, name: string) => { storage.toggleHandoverItem(id, name); loadData(); };
-  const handleUpdateDefectStatus = (id: string, status: any) => { storage.updateDefectStatus(id, status); loadData(); };
-  const handleAddDefect = (def: any) => { storage.addDefect(def); loadData(); };
   const handleAddUser = (usr: any) => { storage.addUser(usr); loadData(); };
   const handleUpdateProject = (proj: any) => { storage.updateProject(proj); loadData(); };
   const handleDeleteDailyReport = async (id: string) => { await storage.deleteDailyReport(id); loadData(); };
@@ -511,7 +503,7 @@ export default function DashboardShell() {
     setActiveTab('dashboard');
     const membership = storage.getMembershipForProject(id);
     if (membership) {
-      const nextUser = { name: membership.name, email: membership.email, role: membership.role };
+      const nextUser = { name: membership.name, email: membership.email, role: membership.role, feature_permissions: membership.feature_permissions || null };
       setAuthUser(nextUser);
       localStorage.setItem('bt_auth_user', JSON.stringify(nextUser));
     }
@@ -519,7 +511,9 @@ export default function DashboardShell() {
     loadData();
   };
 
-  const isAllowedTab = (tab: ActiveTab) => tab === 'dashboard' || !TAB_FEATURES[tab] || can(authUser.role, TAB_FEATURES[tab]!);
+  const activePermissions = authUser.feature_permissions || storage.getMembershipForProject(project.id)?.feature_permissions || null;
+  const canAccess = (feature: Feature, access: 'read' | 'write' = 'read') => can(authUser.role, feature, activePermissions, access);
+  const isAllowedTab = (tab: ActiveTab) => tab === 'dashboard' || !TAB_FEATURES[tab] || canAccess(TAB_FEATURES[tab]!);
   const setActiveTabFromMenu = (tab: ActiveTab) => {
     setActiveTab(tab);
     setMobileMenuOpen(false);
@@ -529,6 +523,8 @@ export default function DashboardShell() {
     setActiveTab(isAllowedTab(next) ? next : 'dashboard');
     setMobileMenuOpen(false);
   };
+  const activeFeature = TAB_FEATURES[activeTab];
+  const isReadOnlyFeature = Boolean(activeFeature && canAccess(activeFeature, 'read') && !canAccess(activeFeature, 'write'));
 
   return (
     <div className="app-shell min-h-screen flex flex-col md:flex-row font-sans">
@@ -543,7 +539,7 @@ export default function DashboardShell() {
       {/* ------------------------------------------------------------------ */}
       {/* SIDEBAR NAVIGATION                                                   */}
       {/* ------------------------------------------------------------------ */}
-      {mobileMenuOpen && <button aria-label="Close menu overlay" className="fixed inset-0 z-30 bg-slate-900/30 md:hidden" onClick={() => setMobileMenuOpen(false)} />}
+      {mobileMenuOpen && <button aria-label="Close menu overlay" className="app-menu-overlay fixed inset-0 z-30 bg-black/45 md:hidden" onClick={() => setMobileMenuOpen(false)} />}
       <aside className={`app-sidebar fixed inset-y-0 left-0 z-40 w-[86vw] max-w-80 border-r flex flex-col shrink-0 transition-transform duration-200 md:static md:z-auto md:w-72 md:max-w-none md:translate-x-0 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         {/* Brand header */}
         <div className="p-4 border-b border-slate-800 flex items-center justify-between">
@@ -580,37 +576,35 @@ export default function DashboardShell() {
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-180px)]">
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 mb-1.5 tracking-wider">Project Operations</div>
           <NavBtn tab="dashboard" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📊" label="My Dashboard" />
-          {can(authUser.role, 'schedule') && <NavBtn tab="cpm" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📅" label="WBS / CPM Scheduler" />}
-          {can(authUser.role, 'schedule') && <NavBtn tab="expected_actual" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📈" label="Expected vs Actual" />}
-          {can(authUser.role, 'forecast') && <NavBtn tab="projection" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🔮" label="Forecast & Projections" />}
-          {can(authUser.role, 'daily_reports') && <NavBtn tab="daily" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📝" label="Daily Site Reporting" />}
-          {can(authUser.role, 'operations') && <NavBtn tab="operations" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🚜" label="Resources & Productivity" />}
-          {can(authUser.role, 'view_evidence') && <NavBtn tab="evidence" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🖼️" label="Director Evidence Vault" />}
+          {canAccess('schedule') && <NavBtn tab="cpm" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📅" label="BOQ & Work Schedule" />}
+          {canAccess('schedule') && <NavBtn tab="expected_actual" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📈" label="Expected vs Actual" />}
+          {canAccess('daily_reports') && <NavBtn tab="daily" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📝" label="Daily Site Reporting" />}
+          {canAccess('operations') && <NavBtn tab="operations" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🚜" label="Resources & Productivity" />}
+          {canAccess('view_evidence') && <NavBtn tab="evidence" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🖼️" label="Director Evidence Vault" />}
 
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Engineering & Controls</div>
-          {can(authUser.role, 'budget') && <NavBtn tab="budget" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="💰" label="Budget & Costs" />}
-          {can(authUser.role, 'ipc') && <NavBtn tab="ipc" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label="IPC Billing / Valuation" />}
-          {can(authUser.role, 'claims') && <NavBtn tab="claims" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⚖️" label="Variations & Claims" />}
-          {can(authUser.role, 'procurement') && <NavBtn tab="procurement" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🚚" label="Procurement & Stores" />}
-          {can(authUser.role, 'obligations') && <NavBtn tab="obligations" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⏰" label="Contract Obligations" />}
+          {canAccess('budget') && <NavBtn tab="budget" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="💰" label="Budget & Costs" />}
+          {canAccess('ipc') && <NavBtn tab="ipc" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label="IPC Billing / Valuation" />}
+          {canAccess('claims') && <NavBtn tab="claims" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⚖️" label="Variations & Claims" />}
+          {canAccess('procurement') && <NavBtn tab="procurement" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🚚" label="Procurement & Stores" />}
+          {canAccess('obligations') && <NavBtn tab="obligations" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⏰" label="Contract Obligations" />}
 
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Site Quality & Safety</div>
-          {can(authUser.role, 'qaqc') && <NavBtn tab="qaqc" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧪" label="QA / QC Inspections" />}
-          {can(authUser.role, 'safety') && <NavBtn tab="safety" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🦺" label="Safety / EHS Logs" />}
+          {canAccess('qaqc') && <NavBtn tab="qaqc" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧪" label="QA / QC Inspections" />}
+          {canAccess('safety') && <NavBtn tab="safety" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🦺" label="Safety / EHS Logs" />}
 
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Finance & Documents</div>
-          {can(authUser.role, 'finance') && <NavBtn tab="finance" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📉" label="Finance Tracker" accent="emerald" />}
-          {can(authUser.role, 'expenses') && <NavBtn tab="expenses" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label="Daily Expense Register" accent="emerald" />}
-          {can(authUser.role, 'documents') && <NavBtn tab="documents" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📁" label="Document Registry" accent="emerald" />}
-          {can(authUser.role, 'reports') && <NavBtn tab="reports" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📤" label="Reports & Exports" accent="emerald" />}
+          {canAccess('expenses') && <NavBtn tab="expenses" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label="Daily Expense Register" accent="emerald" />}
+          {canAccess('documents') && <NavBtn tab="documents" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📁" label="Compliance & Documents" accent="emerald" />}
+          {canAccess('reports') && <NavBtn tab="reports" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📤" label="Reports & Exports" accent="emerald" />}
 
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Completion Dossier</div>
-          {can(authUser.role, 'handover') && <NavBtn tab="handover" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🔑" label="Handover Checklist" />}
-          {can(authUser.role, 'defects') && <NavBtn tab="defects" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🔧" label="Defects Maintenance" />}
+          {canAccess('handover') && <NavBtn tab="handover" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🔑" label="Handover Checklist" />}
+          {canAccess('defects') && <NavBtn tab="defects" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🔧" label="Defects Maintenance" />}
 
-          <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">AI Operations & Setup</div>
-          {can(authUser.role, 'ai') && <NavBtn tab="ai" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="✨" label="AI Assistant Panel" accent="purple" />}
-          {can(authUser.role, 'settings') && <NavBtn tab="settings" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⚙️" label="System Settings" />}
+          <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Account & Setup</div>
+          {canAccess('subscription') && <NavBtn tab="subscription" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label="Service & Billing" accent="purple" />}
+          {canAccess('settings') && <NavBtn tab="settings" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⚙️" label="System Settings" />}
         </nav>
       </aside>
 
@@ -637,7 +631,7 @@ export default function DashboardShell() {
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
-              {can(authUser.role, 'manage_projects') && <button
+              {canAccess('manage_projects', 'write') && <button
                 onClick={() => setShowCreateProject(true)}
                 className="px-2 py-1 bg-blue-600/80 hover:bg-blue-600 text-white text-[10px] font-bold rounded transition whitespace-nowrap"
               >
@@ -650,7 +644,7 @@ export default function DashboardShell() {
           <div className="flex items-center gap-3 shrink-0">
             <div className="flex items-center gap-1 text-slate-500 hidden lg:flex">
               <span>📅</span>
-              <span className="font-mono">{formatNepaliDate(currentDate)} · {currentDate}</span>
+              <span className="font-mono">{formatBsDate(currentDate, { long: true })}</span>
             </div>
 
             {/* Role indicator */}
@@ -665,6 +659,8 @@ export default function DashboardShell() {
 
         {/* ---- Active Dashboard Panel ---- */}
         <main className="app-main flex-1 p-4 md:p-6 overflow-y-auto max-h-[calc(100vh-56px)]">
+          {isReadOnlyFeature && <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-950">Your Project Director granted view-only access to this module. Editing and uploads are disabled.</div>}
+          <div className={isReadOnlyFeature ? 'feature-read-only' : ''} aria-readonly={isReadOnlyFeature}>
           {activeTab === 'dashboard' && (
             authUser.role === 'project_director' ? (
               <DirectorPortfolioDashboard
@@ -692,6 +688,7 @@ export default function DashboardShell() {
                 visits={employeeVisits}
                 alerts={alerts}
                 onNavigate={goToTab}
+                featurePermissions={activePermissions}
               />
             )
           )}
@@ -705,6 +702,7 @@ export default function DashboardShell() {
               onDeleteDependency={handleDeleteDependency}
               onUpdateActivity={handleUpdateActivity}
               onAddActivity={handleAddActivity}
+              onImportTender={handleImportTender}
               userRole={authUser.role}
             />
           )}
@@ -716,17 +714,6 @@ export default function DashboardShell() {
               designPackages={designPackages}
               budgetHeads={budgetHeads}
               ipcSubmissions={ipcSubmissions}
-              currentDate={currentDate}
-            />
-          )}
-
-          {activeTab === 'projection' && (
-            <ProjectionDashboard
-              project={project}
-              activities={activities}
-              evm={evmMetrics}
-              designPackages={designPackages}
-              risks={risks}
               currentDate={currentDate}
             />
           )}
@@ -777,11 +764,12 @@ export default function DashboardShell() {
 
           {activeTab === 'ipc' && (
             <IpcDashboard
+              key={project.id}
               ipcSubmissions={ipcSubmissions}
-              onSubmitIPC={handleSubmitIPC}
-              onCertifyIPC={handleCertifyIPC}
-              onPayIPC={handlePayIPC}
               userRole={authUser.role}
+              userName={authUser.name}
+              userEmail={authUser.email}
+              onRefresh={loadData}
             />
           )}
 
@@ -799,7 +787,7 @@ export default function DashboardShell() {
           )}
 
           {activeTab === 'obligations' && (
-            <ContractObligationsDashboard key={project.id} projectId={project.id} />
+            <ContractObligationsDashboard key={project.id} projectId={project.id} userName={authUser.name} />
           )}
 
           {activeTab === 'qaqc' && (
@@ -819,20 +807,13 @@ export default function DashboardShell() {
             />
           )}
 
-          {/* ---- NEW: Finance Tracker ---- */}
-          {activeTab === 'finance' && (
-            <div className="space-y-2">
-              <FinanceTracker key={project.id} projectId={project.id} />
-            </div>
-          )}
-
           {activeTab === 'expenses' && (
             <DailyExpenseDashboard key={project.id} projectId={project.id} userName={authUser.name} userEmail={authUser.email} userRole={authUser.role} activities={activities} />
           )}
 
           {/* ---- NEW: Document Registry ---- */}
           {activeTab === 'documents' && (
-            <DocumentTracker key={project.id} userRole={authUser.role} projectId={project.id} />
+            <DocumentTracker key={project.id} userRole={authUser.role} projectId={project.id} userName={authUser.name} userEmail={authUser.email} />
           )}
 
           {activeTab === 'reports' && (
@@ -853,30 +834,23 @@ export default function DashboardShell() {
           {activeTab === 'handover' && (
             <HandoverDashboard
               handoverList={handover}
-              onToggleItem={handleToggleHandoverItem}
               userRole={authUser.role}
+              userName={authUser.name}
+              onReload={loadData}
             />
           )}
 
           {activeTab === 'defects' && (
             <DefectsDashboard
               defectsList={defects}
-              onAddDefect={handleAddDefect}
-              onUpdateStatus={handleUpdateDefectStatus}
               userRole={authUser.role}
+              userName={authUser.name}
+              activities={activities}
+              onReload={loadData}
             />
           )}
 
-          {/* ---- AI Assistant with WBS scanner + reload callback ---- */}
-          {activeTab === 'ai' && (
-            <AiAssistant
-              activities={activities}
-              onSubmitDailyReport={handleSubmitDailyReport}
-              currentDate={currentDate}
-              onReloadData={loadData}
-              projectStartDate={project.start_date}
-            />
-          )}
+          {activeTab === 'subscription' && <SubscriptionDashboard />}
 
           {activeTab === 'settings' && (
             <SettingsPanel
@@ -886,8 +860,10 @@ export default function DashboardShell() {
               project={project}
               onUpdateProject={handleUpdateProject}
               userRole={authUser.role}
+              onUsersChanged={loadData}
             />
           )}
+          </div>
         </main>
       </div>
     </div>

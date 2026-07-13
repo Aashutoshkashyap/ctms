@@ -1,5 +1,10 @@
 // QA/QC Inspections Dashboard Component (Page 9)
 import React, { useState } from 'react';
+import BsDatePicker from './BsDatePicker';
+import { formatBsDate } from '../lib/nepaliDate';
+import { storage } from '../lib/storage';
+import UploadProgress from './UploadProgress';
+import { useSubmissionLock } from '../lib/useSubmissionLock';
 
 interface QaqcDashboardProps {
   qaqc: any[];
@@ -20,8 +25,10 @@ export default function QaqcDashboard({
   const [inspectDate, setInspectDate] = useState(new Date().toISOString().split('T')[0]);
   const [sampleDate, setSampleDate] = useState('');
   const [testedDate, setTestedDate] = useState('');
+  const [resultFiles, setResultFiles] = useState<Record<string, File | null>>({});
+  const { busy: uploading, run: runUpload } = useSubmissionLock();
 
-  const canEdit = ['super_admin', 'project_manager', 'qa_qc_engineer'].includes(userRole);
+  const canEdit = ['project_director', 'project_manager', 'qa_qc_engineer'].includes(userRole);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,7 +52,13 @@ export default function QaqcDashboard({
     alert('Inspection request registered successfully.');
   };
 
-  const handleUpdateStatus = (item: any, status: 'passed' | 'failed') => {
+  const handleUpdateStatus = async (item: any, status: 'passed' | 'failed') => {
+    const reportFile = resultFiles[item.id];
+    if (!item.report_storage_path && !item.report_url && !reportFile) {
+      window.alert('Upload the test result or NCR report before recording the inspection result.');
+      return;
+    }
+    await runUpload(async () => {
     const isFailed = status === 'failed';
     const highestNcr = qaqc.reduce((highest, record) => {
       const code = String(record.ncr_code || record.ncr_number || '');
@@ -53,15 +66,31 @@ export default function QaqcDashboard({
       return Math.max(highest, numericPart);
     }, 0);
     const ncrNum = isFailed ? `NCR-${String(highestNcr + 1).padStart(3, '0')}` : null;
+    let report_storage_path = item.report_storage_path || '';
+    let report_url = item.report_url || '';
+    if (reportFile) {
+      try {
+        const uploaded = await storage.uploadProjectDocument(reportFile, 'test_report', item.id, 'QA/QC Team', `${isFailed ? ncrNum : 'PASS'}: ${item.qa_item}`);
+        report_storage_path = uploaded.storage_path || '';
+        report_url = uploaded.url || '';
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : 'Could not upload the inspection report.');
+        return;
+      }
+    }
     onUpdateQAQC({
       ...item,
       status,
       ncr_number: ncrNum,
       ncr_code: ncrNum,
       ncr_open_days: isFailed ? 1 : 0,
-      test_result_details: isFailed ? 'Cube compressive strength below standard specs. NCR registered.' : 'Passed required specification bounds.'
+      test_result_details: isFailed ? 'Inspection failed; NCR and supporting test report registered.' : 'Passed required specification bounds; test report registered.',
+      report_storage_path,
+      report_url,
     });
+    setResultFiles(files => ({ ...files, [item.id]: null }));
     alert(`Inspection marked as ${status}.`);
+    });
   };
 
   const total = qaqc.length;
@@ -70,7 +99,7 @@ export default function QaqcDashboard({
   const pending = qaqc.filter(q => q.status === 'pending').length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6"><UploadProgress active={uploading} label="Uploading and securing the test or NCR report…"/>
       {/* QA Grid summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-slate-800/50 border border-slate-700/40 p-4 rounded-xl text-center shadow">
@@ -134,22 +163,16 @@ export default function QaqcDashboard({
               />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Scheduled Date</label>
-              <input
-                type="date"
-                value={inspectDate}
-                onChange={(e) => setInspectDate(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
-                required
-              />
+              <label className="block text-slate-400 mb-1">Scheduled Date (BS)</label>
+              <BsDatePicker value={inspectDate} onChange={setInspectDate} required />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Sample Collection Date</label>
-              <input type="date" value={sampleDate} onChange={(e) => setSampleDate(e.target.value)} className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200" />
+              <label className="block text-slate-400 mb-1">Sample Collection Date (BS)</label>
+              <BsDatePicker value={sampleDate} onChange={setSampleDate} />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Tested Date</label>
-              <input type="date" value={testedDate} onChange={(e) => setTestedDate(e.target.value)} className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200" />
+              <label className="block text-slate-400 mb-1">Tested Date (BS)</label>
+              <BsDatePicker value={testedDate} onChange={setTestedDate} />
             </div>
           </div>
           <button type="submit" className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded shadow transition">
@@ -167,11 +190,12 @@ export default function QaqcDashboard({
               <tr className="border-b border-slate-700 text-slate-400 font-semibold">
                 <th className="pb-3">Inspection Item Details</th>
                 <th className="pb-3">Test standard</th>
-                <th className="pb-3 text-right">Inspection Date</th>
+                <th className="pb-3 text-right">Inspection Date (BS)</th>
                 <th className="pb-3 text-center">Status</th>
                 <th className="pb-3 text-right">NCR Code</th>
                 <th className="pb-3 text-right">Sample / Tested</th>
                 <th className="pb-3 pl-4">Audit Result Notes</th>
+                <th className="pb-3 text-right">Test / NCR Report</th>
                 {canEdit && <th className="pb-3 text-right pr-2">Actions</th>}
               </tr>
             </thead>
@@ -180,7 +204,7 @@ export default function QaqcDashboard({
                 <tr key={item.id} className="hover:bg-slate-800/10">
                   <td className="py-3 font-semibold text-slate-100">{item.qa_item}</td>
                   <td className="py-3 text-slate-400">{item.test_type || 'Standard inspection'}</td>
-                  <td className="py-3 text-right font-mono">{item.inspection_date}</td>
+                  <td className="py-3 text-right font-mono">{formatBsDate(item.inspection_date)}</td>
                   <td className="py-3 text-center">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                       item.status === 'passed' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
@@ -193,14 +217,16 @@ export default function QaqcDashboard({
                   <td className={`py-3 text-right font-mono font-bold ${item.ncr_number ? 'text-red-400' : 'text-slate-500'}`}>
                     {item.ncr_code || item.ncr_number || '-'}
                   </td>
-                  <td className="py-3 text-right font-mono text-slate-500">{item.sample_collection_date || '—'}<br />{item.tested_date || '—'}</td>
+                  <td className="py-3 text-right font-mono text-slate-500">{formatBsDate(item.sample_collection_date)}<br />{formatBsDate(item.tested_date)}</td>
                   <td className="py-3 pl-4 text-slate-400">{item.test_result_details || 'Awaiting site audit'}</td>
+                  <td className={`py-3 text-right font-bold ${item.report_storage_path || item.report_url ? 'text-emerald-800' : 'text-rose-800'}`}>{item.report_storage_path || item.report_url ? 'Stored' : 'Required at result'}</td>
                   {canEdit && (
                     <td className="py-3 text-right pr-2">
                       {item.status === 'pending' ? (
-                        <div className="flex gap-2 justify-end text-[11px] font-semibold">
-                          <button onClick={() => handleUpdateStatus(item, 'passed')} className="text-emerald-400 hover:text-emerald-300">Pass</button>
-                          <button onClick={() => handleUpdateStatus(item, 'failed')} className="text-red-400 hover:text-red-300">Fail</button>
+                        <div className="flex min-w-52 flex-col items-end gap-2 text-[11px] font-semibold">
+                          <input aria-label={`Upload report for ${item.qa_item}`} type="file" accept="application/pdf,image/*,.doc,.docx" onChange={event=>setResultFiles(files=>({...files,[item.id]:event.target.files?.[0]||null}))} className="max-w-52 text-xs" />
+                          <div className="flex gap-2"><button onClick={() => void handleUpdateStatus(item, 'passed')} className="text-emerald-700 hover:text-emerald-800">Pass</button>
+                          <button onClick={() => void handleUpdateStatus(item, 'failed')} className="text-red-700 hover:text-red-800">Fail</button></div>
                         </div>
                       ) : (
                         <span className="text-slate-500 font-normal">Audited</span>

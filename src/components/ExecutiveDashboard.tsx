@@ -2,7 +2,7 @@
 import React from 'react';
 import { Activity } from '../lib/cpm';
 import { EVMMetrics } from '../lib/evm';
-import { formatDate } from '../lib/cpm';
+import { formatBsDate } from '../lib/nepaliDate';
 
 interface ExecutiveDashboardProps {
   project: any;
@@ -118,7 +118,7 @@ export default function ExecutiveDashboard({
         {/* Schedule Forecast */}
         <div className="bg-slate-800/80 border border-slate-700/50 p-4 rounded-xl shadow-lg relative">
           <div className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Timeline Projection</div>
-          <div className="text-lg font-bold mt-1 text-slate-100">{formatDate(calculatedFinish)}</div>
+          <div className="text-lg font-bold mt-1 text-slate-100">{formatBsDate(calculatedFinish)}</div>
           <div className="flex justify-between items-center mt-3 text-xs">
             <span className="text-slate-400">Current Delay:</span>
             <span className={`font-semibold ${delayDays > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
@@ -126,7 +126,7 @@ export default function ExecutiveDashboard({
             </span>
           </div>
           <div className="text-[10px] text-slate-500 mt-2">
-            Target Completion: {formatDate(project.target_completion_date)}
+            Target Completion: {formatBsDate(project.target_completion_date)}
           </div>
         </div>
 
@@ -189,8 +189,8 @@ export default function ExecutiveDashboard({
               <circle cx="230" cy="115" r="4" fill="#38bdf8" />
               <text x="240" y="110" fill="#38bdf8" className="text-[10px] font-bold">Planned: {evm.plannedProgress.toFixed(1)}%</text>
             </svg>
-            <div className="absolute bottom-2 left-2 text-[10px] text-slate-500">{formatDate(project.start_date)} (Start)</div>
-            <div className="absolute bottom-2 right-2 text-[10px] text-slate-500">{formatDate(project.target_completion_date)} (Target)</div>
+            <div className="absolute bottom-2 left-2 text-[10px] text-slate-500">{formatBsDate(project.start_date)} (Start)</div>
+            <div className="absolute bottom-2 right-2 text-[10px] text-slate-500">{formatBsDate(project.target_completion_date)} (Target)</div>
           </div>
           <div className="flex gap-4 mt-3 text-xs justify-center">
             <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-sky-400 inline-block border-t border-dashed border-sky-400"></span> Planned Baseline Curve</span>

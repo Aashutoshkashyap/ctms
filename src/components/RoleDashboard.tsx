@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { Activity } from '../lib/cpm';
 import { DailyExpense, DailyResourceUsage, EmployeeVisit } from '../lib/storage';
 import { can, normalizeRole, ROLE_HOME_COPY, ROLE_LABELS } from '../lib/permissions';
+import type { FeaturePermissions } from '../lib/permissions';
 
 interface Props {
   role: string;
@@ -13,13 +14,13 @@ interface Props {
   visits: EmployeeVisit[];
   alerts: Array<{ type: string; message: string; severity: string }>;
   onNavigate: (tab: string) => void;
+  featurePermissions?: FeaturePermissions | null;
 }
 
 const moduleCards = [
-  { feature: 'schedule', tab: 'cpm', icon: '📅', title: 'Programme & Gantt', copy: 'WBS, logic, progress and delay remarks.' },
+  { feature: 'schedule', tab: 'cpm', icon: '📅', title: 'BOQ & Work Schedule', copy: 'BOQ items, dates, progress, dependencies and delay remarks.' },
   { feature: 'daily_reports', tab: 'daily', icon: '📝', title: 'Daily Reporting', copy: 'Completed work, constraints and site evidence.' },
   { feature: 'operations', tab: 'operations', icon: '🚜', title: 'Resources & Productivity', copy: 'Plant, manpower, fuel and excavator efficiency.' },
-  { feature: 'finance', tab: 'finance', icon: '📉', title: 'Finance Model', copy: 'Cash flow, cost curves and accumulated position.' },
   { feature: 'expenses', tab: 'expenses', icon: '🧾', title: 'Daily Cost Records', copy: 'Date-based site expenditure and approvals.' },
   { feature: 'procurement', tab: 'procurement', icon: '🚚', title: 'Procurement & Stores', copy: 'Orders, deliveries, issues and stock levels.' },
   { feature: 'qaqc', tab: 'qaqc', icon: '🧪', title: 'Quality Control', copy: 'Inspections, tests, NCRs and verification.' },
@@ -28,7 +29,7 @@ const moduleCards = [
   { feature: 'settings', tab: 'settings', icon: '⚙️', title: 'Project Administration', copy: 'Users, roles, project setup and cloud connection.' },
 ] as const;
 
-export default function RoleDashboard({ role, userName, project, activities, expenses, resourceUsage, visits, alerts, onNavigate }: Props) {
+export default function RoleDashboard({ role, userName, project, activities, expenses, resourceUsage, visits, alerts, onNavigate, featurePermissions }: Props) {
   const normalizedRole = normalizeRole(role);
   const copy = ROLE_HOME_COPY[normalizedRole];
   const metrics = useMemo(() => {
@@ -52,20 +53,20 @@ export default function RoleDashboard({ role, userName, project, activities, exp
     };
   }, [activities, expenses, resourceUsage, visits]);
 
-  const visibleCards = moduleCards.filter(card => can(role, card.feature));
+  const visibleCards = moduleCards.filter(card => can(role, card.feature, featurePermissions));
   const metricCards = [
-    ...(can(role, 'schedule') || can(role, 'executive') ? [
+    ...(can(role, 'schedule', featurePermissions) || can(role, 'executive', featurePermissions) ? [
       { label: 'Active Work', value: String(metrics.activeActivities), warning: false },
       { label: 'Delayed Activities', value: String(metrics.delayedActivities), warning: metrics.delayedActivities > 0 },
     ] : []),
-    ...(can(role, 'finance') || can(role, 'expenses') || can(role, 'executive') ? [
+    ...(can(role, 'expenses', featurePermissions) || can(role, 'executive', featurePermissions) ? [
       { label: 'Accumulated Cost', value: `NPR ${(metrics.accumulatedCost / 1_000_000).toFixed(2)}m`, warning: false },
       { label: 'Pending Approval', value: `NPR ${(metrics.pendingCost / 1_000_000).toFixed(2)}m`, warning: metrics.pendingCost > 0 },
     ] : []),
-    ...(can(role, 'operations') || can(role, 'executive') ? [
+    ...(can(role, 'operations', featurePermissions) || can(role, 'executive', featurePermissions) ? [
       { label: 'Work / Fuel', value: `${metrics.fuelEfficiency.toFixed(2)} unit/L`, warning: false },
     ] : []),
-    ...(can(role, 'employee_tracking') || can(role, 'executive') ? [
+    ...(can(role, 'employee_tracking', featurePermissions) || can(role, 'executive', featurePermissions) ? [
       { label: 'Visits Today', value: String(metrics.todayVisits), warning: false },
     ] : []),
     { label: 'Authorized Modules', value: String(visibleCards.length), warning: false },
@@ -90,7 +91,7 @@ export default function RoleDashboard({ role, userName, project, activities, exp
       {metricCards.map(card => <Metric key={card.label} label={card.label} value={card.value} warning={card.warning} />)}
     </section>
 
-    {alerts.length > 0 && can(role, 'executive') && <section className="rounded-xl border border-rose-200 bg-rose-50 p-4">
+    {alerts.length > 0 && can(role, 'executive', featurePermissions) && <section className="rounded-xl border border-rose-200 bg-rose-50 p-4">
       <h2 className="font-bold text-rose-800">Priority attention</h2>
       <div className="mt-2 grid gap-2 md:grid-cols-2">
         {alerts.slice(0, 4).map((alert, index) => <div key={`${alert.type}-${index}`} className="rounded-lg bg-white p-3 text-sm text-slate-700 shadow-sm">

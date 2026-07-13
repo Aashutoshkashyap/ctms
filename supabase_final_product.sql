@@ -818,6 +818,12 @@ using (bucket_id='payment-slips' and ((storage.foldername(name))[2] = (select au
 
 commit;
 
+-- Apply the idempotent controls and subscription automation upgrade after this
+-- base migration. The standalone file is kept separate so existing deployments
+-- can be upgraded without replaying the full schema:
+--   supabase_controls_subscription_upgrade.sql
+--   supabase_client_onboarding_upgrade.sql
+
 select
   'BuildTrack final product migration complete' as status,
   (select count(*) from organizations) as businesses,

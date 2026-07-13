@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { Activity } from '../lib/cpm';
 import { EVMMetrics } from '../lib/evm';
+import { formatBsDate } from '../lib/nepaliDate';
 
 interface ExpectedActualDashboardProps {
   activities: Activity[];
@@ -73,8 +74,8 @@ export default function ExpectedActualDashboard({
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-slate-700 text-slate-400 font-semibold">
-                    <th className="pb-3">WBS</th>
-                    <th className="pb-3">Activity</th>
+                    <th className="pb-3">BOQ Item</th>
+                    <th className="pb-3">Description of Work</th>
                     <th className="pb-3 text-right">Planned %</th>
                     <th className="pb-3 text-right">Actual %</th>
                     <th className="pb-3 text-right">Variance</th>
@@ -142,7 +143,7 @@ export default function ExpectedActualDashboard({
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-slate-700 text-slate-400 font-semibold">
-                    <th className="pb-3">WBS</th>
+                    <th className="pb-3">BOQ Item</th>
                     <th className="pb-3">Budget Head Name</th>
                     <th className="pb-3 text-right">Contract Value (NPR)</th>
                     <th className="pb-3 text-right">Internal Budget (NPR)</th>
@@ -189,8 +190,8 @@ export default function ExpectedActualDashboard({
                 <thead>
                   <tr className="border-b border-slate-700 text-slate-400 font-semibold">
                     <th className="pb-3">Design Package</th>
-                    <th className="pb-3 text-right">Submitted Date</th>
-                    <th className="pb-3 text-right">Review Due</th>
+                    <th className="pb-3 text-right">Submitted Date (BS)</th>
+                    <th className="pb-3 text-right">Review Due (BS)</th>
                     <th className="pb-3 text-center">Status</th>
                     <th className="pb-3 text-right">Approval Delay</th>
                     <th className="pb-3 pl-4">Construction Critical Path Impact</th>
@@ -201,8 +202,8 @@ export default function ExpectedActualDashboard({
                     return (
                       <tr key={dp.id} className="hover:bg-slate-800/10">
                         <td className="py-2.5 font-semibold text-slate-100">{dp.name}</td>
-                        <td className="py-2.5 text-right font-mono">{dp.submitted_date || '-'}</td>
-                        <td className="py-2.5 text-right font-mono">{dp.review_due_date || '-'}</td>
+                        <td className="py-2.5 text-right font-mono">{formatBsDate(dp.submitted_date)}</td>
+                        <td className="py-2.5 text-right font-mono">{formatBsDate(dp.review_due_date)}</td>
                         <td className="py-2.5 text-center">
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                             dp.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' :

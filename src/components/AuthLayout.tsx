@@ -16,6 +16,10 @@ export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [showInquiry, setShowInquiry] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotSending, setForgotSending] = useState(false);
+  const [forgotMessage, setForgotMessage] = useState('');
   const [inquirySending, setInquirySending] = useState(false);
   const [inquiryMessage, setInquiryMessage] = useState('');
   const [inquiry, setInquiry] = useState({ businessName: '', contactName: '', contactEmail: '', phone: '', message: '' });
@@ -99,6 +103,20 @@ export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
       setInquiryMessage(error instanceof Error ? error.message : 'Could not submit the request.');
     } finally {
       setInquirySending(false);
+    }
+  };
+
+  const submitForgotPassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setForgotSending(true);
+    setForgotMessage('');
+    try {
+      await storage.requestPasswordReset(forgotEmail);
+      setForgotMessage('If this email has a BuildTrack account, Supabase has sent a secure password-reset link.');
+    } catch (error) {
+      setForgotMessage(error instanceof Error ? error.message : 'Could not start password recovery.');
+    } finally {
+      setForgotSending(false);
     }
   };
 
@@ -200,7 +218,7 @@ export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
           <button type="button" onClick={() => { setMode(mode === 'signup' ? 'signin' : 'signup'); setMessage(''); }} className="text-blue-600 hover:underline">
             {mode === 'signup' ? 'Already registered? Sign in' : 'Need an account? Sign up'}
           </button>
-          <button type="button" onClick={() => setShowInquiry(true)} className="text-purple-700 hover:underline">Request business access</button>
+          <div className="flex gap-3"><button type="button" onClick={() => {setForgotEmail(email.includes('@')?email:'');setShowForgot(true);}} className="text-blue-700 hover:underline">Forgot password?</button><button type="button" onClick={() => setShowInquiry(true)} className="text-purple-700 hover:underline">Request business access</button></div>
         </div>
         <div className="mt-4 flex flex-wrap gap-3 text-[10px] font-semibold text-slate-500">
           <a href="/privacy" className="hover:text-blue-700">Privacy Policy</a>
@@ -208,6 +226,8 @@ export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
           <a href="/google-verification" className="hover:text-blue-700">Google integration</a>
         </div>
       </div>
+
+      {showForgot&&<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4"><form onSubmit={submitForgotPassword} className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-2xl"><div><h2 className="text-lg font-extrabold text-slate-950">Reset your password</h2><p className="mt-1 text-sm text-slate-600">Use the email address created by your Project Director or Business Administrator.</p></div><label className="block text-sm font-semibold text-slate-700">Account email<input required type="email" value={forgotEmail} onChange={event=>setForgotEmail(event.target.value)} className="mt-1 w-full rounded-lg" /></label>{forgotMessage&&<div className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">{forgotMessage}</div>}<div className="flex gap-2"><button disabled={forgotSending} className="flex-1 rounded-lg bg-blue-700 px-4 py-2.5 font-bold text-white disabled:opacity-60">{forgotSending?'Sending…':'Send reset link'}</button><button type="button" onClick={()=>setShowForgot(false)} className="flex-1 rounded-lg border border-slate-300 px-4 py-2.5 font-bold text-slate-800">Close</button></div></form></div>}
 
       {/* RIGHT COLUMN: Visual Promo Showcase */}
       <div className="hidden md:flex md:w-[55%] bg-slate-50/50 flex-col justify-center px-16 py-12 space-y-8 select-none">
@@ -246,7 +266,7 @@ export default function AuthLayout({ onAuthSuccess }: AuthLayoutProps) {
             <span className="text-emerald-500 text-base">✓</span>
             <div>
               <p className="font-bold text-slate-900">Control schedule, cost, and contract records together</p>
-              <p className="text-slate-500 text-[11px] mt-0.5">Turn tender scope into a live WBS and CPM network.</p>
+              <p className="text-slate-500 text-[11px] mt-0.5">Turn tender scope into a live BOQ-linked work schedule.</p>
             </div>
           </div>
           <div className="flex items-start gap-2.5 text-xs text-slate-700">

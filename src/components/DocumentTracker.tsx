@@ -1,443 +1,157 @@
-// Document Status Registry and Tracker Component
-import React, { useState, useMemo, useEffect } from 'react';
-import { storage, DocumentItem as DocItem } from '../lib/storage';
+import React, { useEffect, useMemo, useState } from 'react';
+import { DocumentItem, storage, UploadedDocument } from '../lib/storage';
+import BsDatePicker from './BsDatePicker';
+import { formatBsDate, todayAdDate } from '../lib/nepaliDate';
+import UploadProgress from './UploadProgress';
+import { useSubmissionLock } from '../lib/useSubmissionLock';
 
-interface DocumentTrackerProps {
-  userRole: string;
-  projectId: string;
-}
+interface Props { userRole: string; projectId: string; userName: string; userEmail: string; }
 
-const DEFAULT_DOCUMENTS: DocItem[] = [
-    {
-      id: 'doc-1',
-      ref_number: 'BT-KFT-CTR-001',
-      title: 'FIDIC Conditions of Contract - Joint Venture Agreement',
-      category: 'contract',
-      version: 'Rev 0',
-      submitted_date: '2025-01-05',
-      action_date: '2025-01-10',
-      status: 'approved',
-      owner: 'Arjun Adhikari (Super Admin)',
-      remarks: 'Signed by lead and partner representatives.'
-    },
-    {
-      id: 'doc-2',
-      ref_number: 'BT-KFT-SEC-012',
-      title: 'Performance Bank Guarantee - NPR 25,000,000',
-      category: 'security',
-      version: 'Rev 1',
-      submitted_date: '2025-01-12',
-      action_date: '2025-01-18',
-      status: 'approved',
-      owner: 'Eng. Santosh Yadav (PM)',
-      remarks: 'Certified by Nepal Investment Mega Bank.'
-    },
-    {
-      id: 'doc-3',
-      ref_number: 'BT-KFT-VAR-003',
-      title: 'Variation Order Claim for Bridge Foundation Soil Soil-Shift',
-      category: 'variation',
-      version: 'Rev 2',
-      submitted_date: '2025-06-10',
-      action_date: null,
-      status: 'under_review',
-      owner: 'Sujita Shrestha (Planning Eng)',
-      remarks: 'Awaiting Consultant geo-tech validation.'
-    },
-    {
-      id: 'doc-4',
-      ref_number: 'BT-KFT-TST-401',
-      title: 'Concrete Cylinder Crushing Test Report - Pier 1 Cap',
-      category: 'test_record',
-      version: 'Rev 0',
-      submitted_date: '2025-06-20',
-      action_date: '2025-06-22',
-      status: 'approved',
-      owner: 'Kiran KC (QA/QC Eng)',
-      remarks: 'Achieved 28-day target of 35 MPa.'
-    },
-    {
-      id: 'doc-5',
-      ref_number: 'BT-KFT-PMT-089',
-      title: 'Tree Felling Permit (Bagmati Forestry Sector Clearance)',
-      category: 'permit',
-      version: 'Rev 0',
-      submitted_date: '2025-02-18',
-      action_date: '2025-03-05',
-      status: 'approved',
-      owner: 'Prem Chaudhary (Safety Officer)',
-      remarks: 'Clearance obtained for Chainage 12-14.'
-    },
-    {
-      id: 'doc-6',
-      ref_number: 'BT-KFT-SEC-015',
-      title: 'Advance Payment Guarantee Security Bond',
-      category: 'security',
-      version: 'Rev 0',
-      submitted_date: '2025-01-15',
-      action_date: '2025-01-20',
-      status: 'approved',
-      owner: 'Gopal Bhatta (QS)',
-      remarks: '10% of Contract Price released.'
-    },
-    {
-      id: 'doc-7',
-      ref_number: 'BT-KFT-VAR-004',
-      title: 'EOT Notice - Extension of time request (Design comments delay)',
-      category: 'variation',
-      version: 'Rev 1',
-      submitted_date: '2025-05-15',
-      action_date: null,
-      status: 'under_review',
-      owner: 'Eng. Santosh Yadav (PM)',
-      remarks: 'Submitted formally under Clause 8.4.'
-    },
-    {
-      id: 'doc-8',
-      ref_number: 'BT-KFT-RFI-044',
-      title: 'RFI — Pier cap reinforcement congestion detail',
-      category: 'rfi',
-      version: 'Rev 0',
-      submitted_date: '2025-06-21',
-      action_date: null,
-      status: 'under_review',
-      owner: 'Site Engineering Team',
-      remarks: 'Designer response required before fixing reinforcement.'
-    },
-    {
-      id: 'doc-9',
-      ref_number: 'BT-KFT-NOT-018',
-      title: 'Contractual notice of delayed IFC drawing release',
-      category: 'notice',
-      version: 'Rev 0',
-      submitted_date: '2025-06-18',
-      action_date: null,
-      status: 'under_review',
-      owner: 'Planning Engineer',
-      remarks: 'Notice issued under the contract notice provisions.'
-    },
-    {
-      id: 'doc-10',
-      ref_number: 'BT-KFT-APR-032',
-      title: 'Approval — foundation method statement',
-      category: 'approval',
-      version: 'Rev 1',
-      submitted_date: '2025-06-11',
-      action_date: '2025-06-19',
-      status: 'approved',
-      owner: 'Design Coordinator',
-      remarks: 'Approved with incorporated temporary works comments.'
-    }
+const CATEGORIES: Array<{ value: DocumentItem['category']; label: string; requiresFile?: boolean }> = [
+  { value: 'compliance_report', label: 'Compliance Report', requiresFile: true },
+  { value: 'ipc_claim', label: 'IPC Claim', requiresFile: true },
+  { value: 'ipc_certificate', label: 'IPC Certificate', requiresFile: true },
+  { value: 'payment_proof', label: 'Payment Proof', requiresFile: true },
+  { value: 'quality_report', label: 'Quality / Test Report', requiresFile: true },
+  { value: 'safety_report', label: 'Safety / EHS Report', requiresFile: true },
+  { value: 'contract', label: 'Contract / Agreement', requiresFile: true },
+  { value: 'security', label: 'Security / Guarantee', requiresFile: true },
+  { value: 'insurance', label: 'Insurance', requiresFile: true },
+  { value: 'permit', label: 'Permit / Licence', requiresFile: true },
+  { value: 'rfi', label: 'Request for Information' },
+  { value: 'notice', label: 'Contractual Notice' },
+  { value: 'approval', label: 'Approval / Consent' },
+  { value: 'variation', label: 'Variation / EOT' },
+  { value: 'handover', label: 'Handover Record', requiresFile: true },
+  { value: 'other', label: 'Other' },
 ];
 
-export default function DocumentTracker({ userRole, projectId }: DocumentTrackerProps) {
-  const [documents, setDocuments] = useState<DocItem[]>(() =>
-    storage.getDocuments(projectId === 'proj-101' ? DEFAULT_DOCUMENTS : [])
-  );
+const DEFAULT_DOCUMENTS: DocumentItem[] = [{
+  id: 'doc-1', ref_number: 'BT-KFT-CTR-001', title: 'Conditions of Contract and signed agreement', category: 'contract',
+  version: 'Rev 0', submitted_date: '2025-01-05', action_date: '2025-01-10', status: 'approved', owner: 'Project Director',
+  remarks: 'Legacy register entry; attach the signed file to close the evidence gap.',
+}];
 
-  const [filterCategory, setFilterCategory] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  
-  // Create doc state
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
-  const [newCategory, setNewCategory] = useState<DocItem['category']>('test_record');
-  const [newRef, setNewRef] = useState('');
-  const [newRemarks, setNewRemarks] = useState('');
+const blankForm = () => ({
+  ref_number: '', title: '', category: 'compliance_report' as DocumentItem['category'], version: 'Rev 0',
+  submitted_date: todayAdDate(), period_start: todayAdDate(), period_end: todayAdDate(), due_date: todayAdDate(), expiry_date: '',
+  issued_by: '', responsible_person: '', linked_record_id: '', remarks: '',
+});
 
-  // Rights management
-  const canModify = [
-    'super_admin', 'project_manager', 'planning_engineer', 'site_engineer',
-    'design_coordinator', 'qs_billing_engineer', 'qa_qc_engineer', 'safety_officer'
-  ].includes(userRole);
-  const canApprove = ['super_admin', 'project_director', 'employer_viewer'].includes(userRole);
+export default function DocumentTracker({ userRole, projectId, userName, userEmail }: Props) {
+  const [documents, setDocuments] = useState<DocumentItem[]>(() => storage.getDocuments(projectId === 'proj-101' ? DEFAULT_DOCUMENTS : []));
+  const [form, setForm] = useState(blankForm);
+  const [file, setFile] = useState<File | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [filterCategory, setFilterCategory] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [message, setMessage] = useState('');
+  const { busy: saving, run: runUpload } = useSubmissionLock();
+  const uploaded = storage.getUploadedDocuments();
+  const ipcs = storage.getIPCs();
+  const ipcPayments = storage.getIPCPayments();
+  const obligations = storage.getContractObligations();
+  const qaqc = storage.getQAQC();
+  const safety = storage.getSafetyLogs();
+  const expenses = storage.getDailyExpenses();
+  const canModify = ['business_admin','project_director','project_manager','planning_engineer','site_engineer','design_coordinator','qs_billing_engineer','qa_qc_engineer','safety_officer','store_officer','accountant'].includes(userRole);
+  const canApprove = ['business_admin','project_director','project_manager'].includes(userRole);
 
-  useEffect(() => {
-    storage.saveDocuments(documents);
-  }, [documents, projectId]);
+  useEffect(() => { storage.saveDocuments(documents); }, [documents, projectId]);
 
-  const handleAddDocument = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTitle || !newRef) return;
-    
-    const ownerName = userRole.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase());
-    const newDoc: DocItem = {
-      id: `doc-${Date.now()}`,
-      ref_number: newRef,
-      title: newTitle,
-      category: newCategory,
-      version: 'Rev 0',
-      submitted_date: new Date().toISOString().split('T')[0],
-      action_date: null,
-      status: 'draft',
-      owner: ownerName,
-      remarks: newRemarks
-    };
+  const linkOptions = useMemo(() => [
+    ...ipcs.map(ipc => ({ id: ipc.id, label: `IPC #${ipc.ipc_number}` })),
+    ...obligations.map(item => ({ id: item.id, label: `Obligation: ${item.reference}` })),
+    ...qaqc.map((item: Record<string, unknown>) => ({ id: String(item.id), label: `QA/QC: ${item.ncr_code || item.ncr_number || item.qa_item || item.id}` })),
+    ...safety.map((item: Record<string, unknown>) => ({ id: String(item.id), label: `Safety log: ${formatBsDate(String(item.log_date))}` })),
+  ], [ipcs, obligations, qaqc, safety]);
 
-    setDocuments(prev => [newDoc, ...prev]);
-    setNewTitle('');
-    setNewRef('');
-    setNewRemarks('');
-    setShowAddForm(false);
-    alert('Document added to registry.');
-  };
-
-  const handleUpdateStatus = (id: string, nextStatus: 'approved' | 'rejected' | 'under_review') => {
-    setDocuments(prev => prev.map(doc => {
-      if (doc.id === id) {
-        return {
-          ...doc,
-          status: nextStatus,
-          action_date: new Date().toISOString().split('T')[0]
-        };
-      }
-      return doc;
-    }));
-    alert(`Document status updated to ${nextStatus.toUpperCase()}`);
-  };
-
-  // Filtered list
-  const filteredDocs = useMemo(() => {
-    return documents.filter(doc => {
-      const catMatch = filterCategory === 'all' || doc.category === filterCategory;
-      const searchMatch = searchQuery === '' || 
-        doc.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-        doc.ref_number.toLowerCase().includes(searchQuery.toLowerCase()) || 
-        doc.owner.toLowerCase().includes(searchQuery.toLowerCase());
-      return catMatch && searchMatch;
+  const readiness = useMemo(() => {
+    const issues: Array<{ module: string; item: string; missing: string }> = [];
+    const hasLinkedUpload = (id: string, categories?: UploadedDocument['category'][]) => uploaded.some(row => row.linked_record_id === id && (!categories || categories.includes(row.category)) && (row.storage_path || row.url));
+    ipcs.forEach(ipc => {
+      if (!ipc.claim_document_path && !hasLinkedUpload(ipc.id, ['ipc_claim'])) issues.push({ module: 'IPC', item: `IPC #${ipc.ipc_number}`, missing: 'Claim file' });
+      if (ipc.status !== 'pending' && !ipc.certificate_document_path && !hasLinkedUpload(ipc.id, ['ipc_certificate'])) issues.push({ module: 'IPC', item: `IPC #${ipc.ipc_number}`, missing: 'Certificate file' });
+      if (['paid','partially_paid'].includes(ipc.status) && !ipcPayments.some(row => row.ipc_id === ipc.id && row.proof_storage_path)) issues.push({ module: 'IPC', item: `IPC #${ipc.ipc_number}`, missing: 'Payment proof' });
     });
-  }, [documents, filterCategory, searchQuery]);
+    documents.filter(doc => ['compliance_report','contract','security','insurance','permit','quality_report','safety_report','handover'].includes(doc.category)).forEach(doc => {
+      if (!doc.storage_path && !doc.url && !hasLinkedUpload(doc.id)) issues.push({ module: 'Documents', item: doc.ref_number, missing: 'Uploaded file' });
+      if (doc.expiry_date && doc.expiry_date < todayAdDate()) issues.push({ module: 'Documents', item: doc.ref_number, missing: 'Renew expired record' });
+    });
+    obligations.filter(item => item.status === 'complied').forEach(item => {
+      if (!item.evidence_document_path && !hasLinkedUpload(item.id)) issues.push({ module: 'Contracts', item: item.reference, missing: 'Compliance evidence' });
+    });
+    qaqc.filter((item: Record<string, unknown>) => item.status === 'failed').forEach((item: Record<string, unknown>) => {
+      if (!item.ncr_code && !item.ncr_number) issues.push({ module: 'QA/QC', item: String(item.qa_item || item.id), missing: 'NCR code' });
+      if (!item.report_storage_path && !hasLinkedUpload(String(item.id), ['test_report','compliance_report'])) issues.push({ module: 'QA/QC', item: String(item.ncr_code || item.ncr_number || item.id), missing: 'Test/NCR report' });
+    });
+    safety.filter((item: Record<string, unknown>) => Number(item.incidents || 0) > 0 || Number(item.environmental_complaints || 0) > 0).forEach((item: Record<string, unknown>) => {
+      if (!item.compliance_report_path && !hasLinkedUpload(String(item.id), ['compliance_report','report'])) issues.push({ module: 'Safety', item: formatBsDate(String(item.log_date)), missing: 'Incident/compliance report' });
+    });
+    expenses.filter(item => item.status === 'approved' && !item.payment_slip_path).forEach(item => issues.push({ module: 'Expenses', item: item.reference || item.description, missing: 'Payment slip' }));
+    return issues;
+  }, [documents, expenses, ipcPayments, ipcs, obligations, qaqc, safety, uploaded]);
 
-  // Statistics
-  const stats = useMemo(() => {
-    const total = documents.length;
-    const approved = documents.filter(d => d.status === 'approved').length;
-    const underReview = documents.filter(d => d.status === 'under_review').length;
-    const draft = documents.filter(d => d.status === 'draft').length;
-    return { total, approved, underReview, draft };
-  }, [documents]);
+  const handleAdd = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const category = CATEGORIES.find(item => item.value === form.category);
+    if (category?.requiresFile && !file) return setMessage(`Upload the ${category.label.toLowerCase()} file before saving.`);
+    if (form.category === 'compliance_report' && (!form.period_start || !form.period_end || !form.due_date || !form.issued_by || !form.responsible_person)) return setMessage('Compliance reports require period, due date, issuing authority and responsible person.');
+    if (form.period_end && form.period_start && form.period_end < form.period_start) return setMessage('Reporting period end cannot be before its start.');
+    await runUpload(async () => { try {
+      const id = `doc-${Date.now()}`;
+      let storage_path = ''; let url = '';
+      if (file) {
+        const uploadCategory = categoryToUpload(form.category);
+        const saved = await storage.uploadProjectDocument(file, uploadCategory, form.linked_record_id || id, userName, `${form.ref_number}: ${form.title}`);
+        storage_path = saved.storage_path || ''; url = saved.url || '';
+      }
+      const record: DocumentItem = {
+        id, project_id: projectId, ...form, action_date: null, status: 'draft', owner: userName,
+        period_start: form.period_start || null, period_end: form.period_end || null, due_date: form.due_date || null,
+        expiry_date: form.expiry_date || null, issued_by: form.issued_by || null, responsible_person: form.responsible_person || null,
+        linked_record_id: form.linked_record_id || null, storage_path, url, uploaded_by: userName, uploaded_by_email: userEmail,
+      };
+      setDocuments(rows => [record, ...rows]); setForm(blankForm()); setFile(null); setShowForm(false); setMessage('Document metadata and private evidence saved.');
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not store the document.'); } });
+  };
 
-  return (
-    <div className="space-y-6">
-      {/* Top Header */}
-      <div className="flex justify-between items-center bg-slate-800/40 p-4 border border-slate-700/30 rounded-xl shadow">
-        <div>
-          <h2 className="text-slate-200 text-base font-semibold">Document Status Registry</h2>
-          <p className="text-xs text-slate-400">Track contracts, securities, RFIs, notices, approvals, permits, variations, and QA/QC records.</p>
-        </div>
-        {canModify && (
-          <button 
-            onClick={() => setShowAddForm(!showAddForm)}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow transition"
-          >
-            📄 Register New Document
-          </button>
-        )}
-      </div>
+  const updateStatus = (id: string, status: DocumentItem['status']) => {
+    setDocuments(rows => rows.map(item => item.id === id ? { ...item, status, action_date: todayAdDate() } : item));
+  };
 
-      {/* Stats Board */}
-      <div className="grid grid-cols-4 gap-4">
-        <div className="bg-slate-800/40 border border-slate-700/30 p-4 rounded-xl shadow-lg">
-          <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Total Documents</span>
-          <p className="text-xl font-bold font-mono text-slate-200 mt-1">{stats.total}</p>
-        </div>
-        <div className="bg-slate-800/40 border border-slate-700/30 p-4 rounded-xl shadow-lg">
-          <span className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider">Approved</span>
-          <p className="text-xl font-bold font-mono text-emerald-400 mt-1">{stats.approved}</p>
-        </div>
-        <div className="bg-slate-800/40 border border-slate-700/30 p-4 rounded-xl shadow-lg">
-          <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider">Under Review</span>
-          <p className="text-xl font-bold font-mono text-amber-400 mt-1">{stats.underReview}</p>
-        </div>
-        <div className="bg-slate-800/40 border border-slate-700/30 p-4 rounded-xl shadow-lg">
-          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Drafts</span>
-          <p className="text-xl font-bold font-mono text-slate-400 mt-1">{stats.draft}</p>
-        </div>
-      </div>
+  const openFile = async (doc: DocumentItem) => {
+    setMessage('');
+    try {
+      const target = doc.url || (doc.storage_path ? await storage.getPrivateDocumentUrl(doc.storage_path, categoryToUpload(doc.category)) : '');
+      if (!target) return setMessage('This legacy register row has no retrievable file. Upload a revised record.');
+      window.open(target, '_blank', 'noopener,noreferrer');
+      setMessage('Private file access link generated. It expires automatically.');
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not open the private file.'); }
+  };
 
-      {/* Add Document Form */}
-      {showAddForm && (
-        <form onSubmit={handleAddDocument} className="bg-slate-800/80 border border-slate-700 p-4 rounded-xl space-y-4 max-w-md shadow-lg text-xs">
-          <h3 className="text-slate-200 font-bold uppercase tracking-wider">Submit Document to Registry</h3>
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-slate-400 mb-1">Ref Number</label>
-                <input
-                  type="text"
-                  value={newRef}
-                  onChange={(e) => setNewRef(e.target.value)}
-                  placeholder="e.g. BT-KFT-TST-002"
-                  className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-slate-400 mb-1">Category</label>
-                <select
-                  value={newCategory}
-                  onChange={(e) => setNewCategory(e.target.value as any)}
-                  className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
-                >
-                  <option value="contract">Contract/Agreement</option>
-                  <option value="security">Security Guarantee</option>
-                  <option value="variation">Variation / EOT</option>
-                  <option value="rfi">Request for Information (RFI)</option>
-                  <option value="notice">Contractual Notice</option>
-                  <option value="approval">Approval / Consent</option>
-                  <option value="test_record">QA/QC Test Record</option>
-                  <option value="permit">Permit / Forestry Approval</option>
-                </select>
-              </div>
-            </div>
-            <div>
-              <label className="block text-slate-400 mb-1">Document Title</label>
-              <input
-                type="text"
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                placeholder="e.g. Detailed Design Concrete Compaction Report"
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-slate-400 mb-1">Remarks / Details</label>
-              <textarea
-                value={newRemarks}
-                onChange={(e) => setNewRemarks(e.target.value)}
-                placeholder="Details of verification or specific submittal info"
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
-              />
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button type="submit" className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded shadow transition">
-              Record Document
-            </button>
-            <button type="button" onClick={() => setShowAddForm(false)} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded">
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
+  const filtered = documents.filter(doc => (filterCategory === 'all' || doc.category === filterCategory) && (!searchQuery || `${doc.ref_number} ${doc.title} ${doc.owner}`.toLowerCase().includes(searchQuery.toLowerCase())));
+  const stats = { total: documents.length, approved: documents.filter(item => item.status === 'approved').length, review: documents.filter(item => item.status === 'under_review').length, gaps: readiness.length };
 
-      {/* Filters and Registry list */}
-      <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-5 shadow-lg space-y-4">
-        <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3">
-          {/* Category Filter buttons */}
-          <div className="flex flex-wrap gap-2 text-xs">
-            {['all', 'contract', 'security', 'rfi', 'notice', 'approval', 'variation', 'test_record', 'permit'].map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setFilterCategory(cat)}
-                className={`px-2.5 py-1 rounded font-semibold transition ${
-                  filterCategory === cat
-                    ? 'bg-blue-600 text-white shadow'
-                    : 'bg-slate-900/60 hover:bg-slate-900 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {cat === 'all' ? 'Show All' : cat.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
-              </button>
-            ))}
-          </div>
-          {/* Search bar */}
-          <div className="relative">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search registry files..."
-              className="bg-slate-900 border border-slate-700/80 text-slate-200 text-xs px-3 py-1.5 rounded-lg w-full md:w-56 focus:outline-none focus:border-slate-600"
-            />
-          </div>
-        </div>
+  return <div className="space-y-5"><UploadProgress active={saving} label="Uploading and securing the controlled document…"/>
+    <div className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center"><div><h2 className="text-base font-bold text-slate-950">Compliance & Document Register</h2><p className="text-sm text-slate-600">Required metadata, reporting periods, expiry control, approval status and private source files.</p></div>{canModify&&<button type="button" aria-expanded={showForm} onClick={()=>setShowForm(value=>!value)} className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-bold text-white">+ Register document</button>}</div>
+    <div className="grid gap-3 sm:grid-cols-4"><Metric label="Documents" value={stats.total}/><Metric label="Approved" value={stats.approved}/><Metric label="Under review" value={stats.review}/><Metric label="Required gaps" value={stats.gaps} warning={stats.gaps>0}/></div>
+    {message&&<div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-950">{message}</div>}
 
-        {/* Registry Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="border-b border-slate-700 text-slate-400 font-semibold">
-                <th className="pb-3 w-32">Doc Ref No.</th>
-                <th className="pb-3">Title Description</th>
-                <th className="pb-3">Category</th>
-                <th className="pb-3 w-16 text-center">Version</th>
-                <th className="pb-3 text-right">Submitted</th>
-                <th className="pb-3 text-right">Action Date</th>
-                <th className="pb-3 text-center">Status</th>
-                <th className="pb-3 text-right pr-2">Register Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800 text-slate-300">
-              {filteredDocs.map(doc => (
-                <tr key={doc.id} className="hover:bg-slate-800/10">
-                  <td className="py-3 font-mono font-bold text-slate-400">{doc.ref_number}</td>
-                  <td className="py-3">
-                    <p className="font-semibold text-slate-100">{doc.title}</p>
-                    <p className="text-[10px] text-slate-500">By: {doc.owner} | Remarks: {doc.remarks || 'None'}</p>
-                  </td>
-                  <td className="py-3 capitalize text-slate-400">{doc.category.replace('_', ' ')}</td>
-                  <td className="py-3 text-center font-mono">{doc.version}</td>
-                  <td className="py-3 text-right font-mono text-slate-400">{doc.submitted_date}</td>
-                  <td className="py-3 text-right font-mono text-slate-400">{doc.action_date || '-'}</td>
-                  <td className="py-3 text-center">
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                      doc.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' :
-                      doc.status === 'rejected' ? 'bg-rose-500/10 text-rose-400' :
-                      doc.status === 'under_review' ? 'bg-amber-500/10 text-amber-400 animate-pulse' :
-                      'bg-slate-700/40 text-slate-400'
-                    }`}>
-                    {doc.status.toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="py-3 text-right pr-2">
-                    {doc.status === 'draft' && canModify && (
-                      <button 
-                        onClick={() => handleUpdateStatus(doc.id, 'under_review')}
-                        className="text-xs text-blue-400 hover:text-blue-300 font-semibold"
-                      >
-                        Submit Review
-                      </button>
-                    )}
-                    {doc.status === 'under_review' && canApprove && (
-                      <div className="flex gap-2 justify-end text-[11px] font-semibold">
-                        <button 
-                          onClick={() => handleUpdateStatus(doc.id, 'approved')}
-                          className="text-emerald-400 hover:text-emerald-300"
-                        >
-                          Approve
-                        </button>
-                        <button 
-                          onClick={() => handleUpdateStatus(doc.id, 'rejected')}
-                          className="text-rose-400 hover:text-rose-300"
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    )}
-                    {doc.status === 'approved' && (
-                      <span className="text-slate-500 font-normal">Filed</span>
-                    )}
-                    {doc.status === 'rejected' && canModify && (
-                      <button 
-                        onClick={() => handleUpdateStatus(doc.id, 'under_review')}
-                        className="text-xs text-amber-400 hover:text-amber-300 font-semibold"
-                      >
-                        Resubmit
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {filteredDocs.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="py-6 text-center text-slate-500 font-medium">No documents found matching the filter selection.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
+    <section className={`rounded-xl border p-4 shadow-sm ${readiness.length?'border-amber-200 bg-amber-50':'border-emerald-200 bg-emerald-50'}`}><div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center"><div><h3 className="font-bold text-slate-950">Required records readiness check</h3><p className="text-sm text-slate-700">Checks IPC evidence, compliance files, contract closure evidence, failed QA/NCR reports, incident reports and approved expense slips.</p></div><span className={`rounded-full px-3 py-1 text-sm font-extrabold ${readiness.length?'bg-amber-100 text-amber-900':'bg-emerald-100 text-emerald-900'}`}>{readiness.length ? `${readiness.length} gap(s)` : 'Complete'}</span></div>{readiness.length>0&&<div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{readiness.map((issue,index)=><div key={`${issue.module}-${issue.item}-${index}`} className="rounded-lg border border-amber-200 bg-white p-3 text-sm"><b className="text-slate-950">{issue.module} · {issue.item}</b><div className="mt-1 text-rose-800">Missing: {issue.missing}</div></div>)}</div>}</section>
+
+    {showForm&&<form onSubmit={handleAdd} className="rounded-xl border border-blue-200 bg-white p-5 shadow-sm"><div><h3 className="font-bold text-slate-950">Register a controlled document</h3><p className="text-sm text-slate-600">Compliance reports and formal evidence types require a file.</p></div><div className="mt-4 grid gap-3 md:grid-cols-3"><Field label="Reference number"><input required value={form.ref_number} onChange={event=>setForm({...form,ref_number:event.target.value})}/></Field><Field label="Category"><select value={form.category} onChange={event=>setForm({...form,category:event.target.value as DocumentItem['category']})}>{CATEGORIES.map(item=><option key={item.value} value={item.value}>{item.label}</option>)}</select></Field><Field label="Version"><input required value={form.version} onChange={event=>setForm({...form,version:event.target.value})}/></Field><Field label="Title"><input required value={form.title} onChange={event=>setForm({...form,title:event.target.value})}/></Field><Field label="Submitted date (BS)"><BsDatePicker required value={form.submitted_date} onChange={submitted_date=>setForm({...form,submitted_date})}/></Field><Field label="Due date (BS)"><BsDatePicker value={form.due_date} onChange={due_date=>setForm({...form,due_date})}/></Field><Field label="Reporting period start (BS)"><BsDatePicker value={form.period_start} onChange={period_start=>setForm({...form,period_start})}/></Field><Field label="Reporting period end (BS)"><BsDatePicker value={form.period_end} onChange={period_end=>setForm({...form,period_end})}/></Field><Field label="Expiry / valid until (BS)"><BsDatePicker value={form.expiry_date} onChange={expiry_date=>setForm({...form,expiry_date})}/></Field><Field label="Issued by / Authority"><input value={form.issued_by} onChange={event=>setForm({...form,issued_by:event.target.value})}/></Field><Field label="Responsible person"><input value={form.responsible_person} onChange={event=>setForm({...form,responsible_person:event.target.value})}/></Field><Field label="Link to project record"><select value={form.linked_record_id} onChange={event=>setForm({...form,linked_record_id:event.target.value})}><option value="">No linked record</option>{linkOptions.map(item=><option key={item.id} value={item.id}>{item.label}</option>)}</select></Field><Field label="Upload source document"><input type="file" accept="application/pdf,image/*,.doc,.docx,.xls,.xlsx,.csv" onChange={event=>setFile(event.target.files?.[0]||null)}/></Field><Field label="Remarks"><textarea value={form.remarks} onChange={event=>setForm({...form,remarks:event.target.value})}/></Field></div><div className="mt-4 flex gap-2"><button disabled={saving} className="rounded-lg bg-emerald-700 px-4 py-2 font-bold text-white">{saving?'Uploading…':'Save controlled document'}</button><button type="button" onClick={()=>setShowForm(false)} className="rounded-lg border border-slate-300 px-4 py-2 font-bold text-slate-800">Cancel</button></div></form>}
+
+    <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex flex-col justify-between gap-3 md:flex-row md:items-center"><div className="flex flex-wrap gap-2"><button onClick={()=>setFilterCategory('all')} className={filterCategory==='all'?'filter-active':'filter-button'}>All</button>{CATEGORIES.slice(0,10).map(item=><button key={item.value} onClick={()=>setFilterCategory(item.value)} className={filterCategory===item.value?'filter-active':'filter-button'}>{item.label}</button>)}</div><input value={searchQuery} onChange={event=>setSearchQuery(event.target.value)} placeholder="Search documents…" className="w-full rounded-lg md:w-64"/></div><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[1200px] text-sm"><thead><tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-600">{['Reference','Title','Category','Period (BS)','Submitted / due (BS)','Expiry (BS)','Owner / Authority','File','Status','Action'].map(title=><th key={title} className="p-2">{title}</th>)}</tr></thead><tbody>{filtered.map(doc=><tr key={doc.id} className="border-b border-slate-100"><td className="p-2 font-mono font-bold text-slate-800">{doc.ref_number}<div className="text-xs font-normal">{doc.version}</div></td><td className="p-2"><b className="text-slate-950">{doc.title}</b><div className="text-xs text-slate-600">{doc.remarks||'No remarks'}</div></td><td className="p-2 capitalize">{doc.category.replaceAll('_',' ')}</td><td className="p-2">{formatBsDate(doc.period_start)} → {formatBsDate(doc.period_end)}</td><td className="p-2">{formatBsDate(doc.submitted_date)}<div className="text-xs text-slate-600">Due {formatBsDate(doc.due_date)}</div></td><td className={`p-2 ${doc.expiry_date&&doc.expiry_date<todayAdDate()?'font-bold text-rose-800':''}`}>{formatBsDate(doc.expiry_date)}</td><td className="p-2">{doc.owner}<div className="text-xs text-slate-600">{doc.issued_by||'—'}</div></td><td className="p-2">{doc.storage_path||doc.url?<button onClick={()=>void openFile(doc)} className="font-bold text-blue-800">Open private file</button>:<span className="font-bold text-rose-800">Missing</span>}</td><td className="p-2"><Status value={doc.status}/></td><td className="p-2">{doc.status==='draft'&&canModify&&<button onClick={()=>updateStatus(doc.id,'under_review')} className="font-bold text-blue-800">Submit</button>}{doc.status==='under_review'&&canApprove&&<div className="flex gap-2"><button onClick={()=>updateStatus(doc.id,'approved')} className="font-bold text-emerald-800">Approve</button><button onClick={()=>updateStatus(doc.id,'rejected')} className="font-bold text-rose-800">Reject</button></div>}{doc.status==='rejected'&&canModify&&<button onClick={()=>updateStatus(doc.id,'under_review')} className="font-bold text-amber-800">Resubmit</button>}</td></tr>)}</tbody></table>{filtered.length===0&&<div className="p-8 text-center text-slate-600">No matching documents.</div>}</div></section>
+  </div>;
 }
+
+function categoryToUpload(category: DocumentItem['category']): UploadedDocument['category'] {
+  if (category === 'ipc_claim') return 'ipc_claim'; if (category === 'ipc_certificate') return 'ipc_certificate';
+  if (category === 'payment_proof') return 'ipc_payment'; if (category === 'compliance_report') return 'compliance_report';
+  if (['quality_report','safety_report','test_record'].includes(category)) return 'test_report'; if (category === 'contract') return 'contract';
+  return 'report';
+}
+function Metric({label,value,warning=false}:{label:string;value:number;warning?:boolean}){return <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-xs font-bold uppercase text-slate-600">{label}</div><div className={`mt-1 text-xl font-extrabold ${warning?'text-amber-800':'text-slate-950'}`}>{value}</div></div>}
+function Field({label,children}:{label:string;children:React.ReactNode}){return <label className="text-sm font-semibold text-slate-700">{label}<div className="mt-1">{children}</div></label>}
+function Status({value}:{value:string}){const bad=value==='rejected';const good=value==='approved';return <span className={`rounded-full px-2 py-1 text-xs font-bold capitalize ${good?'bg-emerald-50 text-emerald-800':bad?'bg-rose-50 text-rose-800':'bg-amber-50 text-amber-800'}`}>{value.replaceAll('_',' ')}</span>}
