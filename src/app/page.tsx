@@ -11,7 +11,7 @@ import ExpectedActualDashboard from '../components/ExpectedActualDashboard';
 import DesignDashboard from '../components/DesignDashboard';
 import BudgetDashboard from '../components/BudgetDashboard';
 import IpcDashboard from '../components/IpcDashboard';
-import ClaimsDashboard from '../components/ClaimsDashboard';
+import CommercialControlWorkspace from '../components/CommercialControlWorkspace';
 import QaqcDashboard from '../components/QaqcDashboard';
 import SafetyDashboard from '../components/SafetyDashboard';
 import HandoverDashboard from '../components/HandoverDashboard';
@@ -779,14 +779,7 @@ export default function DashboardShell() {
             </div>
           )}
 
-          {activeTab === 'claims' && (
-            <ClaimsDashboard
-              claims={claims}
-              onAddClaim={handleAddClaim}
-              onUpdateClaimStatus={handleUpdateClaimStatus}
-              userRole={authUser.role}
-            />
-          )}
+          {activeTab === 'claims' && <CommercialControlWorkspace key={`commercial-${project.id}`} projectId={project.id} role={authUser.role} />}
 
           {activeTab === 'procurement' && (
             <ProcurementStoresDashboard key={project.id} projectId={project.id} />
