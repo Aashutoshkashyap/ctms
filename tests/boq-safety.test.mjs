@@ -1,0 +1,8 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { mergeBoqSchedule } from '../src/lib/boqSafety.ts';
+
+const existingActivity={id:'a1',project_id:'A',wbs_code:'01.01',name:'Existing',actual_quantity:12,status:'in_progress'};
+test('BOQ import is additive and preserves historical activity fields',()=>{const result=mergeBoqSchedule({projectId:'A',wbs:[],activities:[{id:'new',wbs_code:'02.01',name:'New'}],dependencies:[],existingWbs:[],existingActivities:[existingActivity],existingDependencies:[]});assert.equal(result.ok,true);assert.equal(result.activities.length,2);assert.equal(result.activities.find(x=>x.id==='a1').actual_quantity,12);});
+test('import rejects cross-project rows and renumbering existing activity IDs',()=>{let result=mergeBoqSchedule({projectId:'A',wbs:[],activities:[{id:'x',project_id:'B',wbs_code:'02',name:'bad'}],dependencies:[],existingWbs:[],existingActivities:[],existingDependencies:[]});assert.equal(result.ok,false);result=mergeBoqSchedule({projectId:'A',wbs:[],activities:[{id:'a1',wbs_code:'99',name:'bad'}],dependencies:[],existingWbs:[],existingActivities:[existingActivity],existingDependencies:[]});assert.equal(result.ok,false);});
+test('omitted activities and dependencies are never deleted',()=>{const dep={id:'d1',project_id:'A',predecessor_id:'a1',successor_id:'a2',type:'FS'};const result=mergeBoqSchedule({projectId:'A',wbs:[],activities:[],dependencies:[],existingWbs:[],existingActivities:[existingActivity,{id:'a2',project_id:'A',wbs_code:'01.02',name:'Next'}],existingDependencies:[dep]});assert.equal(result.ok,true);assert.equal(result.activities.length,2);assert.equal(result.dependencies.length,1);});

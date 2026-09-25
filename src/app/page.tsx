@@ -486,7 +486,8 @@ export default function DashboardShell() {
       successor_id: activityIds.get(item.successor_id) || item.successor_id,
     }));
     const wbsWithUniqueIds = result.wbsItems.map((item, index) => ({ ...item, id: `${prefix}-wbs-${index + 1}` }));
-    storage.applyGeneratedSchedule(wbsWithUniqueIds, activitiesWithUniqueIds, dependenciesWithUniqueIds);
+    const imported = storage.applyGeneratedSchedule(wbsWithUniqueIds, activitiesWithUniqueIds, dependenciesWithUniqueIds);
+    if (!imported.ok) throw new Error(imported.issues.join(' ') || 'The BOQ import was rejected to protect existing project records.');
     const sync = await storage.syncActiveProjectToCloud();
     if (!sync.ok) throw new Error(sync.message);
     loadData();

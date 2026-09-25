@@ -8,6 +8,7 @@ const defaultUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const defaultAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 import { DurableMutationOutbox, createMutationId } from './durableMutationOutbox';
+import { mergeBoqSchedule } from './boqSafety';
 let cachedSupabaseClient: SupabaseClient | null = null;
 let cachedSupabaseConfig = '';
 
@@ -2338,9 +2339,17 @@ export const storage = {
   },
 
   applyGeneratedSchedule: (items: WbsItem[], activities: Activity[], dependencies: Dependency[]) => {
-    storage.setWbsRaw(items);
-    storage.setActivitiesRaw(activities);
-    storage.setDependenciesRaw(dependencies);
+    const projectId = getActiveProjectId();
+    const allWbs = getLocalItem<WbsItem[]>('bt_wbs', MOCK_WBS);
+    const allActivities = getLocalItem<any[]>('bt_activities', MOCK_ACTIVITIES);
+    const allDependencies = getLocalItem<Dependency[]>('bt_dependencies', MOCK_DEPENDENCIES);
+    const merged = mergeBoqSchedule({ projectId, wbs: items as unknown as import('./boqSafety').BoqRow[], activities: activities as unknown as import('./boqSafety').BoqRow[], dependencies: dependencies as unknown as import('./boqSafety').DependencyRow[], existingWbs: allWbs.filter(row => row.project_id === projectId) as unknown as import('./boqSafety').BoqRow[], existingActivities: allActivities.filter(row => row.project_id === projectId) as import('./boqSafety').BoqRow[], existingDependencies: allDependencies.filter(row => row.project_id === projectId) as unknown as import('./boqSafety').DependencyRow[] });
+    if (!merged.ok) return merged;
+    setLocalItem('bt_wbs', [...allWbs.filter(row => row.project_id !== projectId), ...merged.wbs] as WbsItem[]);
+    setLocalItem('bt_activities', [...allActivities.filter(row => row.project_id !== projectId), ...merged.activities]);
+    setLocalItem('bt_dependencies', [...allDependencies.filter(row => row.project_id !== projectId), ...merged.dependencies] as Dependency[]);
+    storage.recalculateSchedule();
+    return merged;
   },
 
   // CPM auto schedule re-trigger

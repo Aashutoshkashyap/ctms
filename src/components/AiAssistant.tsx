@@ -50,8 +50,9 @@ export default function AiAssistant({
 
   const handleApplyWbs = () => {
     if (!wbsResult) return;
-    if (confirm('Warning: This will overwrite all current WBS activities and dependencies for the active project. Proceed?')) {
-      storage.applyGeneratedSchedule(wbsResult.wbsItems, wbsResult.activities, wbsResult.dependencies);
+    if (confirm('This will safely merge the generated BOQ draft. Existing work, quantities and historical references will not be deleted. Proceed?')) {
+      const imported = storage.applyGeneratedSchedule(wbsResult.wbsItems, wbsResult.activities, wbsResult.dependencies);
+      if (!imported.ok) return alert(imported.issues.join(' ') || 'The BOQ draft could not be safely applied.');
       if (onReloadData) onReloadData();
       alert('WBS and network dependencies applied successfully! Project CPM has been re-scheduled.');
       setWbsResult(null);
