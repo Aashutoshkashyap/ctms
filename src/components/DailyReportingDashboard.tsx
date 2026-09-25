@@ -20,7 +20,7 @@ interface Props {
   onDelete?: (id: string) => void | Promise<void>;
 }
 
-const nepaliDate = (date: string, language: 'ne' | 'en') => formatBsDate(date, { long: true, language });
+const nepaliDate = (date: string, _language?: 'ne' | 'en') => formatBsDate(date, { long: true });
 
 // Keep the offline-saving surface independently releasable. Full application
 // localization remains owned by the shell; this form has safe English fallbacks.
