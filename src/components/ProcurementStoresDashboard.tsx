@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { ProcurementOrder, StoreItem, storage } from '../lib/storage';
 import BsDatePicker from './BsDatePicker';
 import { formatBsDate } from '../lib/nepaliDate';
+import RecordDetailsDialog from './RecordDetailsDialog';
 
 export default function ProcurementStoresDashboard({ projectId }: { projectId: string }) {
   const [orders, setOrders] = useState<ProcurementOrder[]>(() => storage.getProcurementOrders());
@@ -10,6 +11,7 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
   const [showForm, setShowForm] = useState(false);
   const [editingPoId, setEditingPoId] = useState<string | null>(null);
   const [editingStockId, setEditingStockId] = useState<string | null>(null);
+  const [selectedRecord, setSelectedRecord] = useState<object | null>(null);
 
   const [po, setPo] = useState({
     po_number: '', vendor: '', item: '', quantity: 1, unit: 'No.', unit_rate: 0,
@@ -131,7 +133,7 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
       <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-4 overflow-x-auto">
         {view === 'procurement' ? (
           <table className="w-full min-w-[980px]"><thead><tr className="text-slate-400 border-b border-slate-700">{['PO','Vendor / Item','Qty','Value','Order Date (BS)','Delivery Date (BS)','Delivered','Status','Remarks','Action'].map(h => <th key={h} className="text-left py-2">{h}</th>)}</tr></thead>
-            <tbody>{orders.map(order => <tr key={order.id} className="border-b border-slate-800"><td className="py-3 font-mono">{order.po_number}</td><td><b>{order.vendor}</b><div className="text-slate-500">{order.item}</div></td><td>{order.quantity} {order.unit}</td><td>NPR {(order.quantity * order.unit_rate).toLocaleString()}</td><td>{formatBsDate(order.order_date || order.required_date)}</td><td>{formatBsDate(order.delivery_date || order.expected_date)}</td><td>{order.delivered_quantity}</td><td><Badge value={order.status} /></td><td>{order.remarks || '—'}</td><td><div className="flex gap-2"><button onClick={()=>startEditOrder(order)} className="font-bold text-blue-700">Edit</button><button onClick={()=>deleteOrder(order.id)} className="font-bold text-rose-700">Delete</button></div></td></tr>)}</tbody>
+            <tbody>{orders.map(order => <tr key={order.id} className="border-b border-slate-800"><td className="py-3 font-mono">{order.po_number}</td><td><b>{order.vendor}</b><div className="text-slate-500">{order.item}</div></td><td>{order.quantity} {order.unit}</td><td>NPR {(order.quantity * order.unit_rate).toLocaleString()}</td><td>{formatBsDate(order.order_date || order.required_date)}</td><td>{formatBsDate(order.delivery_date || order.expected_date)}</td><td>{order.delivered_quantity}</td><td><Badge value={order.status} /></td><td>{order.remarks || '—'}</td><td><div className="flex gap-2"><button onClick={()=>setSelectedRecord({...order})} className="font-bold text-slate-100">View details</button><button onClick={()=>startEditOrder(order)} className="font-bold text-blue-700">Edit details</button><button onClick={()=>deleteOrder(order.id)} className="font-bold text-rose-700">Delete</button></div></td></tr>)}</tbody>
           </table>
         ) : (
           <table className="w-full min-w-[850px]"><thead><tr className="text-slate-400 border-b border-slate-700">{['Code','Material','Vendor','Location','Opening','Received','Issued','Balance','Status','Action'].map(h => <th key={h} className="text-left py-2">{h}</th>)}</tr></thead>
@@ -139,6 +141,7 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
           </table>
         )}
       </div>
+      <RecordDetailsDialog title="Procurement record" record={selectedRecord} onClose={()=>setSelectedRecord(null)} />
     </div>
   );
 }

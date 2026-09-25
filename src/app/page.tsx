@@ -34,6 +34,7 @@ import BsDatePicker from '../components/BsDatePicker';
 import IpcValuationWorkspace from '../components/IpcValuationWorkspace';
 import PaymentCertificateWorkspace from '../components/PaymentCertificateWorkspace';
 import { formatBsDate } from '../lib/nepaliDate';
+import { isCurrentProject, projectIdFromUrl, workspaceUrl } from '../lib/projectContext';
 import { can, ROLE_LABELS, normalizeRole } from '../lib/permissions';
 import type { Feature, FeaturePermissions } from '../lib/permissions';
 
@@ -222,6 +223,8 @@ export default function DashboardShell() {
   // ---- Project switcher ----
   const [projectsList, setProjectsList] = useState<any[]>([]);
   const [showCreateProject, setShowCreateProject] = useState(false);
+  const [activeProjectId, setActiveProjectId] = useState(() => storage.getActiveProjectId());
+  const [projectSwitching, setProjectSwitching] = useState(false);
 
   // ---- Database States ----
   const [project, setProject] = useState<any>(null);
@@ -247,7 +250,8 @@ export default function DashboardShell() {
   const [allEmployeeVisits, setAllEmployeeVisits] = useState<any[]>([]);
 
   // ---- Database loader ----
-  const loadData = () => {
+  const loadData = (expectedProjectId = storage.getActiveProjectId()) => {
+    if (!isCurrentProject(expectedProjectId, storage.getActiveProjectId())) return;
     setProject(storage.getProject());
     setProjectsList(storage.getProjectsList());
     setActivities(storage.getActivities());
@@ -289,7 +293,9 @@ export default function DashboardShell() {
       setAuthUser(verified);
       if (verified) localStorage.setItem('bt_auth_user', JSON.stringify(verified));
       else localStorage.removeItem('bt_auth_user');
-      loadData();
+      const requestedProjectId = projectIdFromUrl(window.location.search);
+      if (requestedProjectId && storage.getMembershipForProject(requestedProjectId)) { storage.setActiveProjectId(requestedProjectId); setActiveProjectId(requestedProjectId); }
+      loadData(storage.getActiveProjectId());
       setAuthChecked(true);
     };
 
@@ -501,16 +507,19 @@ export default function DashboardShell() {
   const handleDeleteDailyReport = async (id: string) => { await storage.deleteDailyReport(id); loadData(); };
 
   const handleSwitchProject = async (id: string) => {
+    if (!id || id === activeProjectId || projectSwitching) return;
+    const switchTo = id; setProjectSwitching(true);
     storage.setActiveProjectId(id);
+    setActiveProjectId(id); setProject(null);
+    setActivities([]); setDependencies([]); setDesignPackages([]); setDailyReports([]); setBudgetHeads([]); setSubcontractors([]); setIpcSubmissions([]); setQaqc([]); setSafety([]); setClaims([]); setHandover([]); setDefects([]); setExpenses([]);
+    window.history.pushState({}, '', workspaceUrl(window.location.href, id));
     setActiveTab('dashboard');
     const membership = storage.getMembershipForProject(id);
-    if (membership) {
-      const nextUser = { name: membership.name, email: membership.email, role: membership.role, feature_permissions: membership.feature_permissions || null };
-      setAuthUser(nextUser);
-      localStorage.setItem('bt_auth_user', JSON.stringify(nextUser));
-    }
-    await storage.pullActiveProjectFromCloud();
-    loadData();
+    try {
+      if (membership) { const nextUser = { name: membership.name, email: membership.email, role: membership.role, feature_permissions: membership.feature_permissions || null }; setAuthUser(nextUser); localStorage.setItem('bt_auth_user', JSON.stringify(nextUser)); }
+      await storage.pullActiveProjectFromCloud();
+      if (isCurrentProject(switchTo, storage.getActiveProjectId())) loadData(switchTo);
+    } finally { if (isCurrentProject(switchTo, storage.getActiveProjectId())) setProjectSwitching(false); }
   };
 
   const activePermissions = authUser.feature_permissions || storage.getMembershipForProject(project.id)?.feature_permissions || null;
@@ -625,8 +634,9 @@ export default function DashboardShell() {
               <span className="rounded-lg bg-purple-50 px-3 py-2 text-xs font-bold text-purple-700">Platform Subscription Console</span>
             ) : <>
               <select
-                value={project.id}
+                value={activeProjectId}
                 onChange={(e) => { void handleSwitchProject(e.target.value); }}
+                disabled={projectSwitching}
                 className="bg-slate-950 border border-slate-800 px-3 py-2 rounded-lg text-xs text-slate-200 font-semibold focus:outline-none max-w-[180px] md:max-w-[300px] truncate"
               >
                 {projectsList.map((p: any) => (
