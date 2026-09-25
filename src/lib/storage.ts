@@ -6,6 +6,8 @@ import type { FeaturePermissions } from './permissions';
 // Environment variables fallback
 const defaultUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const defaultAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
+import { DurableMutationOutbox, createMutationId } from './durableMutationOutbox';
 let cachedSupabaseClient: SupabaseClient | null = null;
 let cachedSupabaseConfig = '';
 
@@ -1235,7 +1237,7 @@ function getLocalItem<T>(key: string, defaultValue: T): T {
   }
 }
 
-const PERSISTENT_LOCAL_KEYS = new Set(['bt_supabase_url', 'bt_supabase_anon_key']);
+const PERSISTENT_LOCAL_KEYS = new Set(['bt_supabase_url', 'bt_supabase_anon_key', 'bt_durable_mutations', 'bt_durable_tombstones']);
 
 function clearWorkspaceCache() {
   if (typeof window === 'undefined') return;
@@ -1260,6 +1262,7 @@ const CLOUD_SYNC_KEYS = new Set([
 let cloudSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let cloudPullInProgress = false;
 const pendingCloudSyncKeys = new Set<string>();
+const durableMutations = new DurableMutationOutbox();
 const CLOUD_SYNC_ORDER = [
   'bt_projects_list', 'bt_wbs', 'bt_activities', 'bt_dependencies', 'bt_design_packages',
   'bt_design_comments', 'bt_daily_reports', 'bt_daily_work_items', 'bt_material_logs',
@@ -1318,14 +1321,17 @@ function appendNotification(key: string) {
 
 function scheduleCloudSync(key: string) {
   if (typeof window === 'undefined' || cloudPullInProgress || !CLOUD_SYNC_KEYS.has(key) || !isSupabaseConfigured()) return;
-  pendingCloudSyncKeys.add(key);
+  const projectId = getActiveProjectId();
+  // Daily reports are synchronized through their durable operation so retries
+  // retain the original record identity and never create duplicate reports.
+  if (key === 'bt_daily_reports' && durableMutations.pendingForProject(projectId).some(item => item.kind === 'daily_work_update' || item.kind === 'daily_report_delete')) return;
+  storage.enqueueProjectCollectionMutation(key, projectId);
+  pendingCloudSyncKeys.add(`${projectId}:${key}`);
   if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
   cloudSyncTimer = setTimeout(() => {
-    const keys = CLOUD_SYNC_ORDER.filter(item => pendingCloudSyncKeys.has(item));
-    pendingCloudSyncKeys.clear();
-    void (async () => {
-      for (const pendingKey of keys) await syncLocalKeyToCloud(pendingKey);
-    })();
+    const activeProjectId = getActiveProjectId();
+    [...pendingCloudSyncKeys].filter(item => item.startsWith(`${activeProjectId}:`)).forEach(item => pendingCloudSyncKeys.delete(item));
+    void storage.flushDurableMutations(activeProjectId);
   }, 500);
 }
 
@@ -1337,23 +1343,33 @@ function setLocalItem<T>(key: string, value: T): void {
   }
 }
 
-async function upsertCloudRow(table: string, row: Record<string, unknown>) {
+type CloudSyncResult = { ok: true } | { ok: false; message: string };
+
+async function upsertCloudRow(table: string, row: Record<string, unknown>): Promise<CloudSyncResult> {
   const client = getSupabaseClient();
-  if (!client) return;
+  if (!client) return { ok: false, message: 'Supabase is not configured.' };
   const { data: { session } } = await client.auth.getSession();
-  if (!session) return;
+  if (!session) return { ok: false, message: 'Sign in to Supabase before synchronizing.' };
   const { error } = await client.from(table).upsert(row, { onConflict: 'id' });
-  if (error) console.warn(`BuildTrack cloud sync skipped for ${table}:`, error.message);
+  if (error) {
+    console.warn(`BuildTrack cloud sync skipped for ${table}:`, error.message);
+    return { ok: false, message: `${table}: ${error.message}` };
+  }
+  return { ok: true };
 }
 
-async function upsertCloudRows(table: string, rows: Record<string, unknown>[]) {
-  if (rows.length === 0) return;
+async function upsertCloudRows(table: string, rows: Record<string, unknown>[]): Promise<CloudSyncResult> {
+  if (rows.length === 0) return { ok: true };
   const client = getSupabaseClient();
-  if (!client) return;
+  if (!client) return { ok: false, message: 'Supabase is not configured.' };
   const { data: { session } } = await client.auth.getSession();
-  if (!session) return;
+  if (!session) return { ok: false, message: 'Sign in to Supabase before synchronizing.' };
   const { error } = await client.from(table).upsert(rows, { onConflict: 'id' });
-  if (error) console.warn(`BuildTrack cloud sync skipped for ${table}:`, error.message);
+  if (error) {
+    console.warn(`BuildTrack cloud sync skipped for ${table}:`, error.message);
+    return { ok: false, message: `${table}: ${error.message}` };
+  }
+  return { ok: true };
 }
 
 async function upsertProjectUser(row: Record<string, unknown>) {
@@ -1365,7 +1381,7 @@ async function upsertProjectUser(row: Record<string, unknown>) {
   if (error) console.warn('BuildTrack personnel sync skipped:', error.message);
 }
 
-async function syncLocalKeyToCloud(key: string) {
+async function syncLocalKeyToCloud(key: string): Promise<CloudSyncResult> {
   const projectId = getActiveProjectId();
   const reports = getLocalItem<any[]>('bt_daily_reports', []).filter(item => item.project_id === projectId);
   const reportIds = new Set(reports.map(item => item.id));
@@ -1399,15 +1415,13 @@ async function syncLocalKeyToCloud(key: string) {
   };
   if (key === 'bt_projects_list') {
     const project = getLocalItem<any[]>('bt_projects_list', []).find(item => item.id === projectId);
-    if (project) await upsertCloudRow('projects', project);
-    return;
+    return project ? upsertCloudRow('projects', project) : { ok: true };
   }
   if (key === 'bt_activities') {
     const rows = getLocalItem<(Activity & { project_id?: string })[]>('bt_activities', [])
       .filter(item => item.project_id === projectId)
       .map(({ early_start, early_finish, late_start, late_finish, total_float, free_float, is_critical, is_near_critical, ...item }) => item);
-    await upsertCloudRows('activities', rows as unknown as Record<string, unknown>[]);
-    return;
+    return upsertCloudRows('activities', rows as unknown as Record<string, unknown>[]);
   }
   if (key === 'bt_daily_work_items' || key === 'bt_material_logs') {
     const [table, localKey] = key === 'bt_daily_work_items'
@@ -1416,24 +1430,22 @@ async function syncLocalKeyToCloud(key: string) {
     const rows = getLocalItem<Record<string, unknown>[]>(localKey, [])
       .filter(item => reportIds.has(String(item.daily_report_id)))
       .map(item => ({ ...item, project_id: projectId }));
-    await upsertCloudRows(table, rows);
-    return;
+    return upsertCloudRows(table, rows);
   }
   if (key === 'bt_finance_rows') {
     const finance = getLocalItem<Record<string, FinanceRow[]>>('bt_finance_rows', {});
-    await upsertCloudRows('finance_rows', (finance[projectId] || []).map(row => ({
+    return upsertCloudRows('finance_rows', (finance[projectId] || []).map(row => ({
       id: row.id, project_id: projectId, row_key: row.id, name: row.name,
       category: row.category, monthly_values: row.values
     })));
-    return;
   }
   const mapping = simpleMappings[key];
-  if (!mapping) return;
+  if (!mapping) return { ok: false, message: `No cloud mapping is defined for ${key}.` };
   const [table, localKey] = mapping;
   const rows = getLocalItem<Record<string, unknown>[]>(localKey, [])
     .filter(item => item.project_id === projectId)
     .map(item => ({ ...item, project_id: projectId }));
-  await upsertCloudRows(table, rows);
+  return upsertCloudRows(table, rows);
 }
 
 function cloudPullMappings(): Array<[string, string]> {
@@ -1507,6 +1519,10 @@ async function pullProjectSetFromCloud(projectIds: string[], replaceWorkspace: b
         console.warn(`BuildTrack cloud pull skipped ${table}:`, result.error.message);
         return;
       }
+      // Never replace a project collection while that project has an
+      // unacknowledged local mutation touching it. It will be pulled after the
+      // outbox confirms replay, rather than silently losing local work.
+      if (projectIds.some(projectId => durableMutations.protectedLocalKeys(projectId).has(key))) return;
       const previous = replaceWorkspace ? [] : getLocalItem<Record<string, unknown>[]>(key, []);
       const remaining = previous.filter(row => !projectIds.includes(String(row.project_id)));
       localStorage.setItem(key, JSON.stringify([...remaining, ...(result.data || [])]));
@@ -1944,6 +1960,136 @@ export const storage = {
   },
 
   getActiveProjectId,
+
+  getDurableMutationScope: (projectId = getActiveProjectId()) => {
+    const project = storage.getProjectsList().find(item => item.id === projectId);
+    const membership = storage.getMembershipForProject(projectId);
+    const auth = getLocalItem<{ id?: string; email?: string } | null>('bt_auth_user', null);
+    return {
+      projectId,
+      organizationId: String(project?.organization_id || project?.organization_name || 'unassigned'),
+      actorId: String(membership?.auth_user_id || auth?.id || membership?.email || auth?.email || 'unknown'),
+    };
+  },
+
+  enqueueDailyWorkMutation: (input: { projectId: string; report: Record<string, unknown>; workItems: Array<Record<string, unknown>>; materialItems: Array<Record<string, unknown>>; operationId?: string }) => {
+    const scope = storage.getDurableMutationScope(input.projectId);
+    const targetId = String(input.report.id || input.operationId || createMutationId('daily'));
+    return durableMutations.enqueue({
+      // A retry keeps the caller-provided operation id. A later edit to the
+      // same report receives a different operation so an acknowledged save
+      // cannot suppress a legitimate follow-up change.
+      id: input.operationId || `daily-work-${scope.projectId}-${createMutationId('op')}`,
+      kind: 'daily_work_update', ...scope, targetId,
+      affectedLocalKeys: ['bt_daily_reports', 'bt_daily_work_items', 'bt_material_logs', 'bt_activities'],
+      payload: { report: { ...input.report, id: targetId }, expectedRevision: Number(input.report.revision || 0), workItems: input.workItems, materialItems: input.materialItems },
+    });
+  },
+
+  enqueueDailyReportDeletion: (reportId: string, projectId = getActiveProjectId()) => {
+    const scope = storage.getDurableMutationScope(projectId);
+    return durableMutations.enqueue({
+      id: `daily-delete-${scope.projectId}-${reportId}`,
+      kind: 'daily_report_delete', ...scope, targetId: reportId,
+      affectedLocalKeys: ['bt_daily_reports', 'bt_daily_work_items', 'bt_material_logs', 'bt_activities'],
+      payload: { reportId }, tombstone: { localKey: 'bt_daily_reports', recordId: reportId },
+    });
+  },
+
+  enqueueProjectCollectionMutation: (localKey: string, projectId = getActiveProjectId()) => {
+    const scope = storage.getDurableMutationScope(projectId);
+    return durableMutations.enqueue({
+      // Collection writes are coalesced by the short scheduler window, not by
+      // a permanently reused id. Reusing an acknowledged id would make all
+      // future edits to this collection invisible to the outbox.
+      id: `collection-sync-${scope.projectId}-${localKey}-${createMutationId('op')}`,
+      kind: 'project_collection_sync', ...scope, targetId: localKey,
+      affectedLocalKeys: [localKey], payload: { localKey },
+    });
+  },
+
+  enqueueProjectRecordDeletion: (input: { table: string; localKey: string; recordId: string; projectId?: string }) => {
+    const projectId = input.projectId || getActiveProjectId();
+    const scope = storage.getDurableMutationScope(projectId);
+    return durableMutations.enqueue({
+      id: `record-delete-${scope.projectId}-${input.table}-${input.recordId}`,
+      kind: 'project_record_delete', ...scope, targetId: input.recordId,
+      affectedLocalKeys: [input.localKey],
+      payload: { table: input.table, localKey: input.localKey, recordId: input.recordId },
+      tombstone: { localKey: input.localKey, recordId: input.recordId },
+    });
+  },
+
+  // Includes conflict entries: they are not server-confirmed and must remain
+  // visible/recoverable rather than disappearing from the application shell.
+  getPendingDurableMutations: (projectId = getActiveProjectId()) => durableMutations.unacknowledgedForProject(projectId),
+
+  getDurableSyncSummary: (projectId = getActiveProjectId()) => {
+    const scope = storage.getDurableMutationScope(projectId);
+    return durableMutations.summaryForProject(projectId, scope.actorId);
+  },
+
+  flushDurableMutations: async (projectId = getActiveProjectId()) => {
+    const scope = storage.getDurableMutationScope(projectId);
+    if (getActiveProjectId() !== projectId) return { ok: false, message: 'Pending changes belong to another project and were not replayed.' };
+    const pending = durableMutations.pendingForProject(projectId, scope.actorId);
+    const ready: typeof pending = [];
+    for (const mutation of pending) {
+      if (mutation.organizationId !== scope.organizationId) {
+        durableMutations.markConflict(mutation.id, 'Tenant context changed before this pending update could be synchronized.');
+        continue;
+      }
+      if (mutation.kind === 'daily_work_update') {
+        const payload = mutation.payload as { report?: Record<string, unknown>; workItems?: Array<Record<string, unknown>>; materialItems?: Array<Record<string, unknown>> };
+        if (!payload.report?.id) {
+          durableMutations.markConflict(mutation.id, 'The pending daily update has no stable report identity.');
+          continue;
+        }
+        if (!storage.getDailyReports().some(report => report.id === payload.report?.id)) storage.submitDailyReport(payload.report, payload.workItems || [], payload.materialItems || []);
+      }
+      ready.push(mutation);
+    }
+    for (const mutation of ready) {
+      if (getActiveProjectId() !== mutation.projectId) {
+        durableMutations.markConflict(mutation.id, 'Active project changed before this pending update could be synchronized.');
+        continue;
+      }
+      let sync: CloudSyncResult = { ok: true };
+      if (mutation.kind === 'daily_work_update') {
+        // The stable report ID and Supabase upserts make retries idempotent.
+        // Keep the mutation unacknowledged until every related row has a
+        // positive cloud response; no local state is claimed as confirmed.
+        for (const key of ['bt_daily_reports', 'bt_daily_work_items', 'bt_material_logs', 'bt_activities']) {
+          sync = await syncLocalKeyToCloud(key);
+          if (!sync.ok) break;
+        }
+      } else if (mutation.kind === 'project_collection_sync') {
+        const localKey = String(mutation.payload.localKey || mutation.targetId);
+        sync = await syncLocalKeyToCloud(localKey);
+      } else if (mutation.kind === 'daily_report_delete') {
+        const client = getSupabaseClient();
+        if (!client) sync = { ok: false, message: 'Supabase is not configured.' };
+        else {
+          const { error } = await client.from('daily_reports').delete().eq('id', mutation.targetId).eq('project_id', mutation.projectId);
+          sync = error ? { ok: false, message: `daily_reports: ${error.message}` } : { ok: true };
+        }
+      } else if (mutation.kind === 'project_record_delete') {
+        const table = String(mutation.payload.table || '');
+        const recordId = String(mutation.payload.recordId || mutation.targetId);
+        const client = getSupabaseClient();
+        if (!table || !recordId) sync = { ok: false, message: 'The pending deletion does not identify a cloud record.' };
+        else if (!client) sync = { ok: false, message: 'Supabase is not configured.' };
+        else {
+          const { error } = await client.from(table).delete().eq('id', recordId).eq('project_id', mutation.projectId);
+          sync = error ? { ok: false, message: `${table}: ${error.message}` } : { ok: true };
+        }
+      }
+      if (sync.ok) durableMutations.acknowledge(mutation.id);
+      else durableMutations.markFailed(mutation.id, sync.message || 'Cloud confirmation was not received.');
+    }
+    const remaining = durableMutations.unacknowledgedForProject(projectId, scope.actorId);
+    return remaining.length ? { ok: false, message: remaining[0].lastError || 'Some changes are still pending cloud confirmation.' } : { ok: true, message: 'Pending changes synchronized.' };
+  },
   
   setActiveProjectId: (id: string) => {
     setLocalItem('bt_active_project_id', id);
@@ -2171,11 +2317,13 @@ export const storage = {
   },
 
   deleteDependency: (id: string) => {
+    const projectId = getActiveProjectId();
     const allDeps = getLocalItem('bt_dependencies', MOCK_DEPENDENCIES);
+    const existing = allDeps.find((dependency: Dependency) => dependency.id === id && dependency.project_id === projectId);
+    if (!existing) return;
     const filtered = allDeps.filter(d => d.id !== id);
     setLocalItem('bt_dependencies', filtered);
-    const client = getSupabaseClient();
-    if (client) void client.from('activity_dependencies').delete().eq('id', id);
+    storage.enqueueProjectRecordDeletion({ table: 'activity_dependencies', localKey: 'bt_dependencies', recordId: id, projectId });
     storage.recalculateSchedule();
   },
 
@@ -2988,6 +3136,14 @@ export const storage = {
     evidenceType: SitePhoto['evidence_type'] = 'progress'
   ): Promise<SitePhoto> => {
     const projectId = getActiveProjectId();
+    if (!storage.getDailyReports().some(report => report.id === reportId && report.project_id === projectId)) {
+      throw new Error('Choose a daily report from the active project before uploading evidence.');
+    }
+    if (file.size <= 0) throw new Error('Choose a non-empty image file.');
+    if (file.size > 10 * 1024 * 1024) throw new Error('Site evidence images must be 10 MB or smaller.');
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      throw new Error('Site evidence must be a JPG, PNG, or WebP image.');
+    }
     const client = getSupabaseClient();
     let url = '';
     let storagePath = '';
@@ -3006,26 +3162,22 @@ export const storage = {
       console.warn('Google Drive photo upload skipped:', error instanceof Error ? error.message : String(error));
     }
     if (!storagePath && client) {
-      if (file.size > 0) {
-        try {
-          const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
-          const path = `${projectId}/${reportId}/${Date.now()}-${safeName}`;
-          const { error } = await client.storage.from('site-photos').upload(path, file, {
-            contentType: file.type,
-            upsert: false
-          });
-          if (error) {
-            throw new Error(`Image upload failed: ${error.message}. Check the site-photos bucket and storage RLS policy for this user's project role.`);
-          } else {
-            storagePath = path;
-          }
-        } catch (e) {
-          if (!isNetworkLikeError(e)) throw e instanceof Error ? e : new Error(String(e));
-          url = await fileToDataUrl(file);
-          console.warn('Site photo saved locally because Supabase storage is unreachable.');
+      try {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
+        const path = `${projectId}/${reportId}/${Date.now()}-${safeName}`;
+        const { error } = await client.storage.from('site-photos').upload(path, file, {
+          contentType: file.type,
+          upsert: false
+        });
+        if (error) {
+          throw new Error(`Image upload failed: ${error.message}. Check the site-photos bucket and storage RLS policy for this user's project role.`);
+        } else {
+          storagePath = path;
         }
-      } else {
-        console.warn('Skipping upload of empty file for site photo.');
+      } catch (e) {
+        if (!isNetworkLikeError(e)) throw e instanceof Error ? e : new Error(String(e));
+        url = await fileToDataUrl(file);
+        console.warn('Site photo saved locally because Supabase storage is unreachable.');
       }
     } else if (!storagePath) {
       url = await fileToDataUrl(file);
@@ -3114,42 +3266,17 @@ export const storage = {
     ];
     const { error: projectSyncError } = await client.from('projects').upsert(project, { onConflict: 'id' });
     if (projectSyncError) return { ok: false, message: `projects: ${projectSyncError.message}` };
-    const deleteOrder = [
-      'daily_work_items','material_logs','daily_reports','design_comments','design_packages',
-      'activity_dependencies','qa_qc_inspections','activities','wbs_items','finance_rows','document_register',
-      'procurement_orders','store_items','contract_obligations','budget_heads','subcontractor_packages',
-      'daily_resource_usage','employee_visits','daily_expenses','ipc_payments','ipc_submissions','safety_logs','variations_and_claims','risk_register','handover_checklists','defects_liability'
-      ,'employee_profiles','uploaded_documents','inventory_events','app_notifications'
-    ];
-    for (const table of deleteOrder) {
-      const { error } = await client.from(table).delete().eq('project_id', projectId);
-      if (error) return { ok: false, message: `${table} cleanup: ${error.message}` };
-    }
+    // Never replace a project collection by deleting it first. A stale browser,
+    // failed network request, or concurrent editor must not erase records that
+    // are absent from this local cache. Explicit deletions replay as scoped
+    // tombstone mutations; all other synchronization is merge-only by id.
     for (const [table, rows] of tableRows) {
       if (rows.length === 0) continue;
       const { error } = await client.from(table).upsert(rows, { onConflict: 'id' });
       if (error) return { ok: false, message: `${table}: ${error.message}` };
     }
-    const directorySource = [
-      ...storage.getUsers(),
-      ...(storage.getUsers().some((user: any) => user.email === signedInUser.email) ? [] : [signedInUser])
-    ];
-    const directoryRows = [...new Map(directorySource.map((user: any) => [user.email.toLowerCase(), user])).values()].map((user: any) => ({
-      id: `${projectId}-${user.id || session.user.id}`,
-      project_id: projectId,
-      auth_user_id: user.email === signedInUser.email ? session.user.id : null,
-      email: user.email,
-      name: user.name,
-      role: user.role
-    }));
     const membership = await storage.syncUserToSupabase(signedInUser);
     if (!membership.ok) return { ok: false, message: membership.error || 'Could not synchronize current project membership.' };
-    if (['super_admin', 'project_director', 'project_manager'].includes(signedInUser.role)) {
-      const { error: directoryDeleteError } = await client.from('project_users').delete().eq('project_id', projectId);
-      if (directoryDeleteError) return { ok: false, message: `project_users cleanup: ${directoryDeleteError.message}` };
-      const { error: directoryError } = await client.from('project_users').upsert(directoryRows, { onConflict: 'project_id,email' });
-      if (directoryError) return { ok: false, message: `project_users: ${directoryError.message}` };
-    }
     localStorage.setItem('bt_last_cloud_sync', new Date().toISOString());
     return { ok: true, message: `Synchronized ${tableRows.reduce((sum, [, rows]) => sum + rows.length, 0)} records.` };
   },
@@ -3158,3 +3285,11 @@ export const storage = {
     return pullProjectSetFromCloud([getActiveProjectId()], false);
   }
 };
+
+// Reconnection retries only mutations scoped to the currently active project.
+// The outbox itself verifies project, tenant and actor scope before any write.
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    if (isSupabaseConfigured()) void storage.flushDurableMutations(getActiveProjectId());
+  });
+}
