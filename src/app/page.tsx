@@ -31,6 +31,8 @@ import DirectorPortfolioDashboard from '../components/DirectorPortfolioDashboard
 import SuperAdminDashboard from '../components/SuperAdminDashboard';
 import SubscriptionDashboard from '../components/SubscriptionDashboard';
 import BsDatePicker from '../components/BsDatePicker';
+import IpcValuationWorkspace from '../components/IpcValuationWorkspace';
+import PaymentCertificateWorkspace from '../components/PaymentCertificateWorkspace';
 import { formatBsDate } from '../lib/nepaliDate';
 import { can, ROLE_LABELS, normalizeRole } from '../lib/permissions';
 import type { Feature, FeaturePermissions } from '../lib/permissions';
@@ -763,14 +765,18 @@ export default function DashboardShell() {
           )}
 
           {activeTab === 'ipc' && (
-            <IpcDashboard
-              key={project.id}
-              ipcSubmissions={ipcSubmissions}
-              userRole={authUser.role}
-              userName={authUser.name}
-              userEmail={authUser.email}
-              onRefresh={loadData}
-            />
+            <div className="space-y-6">
+              <IpcValuationWorkspace key={`valuation-${project.id}`} projectId={project.id} role={authUser.role} />
+              <PaymentCertificateWorkspace key={`certificate-${project.id}`} projectId={project.id} role={authUser.role} />
+              <IpcDashboard
+                key={project.id}
+                ipcSubmissions={ipcSubmissions}
+                userRole={authUser.role}
+                userName={authUser.name}
+                userEmail={authUser.email}
+                onRefresh={loadData}
+              />
+            </div>
           )}
 
           {activeTab === 'claims' && (
