@@ -5,7 +5,6 @@ import { can } from '../lib/permissions';
 import BsDatePicker from './BsDatePicker';
 import { formatBsDate } from '../lib/nepaliDate';
 import UploadProgress from './UploadProgress';
-import { useLanguage } from './LanguageProvider';
 import { attachmentsNeedingRetry, DailySaveState, saveFailureMessage } from '../lib/dailySaveState';
 
 interface Props {
@@ -23,8 +22,22 @@ interface Props {
 
 const nepaliDate = (date: string, language: 'ne' | 'en') => formatBsDate(date, { long: true, language });
 
+// Keep the offline-saving surface independently releasable. Full application
+// localization remains owned by the shell; this form has safe English fallbacks.
+const dailyLabel = (key: string) => ({
+  'daily.saved': 'Daily update saved.', 'daily.title': 'Daily Site Reporting',
+  'common.close': 'Close', 'daily.new': 'New Daily Report',
+  'common.saveFailed': 'Could not save the daily update.', 'common.retry': 'Retry',
+  'daily.work': 'Description of Work', 'daily.quantity': 'Quantity Done',
+  'daily.problem': 'Any problem today?', 'daily.noProblem': 'No problem',
+  'daily.yesProblem': 'Yes, report a problem', 'daily.more': 'More details',
+  'common.saving': 'Saving…', 'daily.today': "Submit today's work",
+  'common.submit': 'Submit', 'daily.mySubmissions': 'My submissions',
+}[key] || key);
+
 export default function DailyReportingDashboard({ projectId, activities, reports, currentDate, userName, userEmail, userRole, onSubmit, onReload, onDelete }: Props) {
-  const { language, t } = useLanguage();
+  const language = 'en' as const;
+  const t = dailyLabel;
   const [showForm, setShowForm] = useState(false);
   const [showMoreDetails, setShowMoreDetails] = useState(false);
   const [saving, setSaving] = useState(false);
