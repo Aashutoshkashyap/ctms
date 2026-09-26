@@ -4,6 +4,7 @@ import { Activity, Dependency, diffDays, addDays } from '../lib/cpm';
 import BsDatePicker from './BsDatePicker';
 import { formatBsDate } from '../lib/nepaliDate';
 import { generateWbsFromTender } from '../lib/ai';
+import RecordDetailsDialog from './RecordDetailsDialog';
 
 interface CpmTimelineDashboardProps {
   activities: Activity[];
@@ -51,6 +52,7 @@ export default function CpmTimelineDashboard({
   // Quick edit state
   const [editingActId, setEditingActId] = useState<string | null>(null);
   const [editAct, setEditAct] = useState<Partial<Activity>>({});
+  const [selectedActivity, setSelectedActivity] = useState<object | null>(null);
 
   const isEditable = ['project_director', 'project_manager', 'planning_engineer'].includes(userRole);
   const today = new Date().toISOString().slice(0, 10);
@@ -413,7 +415,7 @@ export default function CpmTimelineDashboard({
                 <th className="pb-3 text-right">Float</th>
                 <th className="pb-3 text-center">Status</th>
                 <th className="pb-3">Delay / Management Remark</th>
-                {isEditable && <th className="pb-3 text-right pr-2">Action</th>}
+                <th className="pb-3 text-right pr-2">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800 text-slate-300">
@@ -462,18 +464,19 @@ export default function CpmTimelineDashboard({
                       </span>}
                     </td>
                     <td className={`py-2.5 max-w-[260px] ${delay.delayDays > 0 ? 'font-semibold text-rose-700' : 'text-slate-500'}`}>{delay.remark}</td>
-                    {isEditable && (
-                      <td className="py-2.5 text-right pr-2">
-                        {isEditing ? (
+                    <td className="py-2.5 text-right pr-2">
+                      <div className="flex justify-end gap-2">
+                        <button onClick={() => setSelectedActivity({ ...act, delay_management_remark: delay.remark })} className="font-semibold text-slate-200 hover:text-white">View details</button>
+                        {isEditable && (isEditing ? (
                           <div className="flex gap-1 justify-end">
                             <button onClick={() => handleSaveEdit(act)} className="text-emerald-400 hover:text-emerald-300 font-bold">Save</button>
                             <button onClick={() => setEditingActId(null)} className="text-slate-400 hover:text-slate-300">Cancel</button>
                           </div>
                         ) : (
                           <button onClick={() => handleStartEdit(act)} className="text-blue-400 hover:text-blue-300 font-semibold">Edit</button>
-                        )}
-                      </td>
-                    )}
+                        ))}
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
@@ -481,6 +484,7 @@ export default function CpmTimelineDashboard({
           </table>
         </div>
       </div>
+      <RecordDetailsDialog title="BOQ work item" record={selectedActivity} onClose={() => setSelectedActivity(null)} />
 
       {/* Dependencies list */}
       <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-5 shadow-lg">

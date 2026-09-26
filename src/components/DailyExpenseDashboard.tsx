@@ -19,6 +19,9 @@ export default function DailyExpenseDashboard({ projectId, userName, userEmail, 
   const [toDate, setToDate] = useState('');
   const [slip, setSlip] = useState<File | null>(null);
   const [selectedExpense, setSelectedExpense] = useState<DailyExpense | null>(null);
+  const [selectedEmployee, setSelectedEmployee] = useState<object | null>(null);
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
   const { busy: saving, run: runSubmission } = useSubmissionLock();
   const [form, setForm] = useState(() => ({
     expense_date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0],
@@ -48,8 +51,9 @@ export default function DailyExpenseDashboard({ projectId, userName, userEmail, 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
     await runSubmission(async () => { try {
-    let payment_slip_path = '';
-    let payment_slip_url = '';
+    const existingExpense = expenses.find(item => item.id === editingExpenseId);
+    let payment_slip_path = existingExpense?.payment_slip_path || '';
+    let payment_slip_url = existingExpense?.payment_slip_url || '';
     if (slip) {
       const uploaded = await storage.uploadProjectDocument(slip, 'payment_slip', form.reference, userName, `Payment slip for ${form.description}`);
       payment_slip_path = uploaded.storage_path || '';
@@ -59,6 +63,7 @@ export default function DailyExpenseDashboard({ projectId, userName, userEmail, 
     const selectedEmployee = employees.find(employee => employee.employee_id === form.employee_id);
     storage.saveDailyExpense({
       ...form,
+      id: editingExpenseId || undefined,
       wbs_code: selectedActivity?.wbs_code || '',
       employee_name: selectedEmployee?.name || form.employee_name,
       payment_slip_path,
@@ -66,6 +71,7 @@ export default function DailyExpenseDashboard({ projectId, userName, userEmail, 
     });
     setExpenses(storage.getDailyExpenses());
     setShowForm(false);
+    setEditingExpenseId(null);
     setSlip(null);
     setForm({...form, description:'', vendor:'', amount:0, reference:'', wbs_code:'', employee_id:'', employee_name:'', status:'submitted', recorded_by:userName, recorded_by_email:userEmail});
     } catch (error) {
@@ -75,10 +81,21 @@ export default function DailyExpenseDashboard({ projectId, userName, userEmail, 
 
   const saveEmployee = (event: React.FormEvent) => {
     event.preventDefault();
-    storage.saveEmployee(employeeForm);
+    storage.saveEmployee({ ...employeeForm, id: editingEmployeeId || undefined });
     setEmployees(storage.getEmployees());
     setShowEmployeeForm(false);
+    setEditingEmployeeId(null);
     setEmployeeForm({ employee_id: '', name: '', email: '', phone: '', role: 'Site Worker', trade: '', site_location: '', daily_rate: 0, status: 'active', assigned_to: projectId });
+  };
+  const startEditExpense = (item: DailyExpense) => {
+    setEditingExpenseId(item.id);
+    setForm({ ...form, ...item, status: item.status, recorded_by: item.recorded_by || userName, recorded_by_email: item.recorded_by_email || userEmail });
+    setSlip(null); setShowForm(true);
+  };
+  const startEditEmployee = (employee: any) => {
+    setEditingEmployeeId(employee.id);
+    setEmployeeForm({ employee_id: employee.employee_id || '', name: employee.name || '', email: employee.email || '', phone: employee.phone || '', role: employee.role || 'Site Worker', trade: employee.trade || '', site_location: employee.site_location || '', daily_rate: Number(employee.daily_rate || 0), status: employee.status || 'active', assigned_to: employee.assigned_to || projectId });
+    setShowEmployeeForm(true);
   };
 
   const updateStatus = (item: DailyExpense, status: DailyExpense['status']) => {
@@ -115,8 +132,8 @@ export default function DailyExpenseDashboard({ projectId, userName, userEmail, 
     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
       <div><h2 className="text-base font-semibold text-slate-900">Employee Daily Expense Register</h2><p className="text-slate-600">Record site spending by employee, BOQ work item, vendor, payment slip and approval status.</p></div>
       <div className="flex flex-wrap gap-2">
-        {can(userRole,'manage_users') && <button onClick={()=>setShowEmployeeForm(value=>!value)} className="bg-white border border-blue-200 text-blue-700 px-4 py-2 rounded-lg font-semibold">+ Employee ID</button>}
-        <button onClick={()=>setShowForm(value=>!value)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-semibold">+ Record Expense</button>
+        {can(userRole,'manage_users') && <button onClick={()=>{setEditingEmployeeId(null);setShowEmployeeForm(value=>!value);}} className="bg-white border border-blue-200 text-blue-700 px-4 py-2 rounded-lg font-semibold">+ Employee ID</button>}
+        <button onClick={()=>{setEditingExpenseId(null);setShowForm(value=>!value);}} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-semibold">+ Record Expense</button>
       </div>
     </div>
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -138,7 +155,7 @@ export default function DailyExpenseDashboard({ projectId, userName, userEmail, 
       </div>
     </section>
     {showEmployeeForm&&can(userRole,'manage_users')&&<form onSubmit={saveEmployee} className="bg-white border border-blue-100 rounded-xl p-4 shadow-sm space-y-4">
-      <h3 className="font-bold text-slate-900">Create employee ID</h3>
+      <h3 className="font-bold text-slate-900">{editingEmployeeId ? 'Edit employee record' : 'Create employee ID'}</h3>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <Field label="Employee ID"><input required placeholder="EMP-025" value={employeeForm.employee_id} onChange={e=>setEmployeeForm({...employeeForm,employee_id:e.target.value})}/></Field>
         <Field label="Employee Name"><input required value={employeeForm.name} onChange={e=>setEmployeeForm({...employeeForm,name:e.target.value})}/></Field>
@@ -149,7 +166,7 @@ export default function DailyExpenseDashboard({ projectId, userName, userEmail, 
         <Field label="Daily Rate"><input type="number" min="0" value={employeeForm.daily_rate || ''} onChange={e=>setEmployeeForm({...employeeForm,daily_rate:Number(e.target.value)})}/></Field>
         <Field label="Status"><select value={employeeForm.status} onChange={e=>setEmployeeForm({...employeeForm,status:e.target.value as 'active'|'inactive'})}><option value="active">active</option><option value="inactive">inactive</option></select></Field>
       </div>
-      <button className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-semibold">Save Employee</button>
+      <div className="flex gap-2"><button className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-semibold">{editingEmployeeId ? 'Save employee changes' : 'Save Employee'}</button>{editingEmployeeId && <button type="button" onClick={()=>{setEditingEmployeeId(null);setShowEmployeeForm(false);}} className="border border-slate-300 px-4 py-2 rounded-lg font-semibold text-slate-700">Cancel</button>}</div>
     </form>}
     {showForm&&<form onSubmit={save} className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -164,7 +181,7 @@ export default function DailyExpenseDashboard({ projectId, userName, userEmail, 
         <Field label="BOQ item / Work"><select value={form.activity_id} onChange={e=>setForm({...form,activity_id:e.target.value})}>{activities.map(activity=><option key={activity.id} value={activity.id}>{activity.wbs_code} — {activity.name}</option>)}</select></Field>
         <Field label="Invoice / voucher / payment slip"><input type="file" accept="application/pdf,image/*" onChange={e=>setSlip(e.target.files?.[0] || null)}/></Field>
       </div>
-      <button disabled={saving} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-semibold disabled:opacity-60">{saving?'Saving…':'Save Expense Record'}</button>
+      <button disabled={saving} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-semibold disabled:opacity-60">{saving?'Saving…':editingExpenseId?'Save expense changes':'Save Expense Record'}</button>
     </form>}
     <div className="flex flex-wrap items-end gap-2">
       {(['all','draft','submitted','approved','rejected'] as const).map(value=><button key={value} onClick={()=>setFilter(value)} className={`px-3 py-1.5 rounded-full capitalize ${filter===value?'bg-blue-700 text-white':'bg-white border border-slate-300 text-slate-700'}`}>{value}</button>)}
@@ -172,10 +189,12 @@ export default function DailyExpenseDashboard({ projectId, userName, userEmail, 
     </div>
     <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <table className="w-full min-w-[1050px]"><thead><tr className="border-b border-slate-200 text-slate-600">{['Date (BS)','Employee','Project / BOQ','Category / Description','Vendor','Reference / Slip','Payment','Amount','Status','Action'].map(title=><th key={title} className="text-left py-3">{title}</th>)}</tr></thead>
-        <tbody>{visible.map(item=><tr key={item.id} className="border-b border-slate-100"><td className="py-3 font-mono">{formatBsDate(item.expense_date)}</td><td>{item.employee_id||'—'}<div className="text-slate-500">{item.employee_name||item.recorded_by}</div></td><td><b>{storage.getProject().name}</b><div className="font-mono text-slate-500">{item.wbs_code||activities.find(activity=>activity.id===item.activity_id)?.wbs_code||'General'}</div></td><td><b className="capitalize">{item.category.replaceAll('_',' ')}</b><div className="text-slate-500">{item.description}</div></td><td>{item.vendor||'—'}</td><td className="font-mono">{item.reference||'—'}{(item.payment_slip_path||item.payment_slip_url)&&<div className="text-[10px] text-emerald-700">Evidence uploaded</div>}</td><td className="capitalize">{item.payment_method.replaceAll('_',' ')}</td><td className="font-bold">NPR {item.amount.toLocaleString()}</td><td><Status value={item.status}/></td><td><div className="flex gap-2"><button onClick={()=>setSelectedExpense(item)} className="font-semibold text-blue-800">View details</button>{canApprove&&item.status==='submitted'&&<><button onClick={()=>updateStatus(item,'approved')} className="text-emerald-800 font-semibold">Approve</button><button onClick={()=>updateStatus(item,'rejected')} className="text-rose-800 font-semibold">Reject</button></>}</div></td></tr>)}</tbody>
+        <tbody>{visible.map(item=>{const canEdit = ['draft','submitted','rejected'].includes(item.status) && (canApprove || item.recorded_by_email===userEmail || item.recorded_by===userName);return <tr key={item.id} className="border-b border-slate-100"><td className="py-3 font-mono">{formatBsDate(item.expense_date)}</td><td>{item.employee_id||'—'}<div className="text-slate-500">{item.employee_name||item.recorded_by}</div></td><td><b>{storage.getProject().name}</b><div className="font-mono text-slate-500">{item.wbs_code||activities.find(activity=>activity.id===item.activity_id)?.wbs_code||'General'}</div></td><td><b className="capitalize">{item.category.replaceAll('_',' ')}</b><div className="text-slate-500">{item.description}</div></td><td>{item.vendor||'—'}</td><td className="font-mono">{item.reference||'—'}{(item.payment_slip_path||item.payment_slip_url)&&<div className="text-[10px] text-emerald-700">Evidence uploaded</div>}</td><td className="capitalize">{item.payment_method.replaceAll('_',' ')}</td><td className="font-bold">NPR {item.amount.toLocaleString()}</td><td><Status value={item.status}/></td><td><div className="flex gap-2"><button onClick={()=>setSelectedExpense(item)} className="font-semibold text-blue-800">View details</button>{canEdit&&<button onClick={()=>startEditExpense(item)} className="font-semibold text-blue-800">Edit details</button>}{canApprove&&item.status==='submitted'&&<><button onClick={()=>updateStatus(item,'approved')} className="text-emerald-800 font-semibold">Approve</button><button onClick={()=>updateStatus(item,'rejected')} className="text-rose-800 font-semibold">Reject</button></>}</div></td></tr>})}</tbody>
       </table>
     </div>
+    {can(userRole,'manage_users') && <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><h3 className="font-bold text-slate-900">Project employee directory</h3><p className="mt-1 text-slate-600">Employee IDs are project-scoped. Inactive records remain available for historical expense references.</p><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[760px]"><thead><tr className="border-b border-slate-200 text-left text-slate-600">{['Employee ID','Name / Role','Location','Daily Rate','Status','Action'].map(title=><th key={title} className="py-2">{title}</th>)}</tr></thead><tbody>{employees.map(employee=><tr key={employee.id} className="border-b border-slate-100"><td className="py-2 font-mono">{employee.employee_id}</td><td><b>{employee.name}</b><div className="text-slate-500">{employee.role}{employee.trade?` · ${employee.trade}`:''}</div></td><td>{employee.site_location||'—'}</td><td>NPR {Number(employee.daily_rate||0).toLocaleString()}</td><td><Status value={employee.status==='inactive'?'rejected':'approved' as DailyExpense['status']}/></td><td><div className="flex gap-2"><button onClick={()=>setSelectedEmployee(employee)} className="font-semibold text-blue-800">View details</button><button onClick={()=>startEditEmployee(employee)} className="font-semibold text-blue-800">Edit details</button></div></td></tr>)}</tbody></table></div></section>}
     <RecordDetailsDialog title="Daily expense" record={selectedExpense} onClose={()=>setSelectedExpense(null)}/>
+    <RecordDetailsDialog title="Employee" record={selectedEmployee} onClose={()=>setSelectedEmployee(null)}/>
   </div>;
 }
 function Metric({label,value,warning=false}:{label:string;value:number;warning?:boolean}){return <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">{label}</div><div className={`text-xl font-bold mt-1 ${warning&&value>0?'text-amber-700':'text-slate-950'}`}>NPR {value.toLocaleString()}</div></div>}
