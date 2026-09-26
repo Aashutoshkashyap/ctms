@@ -827,18 +827,7 @@ export default function DashboardShell() {
           )}
 
           {activeTab === 'reports' && (
-            <ReportCenter
-              project={project}
-              activities={activities}
-              evm={evmMetrics}
-              dailyReports={dailyReports}
-              ipc={ipcSubmissions}
-              claims={claims}
-              qaqc={qaqc}
-              safety={safety}
-              handover={handover}
-              userRole={authUser.role}
-            />
+            <ReportCenter key={project.id} projectId={project.id} />
           )}
 
           {activeTab === 'handover' && (
