@@ -4,6 +4,7 @@ import { DailyResourceUsage, EmployeeVisit, storage } from '../lib/storage';
 import { can } from '../lib/permissions';
 import BsDatePicker from './BsDatePicker';
 import { formatBsDate } from '../lib/nepaliDate';
+import RecordDetailsDialog from './RecordDetailsDialog';
 
 interface Props {
   projectId: string;
@@ -21,6 +22,7 @@ export default function OperationalControlDashboard({ projectId, role, userName,
   const [showVisit, setShowVisit] = useState(false);
   const [editingUsageId, setEditingUsageId] = useState<string | null>(null);
   const [editingVisitId, setEditingVisitId] = useState<string | null>(null);
+  const [selectedRecord, setSelectedRecord] = useState<object | null>(null);
   const [resource, setResource] = useState({
     usage_date: today(), activity_id: activities[0]?.id || '', location: '',
     crew_name: '', manpower_skilled: 0, manpower_unskilled: 0, equipment_type: 'excavator' as DailyResourceUsage['equipment_type'], equipment_name: 'Excavator',
@@ -134,7 +136,7 @@ export default function OperationalControlDashboard({ projectId, role, userName,
         <Field label="Vehicle / Travel Ref"><input value={visit.vehicle_number} onChange={e => setVisit({ ...visit, vehicle_number: e.target.value })} /></Field>
         <Field label="Status"><select value={visit.status} onChange={e => setVisit({ ...visit, status: e.target.value as EmployeeVisit['status'] })}>{['planned', 'on_site', 'completed', 'cancelled'].map(value => <option key={value}>{value}</option>)}</select></Field>
       </div>
-      <button className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white">Save Visit Record</button>
+      <button className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white">{editingVisitId ? 'Update Visit Record' : 'Save Visit Record'}</button>
     </form>}
 
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -142,14 +144,15 @@ export default function OperationalControlDashboard({ projectId, role, userName,
       <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-sm"><thead><tr>{['Date (BS)', 'Activity / Location', 'Manpower', 'Plant Hours', 'Fuel', 'Work Completed', 'Work / Litre', 'Excavator Hours', 'Excavator Output / Hr', 'Remarks'].map(title => <th key={title} className="border-b border-slate-200 p-2 text-left text-xs text-slate-500">{title}</th>)}</tr></thead>
         <tbody>{[...usage].sort((a, b) => b.usage_date.localeCompare(a.usage_date)).map(row => {
           const excavatorHours = Math.max(0, row.excavator_end_meter - row.excavator_start_meter);
-          return <tr key={row.id} className="border-b border-slate-100"><td className="p-2 font-mono">{formatBsDate(row.usage_date)}</td><td className="p-2"><b>{activities.find(item => item.id === row.activity_id)?.name || 'General works'}</b><div className="text-xs text-slate-500">{row.location} · {row.crew_name || 'Crew not named'}</div></td><td className="p-2">{row.manpower_skilled + row.manpower_unskilled}</td><td className="p-2"><b className="capitalize">{row.equipment_type || 'equipment'}</b><div className="text-xs text-slate-500">{row.equipment_name} · {row.equipment_hours}h · {row.machinery_day || 0} day</div></td><td className="p-2">{row.fuel_litres} L</td><td className="p-2">{row.work_quantity} {row.work_unit}</td><td className="p-2 font-bold text-blue-700">{row.fuel_litres ? (row.work_quantity / row.fuel_litres).toFixed(2) : '—'}</td><td className="p-2">{excavatorHours.toFixed(1)}</td><td className="p-2 font-bold text-emerald-700">{excavatorHours ? (row.excavator_output / excavatorHours).toFixed(2) : '—'}</td><td className="p-2 text-slate-600">{row.remarks || '—'}{canRecordResources&&<button onClick={()=>startEditUsage(row)} className="ml-3 font-bold text-blue-700">Edit</button>}</td></tr>;
+          return <tr key={row.id} className="border-b border-slate-100"><td className="p-2 font-mono">{formatBsDate(row.usage_date)}</td><td className="p-2"><b>{activities.find(item => item.id === row.activity_id)?.name || 'General works'}</b><div className="text-xs text-slate-500">{row.location} · {row.crew_name || 'Crew not named'}</div></td><td className="p-2">{row.manpower_skilled + row.manpower_unskilled}</td><td className="p-2"><b className="capitalize">{row.equipment_type || 'equipment'}</b><div className="text-xs text-slate-500">{row.equipment_name} · {row.equipment_hours}h · {row.machinery_day || 0} day</div></td><td className="p-2">{row.fuel_litres} L</td><td className="p-2">{row.work_quantity} {row.work_unit}</td><td className="p-2 font-bold text-blue-700">{row.fuel_litres ? (row.work_quantity / row.fuel_litres).toFixed(2) : '—'}</td><td className="p-2">{excavatorHours.toFixed(1)}</td><td className="p-2 font-bold text-emerald-700">{excavatorHours ? (row.excavator_output / excavatorHours).toFixed(2) : '—'}</td><td className="p-2 text-slate-600">{row.remarks || '—'}<button onClick={()=>setSelectedRecord(row)} className="ml-3 font-bold text-slate-800">View details</button>{canRecordResources&&<button onClick={()=>startEditUsage(row)} className="ml-3 font-bold text-blue-700">Edit details</button>}</td></tr>;
         })}</tbody></table></div>
     </section>
 
     {canTrackEmployees && <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <h3 className="mb-3 font-bold text-slate-900">Employee movement and site visits</h3>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{[...visits].sort((a, b) => b.visit_date.localeCompare(a.visit_date)).map(row => <div key={row.id} className="rounded-lg border border-slate-200 p-3"><div className="flex justify-between"><b>{row.employee_name}</b><span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold capitalize text-blue-700">{row.status.replace('_', ' ')}</span></div><div className="mt-1 text-sm text-slate-600">{row.employee_role} · {row.site_location}</div><div className="mt-2 text-xs text-slate-500">{formatBsDate(row.visit_date)} · {row.check_in}–{row.check_out} · {row.purpose || 'General visit'}</div><button onClick={()=>startEditVisit(row)} className="mt-2 text-xs font-bold text-blue-700">Edit visit</button></div>)}</div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{[...visits].sort((a, b) => b.visit_date.localeCompare(a.visit_date)).map(row => <div key={row.id} className="rounded-lg border border-slate-200 p-3"><div className="flex justify-between"><b>{row.employee_name}</b><span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold capitalize text-blue-700">{row.status.replace('_', ' ')}</span></div><div className="mt-1 text-sm text-slate-600">{row.employee_role} · {row.site_location}</div><div className="mt-2 text-xs text-slate-500">{formatBsDate(row.visit_date)} · {row.check_in}–{row.check_out} · {row.purpose || 'General visit'}</div><div className="mt-2 flex gap-3"><button onClick={()=>setSelectedRecord(row)} className="text-xs font-bold text-slate-800">View details</button><button onClick={()=>startEditVisit(row)} className="text-xs font-bold text-blue-700">Edit details</button></div></div>)}</div>
     </section>}
+    <RecordDetailsDialog title="Operational record" record={selectedRecord} onClose={() => setSelectedRecord(null)} />
   </div>;
 }
 

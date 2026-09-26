@@ -6,6 +6,7 @@ import BsDatePicker from './BsDatePicker';
 import { formatBsDate } from '../lib/nepaliDate';
 import UploadProgress from './UploadProgress';
 import { attachmentsNeedingRetry, DailySaveState, saveFailureMessage } from '../lib/dailySaveState';
+import RecordDetailsDialog from './RecordDetailsDialog';
 
 interface Props {
   projectId: string;
@@ -59,6 +60,7 @@ export default function DailyReportingDashboard({ projectId, activities, reports
   const [workItems, setWorkItems] = useState<any[]>([]);
   const [materialItems, setMaterialItems] = useState<any[]>([]);
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
+  const [selectedReport, setSelectedReport] = useState<object | null>(null);
   const [savedMessage, setSavedMessage] = useState('');
   const [hasProblem, setHasProblem] = useState(false);
   const isSimpleReporter = ['field_employee', 'subcontractor'].includes(userRole);
@@ -279,7 +281,7 @@ export default function DailyReportingDashboard({ projectId, activities, reports
           <td className="p-3">{work.length ? work.map((item:any)=>`${item.quantity_completed}${item.rework_quantity ? ` (rework ${item.rework_quantity})` : ''} on ${activities.find(a=>a.id===item.activity_id)?.name||item.activity_id}`).join(', ') : '—'}</td>
           <td className="p-3">{mats.length ? mats.map((item:any)=>`${item.material_name} +${item.received_qty} / -${item.consumed_qty}`).join(', ') : '—'}</td>
           <td className="p-3"><b>Instruction:</b> {report.site_instructions || '—'}<br /><b>Delay:</b> {report.obstruction_reasons || '—'}</td>
-          <td className="p-3"><div className="flex gap-2">{canManageReport(report) && <button onClick={()=>startEditReport(report)} className="text-blue-700 font-bold">Edit</button>}{canManageReport(report) && <button onClick={()=>handleDelete(report.id)} className="text-rose-700 font-bold">Delete</button>}</div></td>
+          <td className="p-3"><div className="flex gap-2"><button onClick={()=>setSelectedReport({...report, work_items: work, material_items: mats})} className="text-slate-800 font-bold">View details</button>{canManageReport(report) && <button onClick={()=>startEditReport(report)} className="text-blue-700 font-bold">Edit details</button>}{canManageReport(report) && <button onClick={()=>handleDelete(report.id)} className="text-rose-700 font-bold">Delete</button>}</div></td>
         </tr>})}</tbody>
       </table>
     </div>}
@@ -287,7 +289,8 @@ export default function DailyReportingDashboard({ projectId, activities, reports
       <div className="flex justify-between"><div><h3 className="font-bold text-slate-100">{nepaliDate(report.report_date, language)} · {report.weather}</h3><div className="text-slate-500">Submitted by {report.submitted_by}</div></div><div className="text-right">
         <div className="mb-1"><b>{report.manpower_total}</b> people · <b>{report.equipment_total}</b> plant</div>
         <div className="flex justify-end gap-2">
-          {canManageReport(report) && <button onClick={()=>startEditReport(report)} className="text-blue-400 hover:text-blue-300 text-xs font-semibold">Edit</button>}
+          <button onClick={()=>setSelectedReport({...report, work_items: work, material_items: mats, equipment_usage: resources})} className="text-slate-200 hover:text-white text-xs font-semibold">View details</button>
+          {canManageReport(report) && <button onClick={()=>startEditReport(report)} className="text-blue-400 hover:text-blue-300 text-xs font-semibold">Edit details</button>}
           {canManageReport(report) && <button onClick={()=>handleDelete(report.id)} className="text-rose-400 hover:text-rose-300 text-xs font-semibold">Delete</button>}
         </div>
       </div></div>
@@ -296,6 +299,7 @@ export default function DailyReportingDashboard({ projectId, activities, reports
       {resources.length>0 && <div className="text-slate-400"><b className="text-slate-200">Equipment usage:</b> <span className="ml-2">{resources.map(r=>`${r.equipment_name} ${r.equipment_hours}h`).join(', ')}</span></div>}
       {canView&&reportPhotos.length>0&&<div className="grid grid-cols-2 md:grid-cols-4 gap-2">{reportPhotos.map(photo=><figure key={photo.id}><img src={photo.url} alt={photo.caption||photo.name} className="h-28 w-full object-cover rounded-lg border border-slate-200"/><figcaption className="text-[10px] text-slate-500 mt-1">{photo.caption||photo.name}</figcaption></figure>)}</div>}
     </article>})}</div>}
+    <RecordDetailsDialog title="Daily report" record={selectedReport} onClose={()=>setSelectedReport(null)} />
   </div>;
 }
 function Field({label,children}:{label:string;children:React.ReactNode}){return <label className="text-slate-400 space-y-1"><span className="block">{label}</span><span className="[&_input]:w-full [&_select]:w-full [&_textarea]:w-full [&_input]:bg-slate-950 [&_select]:bg-slate-950 [&_textarea]:bg-slate-950 [&_input]:border [&_select]:border [&_textarea]:border [&_input]:border-slate-700 [&_select]:border-slate-700 [&_textarea]:border-slate-700 [&_input]:p-2 [&_select]:p-2 [&_textarea]:p-2 [&_input]:rounded [&_select]:rounded [&_textarea]:rounded [&_input]:text-slate-200 [&_select]:text-slate-200 [&_textarea]:text-slate-200">{children}</span></label>}
