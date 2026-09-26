@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { DocumentItem, storage, UploadedDocument } from '../lib/storage';
+import { DocumentItem, isSupabaseConfigured, storage, UploadedDocument } from '../lib/storage';
 import BsDatePicker from './BsDatePicker';
 import { formatBsDate, todayAdDate } from '../lib/nepaliDate';
 import UploadProgress from './UploadProgress';
 import { useSubmissionLock } from '../lib/useSubmissionLock';
+import RecordDetailsDialog from './RecordDetailsDialog';
 
 interface Props { userRole: string; projectId: string; userName: string; userEmail: string; }
 
@@ -43,6 +44,9 @@ export default function DocumentTracker({ userRole, projectId, userName, userEma
   const [form, setForm] = useState(blankForm);
   const [file, setFile] = useState<File | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [editingDocument, setEditingDocument] = useState<DocumentItem | null>(null);
+  const [selectedDocument, setSelectedDocument] = useState<DocumentItem | null>(null);
+  const [history, setHistory] = useState<Record<string, Array<Record<string, unknown>>>>({});
   const [filterCategory, setFilterCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [message, setMessage] = useState('');
@@ -58,13 +62,32 @@ export default function DocumentTracker({ userRole, projectId, userName, userEma
   const canApprove = ['business_admin','project_director','project_manager'].includes(userRole);
 
   useEffect(() => { storage.saveDocuments(documents); }, [documents, projectId]);
+  const headers = async () => ({ Authorization: `Bearer ${(await storage.getAuthSession())?.access_token || ''}`, 'Content-Type': 'application/json' });
+  const loadAuthoritative = async () => {
+    if (!isSupabaseConfigured()) return;
+    const response = await fetch(`/api/documents?projectId=${encodeURIComponent(projectId)}`, { headers: await headers(), cache: 'no-store' });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) { if (response.status !== 401) setMessage(payload.error || 'Cloud document register is unavailable; this device copy remains available.'); return; }
+    setDocuments(payload.documents || []);
+    setHistory((payload.history || []).reduce((grouped: Record<string, Array<Record<string, unknown>>>, row: Record<string, unknown>) => ({ ...grouped, [String(row.document_id)]: [...(grouped[String(row.document_id)] || []), row] }), {}));
+  };
+  // Server records are authoritative when connected; local storage remains the offline fallback.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void loadAuthoritative(); }, [projectId]);
+  const command = async (body: Record<string, unknown>, method: 'POST' | 'PATCH') => {
+    if (!isSupabaseConfigured()) return null;
+    const response = await fetch('/api/documents', { method, headers: await headers(), body: JSON.stringify({ projectId, ...body }) });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || 'Controlled document could not be saved.');
+    return payload.document as DocumentItem;
+  };
 
   const linkOptions = useMemo(() => [
     ...ipcs.map(ipc => ({ id: ipc.id, label: `IPC #${ipc.ipc_number}` })),
     ...obligations.map(item => ({ id: item.id, label: `Obligation: ${item.reference}` })),
     ...qaqc.map((item: Record<string, unknown>) => ({ id: String(item.id), label: `QA/QC: ${item.ncr_code || item.ncr_number || item.qa_item || item.id}` })),
     ...safety.map((item: Record<string, unknown>) => ({ id: String(item.id), label: `Safety log: ${formatBsDate(String(item.log_date))}` })),
-  ], [ipcs, obligations, qaqc, safety]);
+  ].map(item => ({ ...item, value: item.id })), [ipcs, obligations, qaqc, safety]);
 
   const readiness = useMemo(() => {
     const issues: Array<{ module: string; item: string; missing: string }> = [];
@@ -112,18 +135,33 @@ export default function DocumentTracker({ userRole, projectId, userName, userEma
         expiry_date: form.expiry_date || null, issued_by: form.issued_by || null, responsible_person: form.responsible_person || null,
         linked_record_id: form.linked_record_id || null, storage_path, url, uploaded_by: userName, uploaded_by_email: userEmail,
       };
-      setDocuments(rows => [record, ...rows]); setForm(blankForm()); setFile(null); setShowForm(false); setMessage('Document metadata and private evidence saved.');
+      const saved = editingDocument
+        ? await command({ action: 'update', documentId: editingDocument.id, document: { ...record, id: editingDocument.id } }, 'PATCH')
+        : await command({ document: record }, 'POST');
+      const confirmed = saved ? { ...record, ...saved, storage_path, url } : record;
+      setDocuments(rows => editingDocument ? rows.map(item => item.id === editingDocument.id ? confirmed : item) : [confirmed, ...rows]);
+      setForm(blankForm()); setFile(null); setShowForm(false); setEditingDocument(null); setMessage(saved ? 'Controlled document saved to the authorized project register.' : 'Document saved on this device and will sync when cloud access is available.');
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not store the document.'); } });
   };
 
-  const updateStatus = (id: string, status: DocumentItem['status']) => {
-    setDocuments(rows => rows.map(item => item.id === id ? { ...item, status, action_date: todayAdDate() } : item));
+  const updateStatus = async (id: string, status: DocumentItem['status']) => {
+    try {
+      const saved = await command({ documentId: id, action: status }, 'PATCH');
+      if (!saved) throw new Error('Sign in to change a controlled document status.');
+      setDocuments(rows => rows.map(item => item.id === id ? { ...item, ...saved } : item));
+      await loadAuthoritative(); setMessage(`Document marked ${status.replaceAll('_', ' ')}.`);
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Document status could not be changed.'); }
+  };
+
+  const editDocument = (doc: DocumentItem) => {
+    setEditingDocument(doc); setForm({ ref_number: doc.ref_number, title: doc.title, category: doc.category, version: doc.version, submitted_date: doc.submitted_date, period_start: doc.period_start || '', period_end: doc.period_end || '', due_date: doc.due_date || '', expiry_date: doc.expiry_date || '', issued_by: doc.issued_by || '', responsible_person: doc.responsible_person || '', linked_record_id: doc.linked_record_id || '', remarks: doc.remarks || '' }); setShowForm(true); setMessage('Editing a draft/rejected document. Approved records remain immutable.');
   };
 
   const openFile = async (doc: DocumentItem) => {
     setMessage('');
     try {
-      const target = doc.url || (doc.storage_path ? await storage.getPrivateDocumentUrl(doc.storage_path, categoryToUpload(doc.category)) : '');
+      const uploadedRecord = uploaded.find(item => item.linked_record_id === doc.id && (item.storage_path || item.url));
+      const target = doc.url || uploadedRecord?.url || (doc.storage_path ? await storage.getPrivateDocumentUrl(doc.storage_path, categoryToUpload(doc.category)) : uploadedRecord?.storage_path ? await storage.getPrivateDocumentUrl(uploadedRecord.storage_path, uploadedRecord.category) : '');
       if (!target) return setMessage('This legacy register row has no retrievable file. Upload a revised record.');
       window.open(target, '_blank', 'noopener,noreferrer');
       setMessage('Private file access link generated. It expires automatically.');
@@ -140,9 +178,17 @@ export default function DocumentTracker({ userRole, projectId, userName, userEma
 
     <section className={`rounded-xl border p-4 shadow-sm ${readiness.length?'border-amber-200 bg-amber-50':'border-emerald-200 bg-emerald-50'}`}><div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center"><div><h3 className="font-bold text-slate-950">Required records readiness check</h3><p className="text-sm text-slate-700">Checks IPC evidence, compliance files, contract closure evidence, failed QA/NCR reports, incident reports and approved expense slips.</p></div><span className={`rounded-full px-3 py-1 text-sm font-extrabold ${readiness.length?'bg-amber-100 text-amber-900':'bg-emerald-100 text-emerald-900'}`}>{readiness.length ? `${readiness.length} gap(s)` : 'Complete'}</span></div>{readiness.length>0&&<div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{readiness.map((issue,index)=><div key={`${issue.module}-${issue.item}-${index}`} className="rounded-lg border border-amber-200 bg-white p-3 text-sm"><b className="text-slate-950">{issue.module} · {issue.item}</b><div className="mt-1 text-rose-800">Missing: {issue.missing}</div></div>)}</div>}</section>
 
-    {showForm&&<form onSubmit={handleAdd} className="rounded-xl border border-blue-200 bg-white p-5 shadow-sm"><div><h3 className="font-bold text-slate-950">Register a controlled document</h3><p className="text-sm text-slate-600">Compliance reports and formal evidence types require a file.</p></div><div className="mt-4 grid gap-3 md:grid-cols-3"><Field label="Reference number"><input required value={form.ref_number} onChange={event=>setForm({...form,ref_number:event.target.value})}/></Field><Field label="Category"><select value={form.category} onChange={event=>setForm({...form,category:event.target.value as DocumentItem['category']})}>{CATEGORIES.map(item=><option key={item.value} value={item.value}>{item.label}</option>)}</select></Field><Field label="Version"><input required value={form.version} onChange={event=>setForm({...form,version:event.target.value})}/></Field><Field label="Title"><input required value={form.title} onChange={event=>setForm({...form,title:event.target.value})}/></Field><Field label="Submitted date (BS)"><BsDatePicker required value={form.submitted_date} onChange={submitted_date=>setForm({...form,submitted_date})}/></Field><Field label="Due date (BS)"><BsDatePicker value={form.due_date} onChange={due_date=>setForm({...form,due_date})}/></Field><Field label="Reporting period start (BS)"><BsDatePicker value={form.period_start} onChange={period_start=>setForm({...form,period_start})}/></Field><Field label="Reporting period end (BS)"><BsDatePicker value={form.period_end} onChange={period_end=>setForm({...form,period_end})}/></Field><Field label="Expiry / valid until (BS)"><BsDatePicker value={form.expiry_date} onChange={expiry_date=>setForm({...form,expiry_date})}/></Field><Field label="Issued by / Authority"><input value={form.issued_by} onChange={event=>setForm({...form,issued_by:event.target.value})}/></Field><Field label="Responsible person"><input value={form.responsible_person} onChange={event=>setForm({...form,responsible_person:event.target.value})}/></Field><Field label="Link to project record"><select value={form.linked_record_id} onChange={event=>setForm({...form,linked_record_id:event.target.value})}><option value="">No linked record</option>{linkOptions.map(item=><option key={item.id} value={item.id}>{item.label}</option>)}</select></Field><Field label="Upload source document"><input type="file" accept="application/pdf,image/*,.doc,.docx,.xls,.xlsx,.csv" onChange={event=>setFile(event.target.files?.[0]||null)}/></Field><Field label="Remarks"><textarea value={form.remarks} onChange={event=>setForm({...form,remarks:event.target.value})}/></Field></div><div className="mt-4 flex gap-2"><button disabled={saving} className="rounded-lg bg-emerald-700 px-4 py-2 font-bold text-white">{saving?'Uploading…':'Save controlled document'}</button><button type="button" onClick={()=>setShowForm(false)} className="rounded-lg border border-slate-300 px-4 py-2 font-bold text-slate-800">Cancel</button></div></form>}
+    {showForm&&<form onSubmit={handleAdd} className="rounded-xl border border-blue-200 bg-white p-5 shadow-sm"><div><h3 className="font-bold text-slate-950">{editingDocument ? 'Edit controlled document' : 'Register a controlled document'}</h3><p className="text-sm text-slate-600">Compliance reports and formal evidence types require a file.</p></div><div className="mt-4 grid gap-3 md:grid-cols-3"><Field label="Reference number"><input required value={form.ref_number} onChange={event=>setForm({...form,ref_number:event.target.value})}/></Field><Field label="Category"><select value={form.category} onChange={event=>setForm({...form,category:event.target.value as DocumentItem['category']})}>{CATEGORIES.map(item=><option key={item.value} value={item.value}>{item.label}</option>)}</select></Field><Field label="Version"><input required value={form.version} onChange={event=>setForm({...form,version:event.target.value})}/></Field><Field label="Title"><input required value={form.title} onChange={event=>setForm({...form,title:event.target.value})}/></Field><Field label="Submitted date (BS)"><BsDatePicker required value={form.submitted_date} onChange={submitted_date=>setForm({...form,submitted_date})}/></Field><Field label="Due date (BS)"><BsDatePicker value={form.due_date} onChange={due_date=>setForm({...form,due_date})}/></Field><Field label="Reporting period start (BS)"><BsDatePicker value={form.period_start} onChange={period_start=>setForm({...form,period_start})}/></Field><Field label="Reporting period end (BS)"><BsDatePicker value={form.period_end} onChange={period_end=>setForm({...form,period_end})}/></Field><Field label="Expiry / valid until (BS)"><BsDatePicker value={form.expiry_date} onChange={expiry_date=>setForm({...form,expiry_date})}/></Field><Field label="Issued by / Authority"><input value={form.issued_by} onChange={event=>setForm({...form,issued_by:event.target.value})}/></Field><Field label="Responsible person"><input value={form.responsible_person} onChange={event=>setForm({...form,responsible_person:event.target.value})}/></Field><Field label="Link to project record"><select value={form.linked_record_id} onChange={event=>setForm({...form,linked_record_id:event.target.value})}><option value="">No linked record</option>{linkOptions.map(item=><option key={item.id} value={item.value}>{item.label}</option>)}</select></Field><Field label="Upload source document"><input type="file" accept="application/pdf,image/*,.doc,.docx,.xls,.xlsx,.csv" onChange={event=>setFile(event.target.files?.[0]||null)}/></Field><Field label="Remarks"><textarea value={form.remarks} onChange={event=>setForm({...form,remarks:event.target.value})}/></Field></div><div className="mt-4 flex gap-2"><button disabled={saving} className="rounded-lg bg-emerald-700 px-4 py-2 font-bold text-white">{saving?'Uploading…':editingDocument?'Save document changes':'Save controlled document'}</button><button type="button" onClick={()=>{setShowForm(false);setEditingDocument(null);setForm(blankForm());}} className="rounded-lg border border-slate-300 px-4 py-2 font-bold text-slate-800">Cancel</button></div></form>}
 
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex flex-col justify-between gap-3 md:flex-row md:items-center"><div className="flex flex-wrap gap-2"><button onClick={()=>setFilterCategory('all')} className={filterCategory==='all'?'filter-active':'filter-button'}>All</button>{CATEGORIES.slice(0,10).map(item=><button key={item.value} onClick={()=>setFilterCategory(item.value)} className={filterCategory===item.value?'filter-active':'filter-button'}>{item.label}</button>)}</div><input value={searchQuery} onChange={event=>setSearchQuery(event.target.value)} placeholder="Search documents…" className="w-full rounded-lg md:w-64"/></div><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[1200px] text-sm"><thead><tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-600">{['Reference','Title','Category','Period (BS)','Submitted / due (BS)','Expiry (BS)','Owner / Authority','File','Status','Action'].map(title=><th key={title} className="p-2">{title}</th>)}</tr></thead><tbody>{filtered.map(doc=><tr key={doc.id} className="border-b border-slate-100"><td className="p-2 font-mono font-bold text-slate-800">{doc.ref_number}<div className="text-xs font-normal">{doc.version}</div></td><td className="p-2"><b className="text-slate-950">{doc.title}</b><div className="text-xs text-slate-600">{doc.remarks||'No remarks'}</div></td><td className="p-2 capitalize">{doc.category.replaceAll('_',' ')}</td><td className="p-2">{formatBsDate(doc.period_start)} → {formatBsDate(doc.period_end)}</td><td className="p-2">{formatBsDate(doc.submitted_date)}<div className="text-xs text-slate-600">Due {formatBsDate(doc.due_date)}</div></td><td className={`p-2 ${doc.expiry_date&&doc.expiry_date<todayAdDate()?'font-bold text-rose-800':''}`}>{formatBsDate(doc.expiry_date)}</td><td className="p-2">{doc.owner}<div className="text-xs text-slate-600">{doc.issued_by||'—'}</div></td><td className="p-2">{doc.storage_path||doc.url?<button onClick={()=>void openFile(doc)} className="font-bold text-blue-800">Open private file</button>:<span className="font-bold text-rose-800">Missing</span>}</td><td className="p-2"><Status value={doc.status}/></td><td className="p-2">{doc.status==='draft'&&canModify&&<button onClick={()=>updateStatus(doc.id,'under_review')} className="font-bold text-blue-800">Submit</button>}{doc.status==='under_review'&&canApprove&&<div className="flex gap-2"><button onClick={()=>updateStatus(doc.id,'approved')} className="font-bold text-emerald-800">Approve</button><button onClick={()=>updateStatus(doc.id,'rejected')} className="font-bold text-rose-800">Reject</button></div>}{doc.status==='rejected'&&canModify&&<button onClick={()=>updateStatus(doc.id,'under_review')} className="font-bold text-amber-800">Resubmit</button>}</td></tr>)}</tbody></table>{filtered.length===0&&<div className="p-8 text-center text-slate-600">No matching documents.</div>}</div></section>
+    <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <h3 className="font-bold text-slate-950">Document details & actions</h3>
+      <p className="mt-1 text-sm text-slate-600">Open full metadata and history. Only draft or rejected records can be edited; the server verifies every action.</p>
+      <div className="mt-3 grid gap-2 md:grid-cols-2">
+        {filtered.map(doc => <div key={`actions-${doc.id}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-3 text-sm"><div><b className="text-slate-950">{doc.ref_number}</b><span className="ml-2 text-slate-600">{doc.title}</span></div><div className="flex flex-wrap gap-2"><button onClick={()=>setSelectedDocument(doc)} className="font-bold text-slate-800">View details</button>{canModify&&['draft','rejected'].includes(doc.status)&&<button onClick={()=>editDocument(doc)} className="font-bold text-blue-800">Edit details</button>}</div></div>)}
+      </div>
+    </section>
+    <RecordDetailsDialog title="Controlled document" record={selectedDocument ? { ...selectedDocument, action_history: history[selectedDocument.id] || [] } : null} onClose={()=>setSelectedDocument(null)}/>
   </div>;
 }
 
