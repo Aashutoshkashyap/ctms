@@ -43,7 +43,7 @@ test('cost-control workspace reloads and resets records when the active project 
   const page = fs.readFileSync('src/app/page.tsx', 'utf8');
   assert.match(ui, /api\/cost-control\?projectId=/);
   assert.match(ui, /\}, \[projectId\]\)/);
-  assert.match(ui, /setSelectedBdgId\(null\)/);
+  assert.match(page, /key=\{`cost-control-\$\{project\.id\}`\}/);
   assert.match(ui, /View details/);
   assert.match(ui, /Edit cost/);
   assert.match(page, /projectId=\{project\.id\}/);

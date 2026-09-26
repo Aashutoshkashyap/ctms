@@ -23,17 +23,19 @@ export default function BudgetDashboard({ projectId, budgetHeads, subcontractors
   const isEditable = ['project_director', 'project_manager', 'accountant', 'qs_billing_engineer'].includes(userRole);
   const headers = async () => ({ Authorization: `Bearer ${(await storage.getAuthSession())?.access_token || ''}`, 'Content-Type': 'application/json' });
 
-  const load = async () => {
-    if (!isSupabaseConfigured()) return;
-    setMessage('');
-    const response = await fetch(`/api/cost-control?projectId=${encodeURIComponent(projectId)}`, { headers: await headers(), cache: 'no-store' });
-    const data = await response.json().catch(() => ({}));
-    if (response.ok) setCloudBudgetHeads(data.budgetHeads || []);
-    else if (response.status !== 401) setMessage(data.error || 'Cost control records are unavailable.');
-  };
-
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { setSelectedBdgId(null); setSelectedBudget(null); void load(); }, [projectId]);
+  useEffect(() => {
+    let current = true;
+    void (async () => {
+      if (!isSupabaseConfigured()) return;
+      setMessage('');
+      const response = await fetch(`/api/cost-control?projectId=${encodeURIComponent(projectId)}`, { headers: await headers(), cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!current) return;
+      if (response.ok) setCloudBudgetHeads(data.budgetHeads || []);
+      else if (response.status !== 401) setMessage(data.error || 'Cost control records are unavailable.');
+    })();
+    return () => { current = false; };
+  }, [projectId]);
 
   const handleStartEdit = (bh: any) => { setSelectedBdgId(bh.id); setEditActualCost(Number(bh.actual_cost) || 0); };
   const handleSaveEdit = async (bh: any) => {
