@@ -52,6 +52,16 @@ export type Feature =
 
 export type FeaturePermissions = Partial<Record<Feature, PermissionLevel>>;
 
+// Legacy tenant data and user-facing labels sometimes use these names. They
+// mean the established Project Director role; normalizing them avoids turning
+// an intended director into the viewer fallback while granting no new access.
+const ROLE_ALIASES: Record<string, ProjectRole> = {
+  managing_director: 'project_director',
+  managingdirector: 'project_director',
+  md: 'project_director',
+  director: 'project_director',
+};
+
 export const DIRECTOR_MANAGED_FEATURES: Array<{ feature: Feature; label: string }> = [
   { feature: 'schedule', label: 'BOQ & Work Schedule' },
   { feature: 'daily_reports', label: 'Daily Site Reporting' },
@@ -106,7 +116,14 @@ export const ROLE_PERMISSIONS: Record<ProjectRole, Feature[]> = {
 };
 
 export function normalizeRole(role: string): ProjectRole {
-  return PROJECT_ROLES.includes(role as ProjectRole) ? role as ProjectRole : 'employer_viewer';
+  const normalized = role.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const aliased = ROLE_ALIASES[normalized];
+  if (aliased) return aliased;
+  return PROJECT_ROLES.includes(normalized as ProjectRole) ? normalized as ProjectRole : 'employer_viewer';
+}
+
+export function isProjectDirector(role: string): boolean {
+  return normalizeRole(role) === 'project_director';
 }
 
 export function defaultPermissionLevel(role: string, feature: Feature): PermissionLevel {

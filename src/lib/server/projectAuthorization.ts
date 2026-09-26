@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { can, PROJECT_ROLES, type Feature, type FeaturePermissions } from '../permissions';
+import { can, normalizeRole, type Feature, type FeaturePermissions } from '../permissions';
 
 export type AuthorizationFailure = { error: string; status: number };
 export type ProjectAuthorization = {
@@ -46,8 +46,10 @@ export async function authorizeProjectUser(
       (organization.data.access_until && organization.data.access_until < today)) return denied;
   // Only the existing organization Business Admin scope can substitute for a
   // project assignment. Its narrow feature baseline still applies.
-  const role = membership.data?.role || (organizationMember.data?.role === 'business_admin' ? 'business_admin' : '');
-  if (!role || !PROJECT_ROLES.includes(role) || role === 'super_admin') return denied;
+  const sourceRole = membership.data?.role || (organizationMember.data?.role === 'business_admin' ? 'business_admin' : '');
+  if (!sourceRole) return denied;
+  const role = normalizeRole(sourceRole);
+  if (role === 'super_admin' || (role === 'employer_viewer' && sourceRole !== 'employer_viewer')) return denied;
   const permissions = membership.data?.feature_permissions || {};
   if (!can(role, feature, permissions, access)) return denied;
   return { admin, userId, role, permissions, project: {

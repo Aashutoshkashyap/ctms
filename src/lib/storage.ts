@@ -1,7 +1,7 @@
 // Storage and Database Adapter Layer - Multi-Project and Supabase Connect wizard
 import { calculateCPM, Activity, Dependency, ProjectInfo, diffDays, addDays } from './cpm';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import type { FeaturePermissions } from './permissions';
+import { can, normalizeRole, type FeaturePermissions } from './permissions';
 
 // Environment variables fallback
 const defaultUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -1604,7 +1604,7 @@ export const storage = {
     localStorage.setItem('bt_project_memberships', JSON.stringify(memberships));
     const activeProjectId = localStorage.getItem('bt_active_project_id');
     const profile = memberships.find(item => item.project_id === activeProjectId) || memberships[0];
-    return { name: profile.name, email: profile.email, role: profile.role, feature_permissions: profile.feature_permissions || null };
+    return { name: profile.name, email: profile.email, role: normalizeRole(profile.role), feature_permissions: profile.feature_permissions || null };
   },
 
   getVerifiedLocalDemoUser,
@@ -1781,7 +1781,7 @@ export const storage = {
           .maybeSingle()
           .then(async ({ data: profile }) => {
             if (profile) {
-              callback({ name: profile.name, email: profile.email, role: profile.role, feature_permissions: profile.feature_permissions || null });
+              callback({ name: profile.name, email: profile.email, role: normalizeRole(profile.role), feature_permissions: profile.feature_permissions || null });
               return;
             }
             const { data: platformAdmin } = await client
@@ -3145,10 +3145,27 @@ export const storage = {
   },
 
   getSitePhotosForRole: async (role: string, reportId?: string): Promise<SitePhoto[]> => {
-    if (role !== 'project_director') return [];
+    if (!can(role, 'view_evidence')) return [];
     const photos = storage.getSitePhotos(reportId);
     const client = getSupabaseClient();
     if (!client) return photos;
+    const session = await storage.getAuthSession();
+    if (session) {
+      try {
+        const response = await fetch(`/api/evidence?projectId=${encodeURIComponent(getActiveProjectId())}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store',
+        });
+        const data = await response.json().catch(() => ({}));
+        if (response.ok) {
+          const cloudPhotos = (data.photos || []) as SitePhoto[];
+          storage.saveSitePhotos(cloudPhotos);
+          return reportId ? cloudPhotos.filter(photo => photo.daily_report_id === reportId) : cloudPhotos;
+        }
+        if (response.status === 401 || response.status === 403) return [];
+      } catch (error) {
+        if (!isNetworkLikeError(error)) throw error;
+      }
+    }
     return Promise.all(photos.map(async photo => {
       if (!photo.storage_path) return photo;
       if (photo.storage_path.startsWith('google-drive:')) return photo;
@@ -3169,11 +3186,31 @@ export const storage = {
       throw new Error('Choose a daily report from the active project before uploading evidence.');
     }
     if (file.size <= 0) throw new Error('Choose a non-empty image file.');
-    if (file.size > 10 * 1024 * 1024) throw new Error('Site evidence images must be 10 MB or smaller.');
+    if (file.size > 6 * 1024 * 1024) throw new Error('Site evidence images must be 6 MB or smaller.');
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
       throw new Error('Site evidence must be a JPG, PNG, or WebP image.');
     }
     const client = getSupabaseClient();
+    const session = client ? await storage.getAuthSession() : null;
+    if (client && session) {
+      try {
+        const form = new FormData();
+        form.append('projectId', projectId);
+        form.append('reportId', reportId);
+        form.append('file', file);
+        form.append('caption', caption);
+        form.append('evidenceType', evidenceType);
+        const response = await fetch('/api/evidence', { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` }, body: form });
+        const data = await response.json().catch(() => ({}));
+        if (response.ok && data.photo) {
+          storage.saveSitePhotos([data.photo]);
+          return data.photo as SitePhoto;
+        }
+        if (response.status !== 503) throw new Error(data.error || 'Evidence image could not be saved.');
+      } catch (error) {
+        if (!isNetworkLikeError(error)) throw error;
+      }
+    }
     let url = '';
     let storagePath = '';
     try {

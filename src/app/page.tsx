@@ -675,7 +675,7 @@ export default function DashboardShell() {
           {isReadOnlyFeature && <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-950">Your Project Director granted view-only access to this module. Editing and uploads are disabled.</div>}
           <div className={isReadOnlyFeature ? 'feature-read-only' : ''} aria-readonly={isReadOnlyFeature}>
           {activeTab === 'dashboard' && (
-            authUser.role === 'project_director' ? (
+            normalizeRole(authUser.role) === 'project_director' ? (
               <DirectorPortfolioDashboard
                 projects={projectsList}
                 activeProjectId={project.id}

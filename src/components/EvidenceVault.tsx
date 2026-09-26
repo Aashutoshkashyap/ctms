@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { SitePhoto, storage } from '../lib/storage';
 import { formatBsDateTime } from '../lib/nepaliDate';
+import { can } from '../lib/permissions';
 
 export default function EvidenceVault({ projectId, role }: { projectId: string; role: string }) {
   const requestKey = `${projectId}:${role}`;
@@ -19,7 +20,7 @@ export default function EvidenceVault({ projectId, role }: { projectId: string; 
   const loading = photoState.key !== requestKey;
   const photos = loading ? [] : photoState.photos;
 
-  if (role !== 'project_director') return <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-rose-800">Evidence access is reserved for the Project Director.</div>;
+  if (!can(role, 'view_evidence')) return <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-rose-800">Evidence access is reserved for the Project Director.</div>;
   return <div className="space-y-5">
     <div><h2 className="text-xl font-extrabold text-slate-900">Director Evidence Vault</h2><p className="text-slate-500">Private photographic verification submitted by authorized site, quality and safety personnel. Links expire automatically when Supabase is connected.</p></div>
     {loading ? <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500">Loading protected evidence…</div> :

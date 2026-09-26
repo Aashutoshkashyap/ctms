@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { buildDefaultPermissions, DIRECTOR_MANAGED_FEATURES, PROJECT_ROLES } from '../../../../lib/permissions';
+import { buildDefaultPermissions, DIRECTOR_MANAGED_FEATURES, isProjectDirector, PROJECT_ROLES } from '../../../../lib/permissions';
 import type { Feature, FeaturePermissions, PermissionLevel } from '../../../../lib/permissions';
 import { getClientIp, rateLimit, rateLimitResponse } from '../../../../lib/server/security';
 
@@ -55,13 +55,14 @@ export async function POST(request: Request) {
     .eq('project_id', projectId)
     .eq('auth_user_id', requester.user.id)
     .maybeSingle();
-  if (membershipError || !membership || !['project_director', 'business_admin'].includes(membership.role)) {
+  const requesterIsDirector = Boolean(membership && isProjectDirector(membership.role));
+  if (membershipError || !membership || (!requesterIsDirector && membership.role !== 'business_admin')) {
     return Response.json({ error: 'Only the Project Director or Business Admin can provision user accounts.' }, { status: 403 });
   }
   if (membership.role === 'business_admin' && ['project_director', 'business_admin'].includes(role)) {
     return Response.json({ error: 'A Business Admin cannot grant Director or administrator access.' }, { status: 403 });
   }
-  const featurePermissions = membership.role === 'project_director'
+  const featurePermissions = requesterIsDirector
     ? sanitizeFeaturePermissions(body?.featurePermissions || buildDefaultPermissions(role))
     : buildDefaultPermissions(role);
 
@@ -218,7 +219,7 @@ export async function PATCH(request: Request) {
   const { data: requester, error: requesterError } = await admin.auth.getUser(accessToken);
   if (requesterError || !requester.user) return Response.json({ error: 'Your session could not be verified.' }, { status: 401 });
   const { data: director } = await admin.from('project_users').select('role').eq('project_id', body.projectId).eq('auth_user_id', requester.user.id).maybeSingle();
-  if (director?.role !== 'project_director') return Response.json({ error: 'Only the Project Director can change staff feature access.' }, { status: 403 });
+  if (!director || !isProjectDirector(director.role)) return Response.json({ error: 'Only the Project Director can change staff feature access.' }, { status: 403 });
   const { data: target } = await admin.from('project_users').select('id,role,auth_user_id').eq('id', body.membershipId).eq('project_id', body.projectId).maybeSingle();
   if (!target || ['project_director','business_admin','super_admin'].includes(target.role) || target.auth_user_id === requester.user.id) {
     return Response.json({ error: 'Director and administrator memberships cannot be changed from the staff access editor.' }, { status: 403 });

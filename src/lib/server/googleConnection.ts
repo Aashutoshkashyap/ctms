@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { normalizeRole } from '../permissions';
 
 export type GoogleProjectAuthorization = {
   admin: SupabaseClient;
@@ -55,6 +56,7 @@ async function loadAuthorization(
       .maybeSingle();
     if (organizationMembership?.status === 'active') role = organizationMembership.role;
   }
+  role = normalizeRole(role);
   if (!role || !allowedRoles.includes(role)) return { error: 'You are not authorized for this Google workspace action.', status: 403 };
 
   return {
