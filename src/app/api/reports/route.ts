@@ -5,6 +5,7 @@ import { buildProjectReport, parseReportType, validReportDate } from '../../../l
 export const dynamic = 'force-dynamic';
 const dateFiltered = (rows: any[], field: string, from: string | null, to: string | null) => rows.filter(row => {
   const date = typeof row[field] === 'string' ? row[field] : '';
+  if ((from || to) && !date) return false;
   return (!from || !date || date >= from) && (!to || !date || date <= to);
 });
 

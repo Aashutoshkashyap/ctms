@@ -6,6 +6,7 @@ import BsDatePicker from './BsDatePicker';
 import { formatBsDate } from '../lib/nepaliDate';
 import UploadProgress from './UploadProgress';
 import { useSubmissionLock } from '../lib/useSubmissionLock';
+import RecordDetailsDialog from './RecordDetailsDialog';
 
 export default function DailyExpenseDashboard({ projectId, userName, userEmail, userRole, activities = [] }: { projectId: string; userName: string; userEmail: string; userRole: string; activities?: Activity[] }) {
   const [expenses, setExpenses] = useState<DailyExpense[]>(() => storage.getDailyExpenses());
@@ -17,6 +18,7 @@ export default function DailyExpenseDashboard({ projectId, userName, userEmail, 
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [slip, setSlip] = useState<File | null>(null);
+  const [selectedExpense, setSelectedExpense] = useState<DailyExpense | null>(null);
   const { busy: saving, run: runSubmission } = useSubmissionLock();
   const [form, setForm] = useState(() => ({
     expense_date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0],
@@ -170,9 +172,10 @@ export default function DailyExpenseDashboard({ projectId, userName, userEmail, 
     </div>
     <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <table className="w-full min-w-[1050px]"><thead><tr className="border-b border-slate-200 text-slate-600">{['Date (BS)','Employee','Project / BOQ','Category / Description','Vendor','Reference / Slip','Payment','Amount','Status','Action'].map(title=><th key={title} className="text-left py-3">{title}</th>)}</tr></thead>
-        <tbody>{visible.map(item=><tr key={item.id} className="border-b border-slate-100"><td className="py-3 font-mono">{formatBsDate(item.expense_date)}</td><td>{item.employee_id||'—'}<div className="text-slate-500">{item.employee_name||item.recorded_by}</div></td><td><b>{storage.getProject().name}</b><div className="font-mono text-slate-500">{item.wbs_code||activities.find(activity=>activity.id===item.activity_id)?.wbs_code||'General'}</div></td><td><b className="capitalize">{item.category.replaceAll('_',' ')}</b><div className="text-slate-500">{item.description}</div></td><td>{item.vendor||'—'}</td><td className="font-mono">{item.reference||'—'}{(item.payment_slip_path||item.payment_slip_url)&&<div className="text-[10px] text-emerald-700">Evidence uploaded</div>}</td><td className="capitalize">{item.payment_method.replaceAll('_',' ')}</td><td className="font-bold">NPR {item.amount.toLocaleString()}</td><td><Status value={item.status}/></td><td>{canApprove&&item.status==='submitted'&&<div className="flex gap-2"><button onClick={()=>updateStatus(item,'approved')} className="text-emerald-800 font-semibold">Approve</button><button onClick={()=>updateStatus(item,'rejected')} className="text-rose-800 font-semibold">Reject</button></div>}</td></tr>)}</tbody>
+        <tbody>{visible.map(item=><tr key={item.id} className="border-b border-slate-100"><td className="py-3 font-mono">{formatBsDate(item.expense_date)}</td><td>{item.employee_id||'—'}<div className="text-slate-500">{item.employee_name||item.recorded_by}</div></td><td><b>{storage.getProject().name}</b><div className="font-mono text-slate-500">{item.wbs_code||activities.find(activity=>activity.id===item.activity_id)?.wbs_code||'General'}</div></td><td><b className="capitalize">{item.category.replaceAll('_',' ')}</b><div className="text-slate-500">{item.description}</div></td><td>{item.vendor||'—'}</td><td className="font-mono">{item.reference||'—'}{(item.payment_slip_path||item.payment_slip_url)&&<div className="text-[10px] text-emerald-700">Evidence uploaded</div>}</td><td className="capitalize">{item.payment_method.replaceAll('_',' ')}</td><td className="font-bold">NPR {item.amount.toLocaleString()}</td><td><Status value={item.status}/></td><td><div className="flex gap-2"><button onClick={()=>setSelectedExpense(item)} className="font-semibold text-blue-800">View details</button>{canApprove&&item.status==='submitted'&&<><button onClick={()=>updateStatus(item,'approved')} className="text-emerald-800 font-semibold">Approve</button><button onClick={()=>updateStatus(item,'rejected')} className="text-rose-800 font-semibold">Reject</button></>}</div></td></tr>)}</tbody>
       </table>
     </div>
+    <RecordDetailsDialog title="Daily expense" record={selectedExpense} onClose={()=>setSelectedExpense(null)}/>
   </div>;
 }
 function Metric({label,value,warning=false}:{label:string;value:number;warning?:boolean}){return <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">{label}</div><div className={`text-xl font-bold mt-1 ${warning&&value>0?'text-amber-700':'text-slate-950'}`}>NPR {value.toLocaleString()}</div></div>}
