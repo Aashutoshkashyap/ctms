@@ -1,5 +1,6 @@
 import { authorizeProjectRequest } from '../../../lib/server/projectAuthorization';
 import { canTransition, revisedCompletionDate, type CommercialStatus, type CommercialType } from '../../../lib/commercialLifecycle';
+import { roundMoney } from '../../../lib/financialMetrics';
 
 export const dynamic = 'force-dynamic';
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
@@ -79,7 +80,8 @@ async function create(actor: any, projectId: string, body: Record<string, unknow
   const activityId = text(body.affectedActivityId) || null;
   if (activityId) { const activity = await actor.admin.from('activities').select('id').eq('id', activityId).eq('project_id', projectId).maybeSingle(); if (!activity.data) return invalid('Affected BOQ item must belong to this project.'); }
   const data = { organization_id: actor.project.organizationId, project_id: projectId, type, reference_id: reference, title, description: text(body.description) || null, reason_basis: text(body.reasonBasis) || null, event_date: text(body.eventDate) || null, notice_date: text(body.noticeDate) || null, time_impact_days: Number(body.requestedDays || 0), cost_impact_amount: Number(body.costImpact || 0), affected_activity_id: activityId, proposed_quantity: body.proposedQuantity === '' ? null : Number(body.proposedQuantity || 0), proposed_rate: body.proposedRate === '' ? null : Number(body.proposedRate || 0), requested_completion_date: text(body.requestedCompletionDate) || null, workflow_status: 'draft', created_by: actor.userId };
-  if (![data.time_impact_days, data.cost_impact_amount, data.proposed_quantity ?? 0, data.proposed_rate ?? 0].every(Number.isFinite)) return invalid('Commercial quantities and values must be valid numbers.');
+  if (![data.time_impact_days, data.cost_impact_amount, data.proposed_quantity ?? 0, data.proposed_rate ?? 0].every(value => Number.isFinite(value) && value >= 0)) return invalid('Commercial quantities and values must be finite non-negative numbers.');
+  data.cost_impact_amount = roundMoney(data.cost_impact_amount); data.proposed_quantity = data.proposed_quantity === null ? null : roundMoney(data.proposed_quantity); data.proposed_rate = data.proposed_rate === null ? null : roundMoney(data.proposed_rate);
   const saved = await actor.admin.from('variations_and_claims').insert(data).select('*').single();
   if (saved.error) return invalid(saved.error.code === '23505' ? 'Reference already exists for this commercial record.' : 'Commercial record could not be created.');
   await history(actor, projectId, saved.data.id, 'created'); return Response.json({ record: saved.data }, { status: 201 });
@@ -90,7 +92,9 @@ async function update(actor: any, projectId: string, body: Record<string, unknow
   if (!loaded.data) return Response.json({ error: 'Commercial record was not found.' }, { status: 404 });
   if (loaded.data.workflow_status !== 'draft') return Response.json({ error: 'Only draft commercial records can be edited.' }, { status: 409 });
   if (loaded.data.created_by !== actor.userId && actor.role !== 'project_director') return Response.json({ error: 'Only the creator can edit this draft.' }, { status: 403 });
-  const patch = { title: text(body.title) || loaded.data.title, description: text(body.description) || null, reason_basis: text(body.reasonBasis) || null, time_impact_days: Number(body.requestedDays || 0), cost_impact_amount: Number(body.costImpact || 0), proposed_quantity: Number(body.proposedQuantity || 0), proposed_rate: Number(body.proposedRate || 0), requested_completion_date: text(body.requestedCompletionDate) || null, updated_at: new Date().toISOString() };
+  const timeImpactDays = Number(body.requestedDays || 0); const costImpact = Number(body.costImpact || 0); const proposedQuantity = Number(body.proposedQuantity || 0); const proposedRate = Number(body.proposedRate || 0);
+  if (![timeImpactDays, costImpact, proposedQuantity, proposedRate].every(value => Number.isFinite(value) && value >= 0)) return invalid('Commercial quantities and values must be finite non-negative numbers.');
+  const patch = { title: text(body.title) || loaded.data.title, description: text(body.description) || null, reason_basis: text(body.reasonBasis) || null, time_impact_days: timeImpactDays, cost_impact_amount: roundMoney(costImpact), proposed_quantity: roundMoney(proposedQuantity), proposed_rate: roundMoney(proposedRate), requested_completion_date: text(body.requestedCompletionDate) || null, updated_at: new Date().toISOString() };
   const saved = await actor.admin.from('variations_and_claims').update(patch).eq('id', id).eq('workflow_status', 'draft').select('*').single();
   if (saved.error) return invalid('Commercial draft could not be updated.'); await history(actor, projectId, id, 'updated'); return Response.json({ record: saved.data });
 }

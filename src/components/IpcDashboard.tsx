@@ -3,6 +3,7 @@ import { IpcEntry, IpcPayment, storage } from '../lib/storage';
 import BsDatePicker from './BsDatePicker';
 import { formatBsDate, todayAdDate } from '../lib/nepaliDate';
 import UploadProgress from './UploadProgress';
+import { calculateIpcFinancialSummary, calculateIpcOutstanding } from '../lib/financialMetrics';
 
 interface Props {
   ipcSubmissions: IpcEntry[];
@@ -39,11 +40,7 @@ export default function IpcDashboard({ ipcSubmissions, userRole, userName, userE
   const canSubmit = ['project_director', 'project_manager', 'qs_billing_engineer'].includes(userRole);
   const canCertify = userRole === 'project_director';
   const canPay = ['project_director', 'accountant'].includes(userRole);
-  const totals = useMemo(() => ({
-    claimed: ipcSubmissions.reduce((sum, item) => sum + Number(item.claimed_amount || 0), 0),
-    certified: ipcSubmissions.reduce((sum, item) => sum + Number(item.certified_amount || 0), 0),
-    paid: payments.reduce((sum, item) => sum + Number(item.amount || 0), 0),
-  }), [ipcSubmissions, payments]);
+  const totals = useMemo(() => calculateIpcFinancialSummary(ipcSubmissions), [ipcSubmissions]);
 
   const submitClaim = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -91,7 +88,7 @@ export default function IpcDashboard({ ipcSubmissions, userRole, userName, userE
   };
 
   const beginPayment = (ipc: IpcEntry) => {
-    const outstanding = Math.max(0, Number(ipc.certified_amount || 0) - Number(ipc.retention_deducted || 0) - Number(ipc.advance_recovered || 0) - Number(ipc.paid_amount || 0));
+    const outstanding = calculateIpcOutstanding(ipc);
     setPayIpc(ipc); setPayment({ payment_date: todayAdDate(), amount: outstanding, tax_deducted: 0, payment_method: 'bank_transfer', bank_reference: '', paid_by: '', received_in_account: '', remarks: '' }); setPaymentProof(null);
   };
 
@@ -111,7 +108,7 @@ export default function IpcDashboard({ ipcSubmissions, userRole, userName, userE
 
   return <div className="space-y-5"><UploadProgress active={saving} label="Uploading and securing the IPC document…"/>
     <div className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center"><div><h2 className="text-base font-bold text-slate-950">Interim Payment Certificates</h2><p className="text-sm text-slate-600">Auditable claims, certificates, partial payments, bank references and private proof files.</p></div>{canSubmit&&<button onClick={()=>setShowClaim(value=>!value)} className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-bold text-white">+ Submit IPC claim</button>}</div>
-    <div className="grid gap-3 sm:grid-cols-3"><Metric label="Claimed" value={totals.claimed}/><Metric label="Certified" value={totals.certified}/><Metric label="Payments received" value={totals.paid}/></div>
+    <div className="grid gap-3 sm:grid-cols-3"><Metric label="Claimed" value={totals.claimedAmount}/><Metric label="Certified" value={totals.certifiedAmount}/><Metric label="Payments received" value={totals.paidAmount}/></div>
     {message&&<div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-950">{message}</div>}
 
     {showClaim&&<form onSubmit={submitClaim} className="rounded-xl border border-blue-200 bg-white p-5 shadow-sm"><FormTitle title="Submit IPC claim" subtitle="Required fields are marked by browser validation; the claim file is mandatory."/><div className="mt-4 grid gap-3 md:grid-cols-3"><Field label="IPC number"><input required type="number" min="1" value={claim.ipc_number||''} onChange={event=>setClaim({...claim,ipc_number:Number(event.target.value)})}/></Field><Field label="Invoice / claim reference"><input required value={claim.invoice_reference} onChange={event=>setClaim({...claim,invoice_reference:event.target.value})}/></Field><Field label="Claimed amount (NPR)"><input required type="number" min="0.01" step="0.01" value={claim.claimed_amount||''} onChange={event=>setClaim({...claim,claimed_amount:Number(event.target.value)})}/></Field><Field label="Billing period start (BS)"><BsDatePicker required value={claim.billing_period_start} onChange={billing_period_start=>setClaim({...claim,billing_period_start})}/></Field><Field label="Billing period end (BS)"><BsDatePicker required value={claim.billing_period_end} onChange={billing_period_end=>setClaim({...claim,billing_period_end})}/></Field><Field label="Submitted date (BS)"><BsDatePicker required value={claim.submitted_date} onChange={submitted_date=>setClaim({...claim,submitted_date})}/></Field><Field label="IPC claim file"><input required type="file" accept="application/pdf,image/*" onChange={event=>setClaimFile(event.target.files?.[0]||null)}/></Field><Field label="Remarks"><textarea value={claim.claim_remarks} onChange={event=>setClaim({...claim,claim_remarks:event.target.value})}/></Field></div><Actions saving={saving} primary="Save claim & document" cancel={()=>setShowClaim(false)}/></form>}

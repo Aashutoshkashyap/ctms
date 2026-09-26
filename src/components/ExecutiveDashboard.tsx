@@ -3,6 +3,7 @@ import React from 'react';
 import { Activity } from '../lib/cpm';
 import { EVMMetrics } from '../lib/evm';
 import { formatBsDate } from '../lib/nepaliDate';
+import { calculateIpcFinancialSummary } from '../lib/financialMetrics';
 
 interface ExecutiveDashboardProps {
   project: any;
@@ -50,12 +51,10 @@ export default function ExecutiveDashboard({
   const delayDays = Math.max(0, finishDiff);
 
   // Financial Summaries
-  const totalClaimed = ipcSubmissions.reduce((sum, i) => sum + Number(i.claimed_amount || 0), 0);
-  const totalCertified = ipcSubmissions.reduce((sum, i) => sum + Number(i.certified_amount || 0), 0);
-  const totalPaid = ipcSubmissions.reduce((sum, i) => {
-    if (i.status === 'paid') return sum + Number(i.paid_amount || i.certified_amount || 0);
-    return sum;
-  }, 0);
+  const ipcFinancials = calculateIpcFinancialSummary(ipcSubmissions);
+  const totalClaimed = ipcFinancials.claimedAmount;
+  const totalCertified = ipcFinancials.certifiedAmount;
+  const totalPaid = ipcFinancials.paidAmount;
 
   // Critical activities that are delayed
   const delayedCritical = activities.filter(a => a.is_critical && a.status !== 'completed' && (

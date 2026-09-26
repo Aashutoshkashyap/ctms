@@ -12,7 +12,12 @@ function loadPaymentCertificate() {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const loadedModule = { exports: {} };
-  new vm.Script(compiled, { filename: file }).runInNewContext({ module: loadedModule, exports: loadedModule.exports });
+  const metricsPath = path.resolve('src/lib/financialMetrics.ts');
+  const metricsSource = fs.readFileSync(metricsPath, 'utf8');
+  const metricsCompiled = ts.transpileModule(metricsSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const metricsModule = { exports: {} };
+  new vm.Script(metricsCompiled, { filename: metricsPath }).runInNewContext({ module: metricsModule, exports: metricsModule.exports });
+  new vm.Script(compiled, { filename: file }).runInNewContext({ module: loadedModule, exports: loadedModule.exports, require: () => metricsModule.exports });
   return loadedModule.exports;
 }
 

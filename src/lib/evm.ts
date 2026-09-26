@@ -1,5 +1,6 @@
 // Earned Value Management (EVM) and Risk Projections Engine
 import { Activity, diffDays } from './cpm';
+import { calculateIpcFinancialSummary, nonNegativeAmount, roundMoney, sumAmounts } from './financialMetrics';
 
 export interface EVMMetrics {
   contractAmount: number;
@@ -68,38 +69,36 @@ export function calculateEVM(
   const scheduleVariance = actualProgress - plannedProgress;
 
   // Earned Value and Planned Value
-  const earnedValue = projectAmount * (actualProgress / 100);
-  const plannedValue = projectAmount * (plannedProgress / 100);
+  const contractAmount = nonNegativeAmount(projectAmount);
+  const earnedValue = roundMoney(contractAmount * (actualProgress / 100));
+  const plannedValue = roundMoney(contractAmount * (plannedProgress / 100));
 
   // 3. Actual Cost from Budget Heads
-  const actualCost = budgetHeads.reduce((sum, bh) => sum + Number(bh.actual_cost || 0), 0);
-  const internalBudget = budgetHeads.reduce((sum, bh) => sum + Number(bh.internal_budget || 0), 0);
+  const actualCost = sumAmounts(budgetHeads, 'actual_cost');
+  const internalBudget = sumAmounts(budgetHeads, 'internal_budget');
 
   // CPI and SPI
   const cpi = actualCost > 0 ? earnedValue / actualCost : 1.0;
   const spi = plannedValue > 0 ? earnedValue / plannedValue : 1.0;
 
   // EAC (Estimate at Completion)
-  const forecastFinalCost = cpi > 0 ? internalBudget / cpi : internalBudget;
-  const costOverrun = Math.max(0, forecastFinalCost - internalBudget);
+  const forecastFinalCost = roundMoney(cpi > 0 ? internalBudget / cpi : internalBudget);
+  const costOverrun = roundMoney(Math.max(0, forecastFinalCost - internalBudget));
 
   // IPC gaps
   // Work done value is equivalent to Earned Value (or contract value of actual completed)
   const workDoneValue = earnedValue; 
   
-  const totalIPCClaimed = ipcSubmissions.reduce((sum, ipc) => sum + Number(ipc.claimed_amount || 0), 0);
-  const totalIPCCertified = ipcSubmissions.reduce((sum, ipc) => sum + Number(ipc.certified_amount || 0), 0);
-  const totalPaymentReceived = ipcSubmissions.reduce((sum, ipc) => {
-    if (ipc.status === 'paid') return sum + Number(ipc.paid_amount || ipc.certified_amount || 0);
-    return sum;
-  }, 0);
+  const ipc = calculateIpcFinancialSummary(ipcSubmissions);
+  const totalIPCClaimed = ipc.claimedAmount;
+  const totalPaymentReceived = ipc.paidAmount;
 
-  const billingGap = Math.max(0, workDoneValue - totalIPCClaimed);
-  const paymentGap = Math.max(0, totalIPCCertified - totalPaymentReceived);
-  const cashGap = Math.max(0, actualCost - totalPaymentReceived);
+  const billingGap = roundMoney(Math.max(0, workDoneValue - totalIPCClaimed));
+  const paymentGap = ipc.outstandingAmount;
+  const cashGap = roundMoney(Math.max(0, actualCost - totalPaymentReceived));
 
   return {
-    contractAmount: projectAmount,
+    contractAmount,
     plannedProgress,
     actualProgress,
     scheduleVariance,

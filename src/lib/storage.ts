@@ -9,6 +9,7 @@ const defaultAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 import { DurableMutationOutbox, createMutationId } from './durableMutationOutbox';
 import { mergeBoqSchedule } from './boqSafety';
+import { calculateIpcNetPayable, calculateIpcOutstanding, roundMoney, sumAmounts } from './financialMetrics';
 let cachedSupabaseClient: SupabaseClient | null = null;
 let cachedSupabaseConfig = '';
 
@@ -2549,6 +2550,7 @@ export const storage = {
   submitIPC: (ipc: any) => {
     const projId = getActiveProjectId();
     const ipcs = getLocalItem('bt_ipc', MOCK_IPC);
+    const claimedAmount = roundMoney(Number(ipc.claimed_amount));
     const newIpc = {
       id: ipc.id || `ipc-${Date.now()}`,
       project_id: projId,
@@ -2559,8 +2561,9 @@ export const storage = {
       certified_date: null,
       retention_deducted: 0,
       advance_recovered: 0,
-      vat_amount: ipc.claimed_amount * 0.13,
-      ...ipc
+      vat_amount: claimedAmount * 0.13,
+      ...ipc,
+      claimed_amount: claimedAmount,
     };
     ipcs.push(newIpc);
     setLocalItem('bt_ipc', ipcs);
@@ -2589,7 +2592,14 @@ export const storage = {
       const details = typeof certification === 'number'
         ? { certified_amount: certification, retention_deducted: legacyRetention, advance_recovered: legacyAdvance }
         : certification;
+      const certifiedAmount = roundMoney(Number(details.certified_amount));
+      const retentionAmount = roundMoney(Number(details.retention_deducted));
+      const advanceAmount = roundMoney(Number(details.advance_recovered));
+      if (retentionAmount + advanceAmount > certifiedAmount) throw new Error('IPC deductions cannot exceed the certified amount.');
       ipcs[idx] = { ...ipcs[idx], ...details };
+      ipcs[idx].certified_amount = certifiedAmount;
+      ipcs[idx].retention_deducted = retentionAmount;
+      ipcs[idx].advance_recovered = advanceAmount;
       ipcs[idx].status = 'certified';
       ipcs[idx].certified_date = details.certified_date || new Date().toISOString().split('T')[0];
       setLocalItem('bt_ipc', ipcs);
@@ -2602,8 +2612,11 @@ export const storage = {
     const ipcs = getLocalItem('bt_ipc', MOCK_IPC);
     const idx = ipcs.findIndex(i => i.id === id);
     if (idx !== -1) {
-      ipcs[idx].paid_amount = paidAmount;
-      ipcs[idx].status = paidAmount >= ipcs[idx].certified_amount ? 'paid' : 'partially_paid';
+      const paid = roundMoney(paidAmount);
+      const netPayable = calculateIpcNetPayable(ipcs[idx]);
+      if (paid > netPayable) throw new Error('Payment cannot exceed the net certified amount.');
+      ipcs[idx].paid_amount = paid;
+      ipcs[idx].status = paid >= netPayable ? 'paid' : 'partially_paid';
       ipcs[idx].paid_date = new Date().toISOString().split('T')[0];
       setLocalItem('bt_ipc', ipcs);
     }
@@ -2614,7 +2627,13 @@ export const storage = {
     proof?: File | null,
   ) => {
     const projectId = getActiveProjectId();
+    const amount = roundMoney(Number(payment.amount));
+    const taxDeducted = roundMoney(Number(payment.tax_deducted));
     const id = payment.id || `ipc-payment-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const ipcs = getLocalItem<IpcEntry[]>('bt_ipc', MOCK_IPC);
+    const sourceIpc = ipcs.find(item => item.id === payment.ipc_id && item.project_id === projectId);
+    if (!sourceIpc) throw new Error('IPC payment must belong to the active project.');
+    if (amount <= 0 || amount > calculateIpcOutstanding(sourceIpc)) throw new Error('Payment amount must be positive and cannot exceed the remaining net certified amount.');
     let proof_storage_path = '';
     let proof_url = '';
     if (proof) {
@@ -2630,6 +2649,8 @@ export const storage = {
     }
     const record: IpcPayment = {
       ...payment,
+      amount,
+      tax_deducted: taxDeducted,
       id,
       project_id: projectId,
       proof_storage_path,
@@ -2642,11 +2663,10 @@ export const storage = {
     else rows.push(record);
     setLocalItem('bt_ipc_payments', rows);
 
-    const ipcs = getLocalItem<IpcEntry[]>('bt_ipc', MOCK_IPC);
     const ipcIndex = ipcs.findIndex(item => item.id === payment.ipc_id);
     if (ipcIndex >= 0) {
-      const totalPaid = rows.filter(item => item.ipc_id === payment.ipc_id).reduce((sum, item) => sum + Number(item.amount || 0), 0);
-      const netPayable = Math.max(0, Number(ipcs[ipcIndex].certified_amount || 0) - Number(ipcs[ipcIndex].retention_deducted || 0) - Number(ipcs[ipcIndex].advance_recovered || 0));
+      const totalPaid = sumAmounts(rows.filter(item => item.ipc_id === payment.ipc_id), 'amount');
+      const netPayable = calculateIpcNetPayable(ipcs[ipcIndex]);
       ipcs[ipcIndex] = {
         ...ipcs[ipcIndex],
         paid_amount: totalPaid,
