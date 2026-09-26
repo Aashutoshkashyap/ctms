@@ -767,6 +767,8 @@ export default function DashboardShell() {
 
           {activeTab === 'budget' && (
             <BudgetDashboard
+              key={`cost-control-${project.id}`}
+              projectId={project.id}
               budgetHeads={budgetHeads}
               subcontractors={subcontractors}
               evm={evmMetrics}
