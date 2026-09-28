@@ -711,7 +711,7 @@ export default function DashboardShell() {
             )
           )}
 
-          {activeTab === 'people' && <PeopleHub visits={employeeVisits} onNavigate={goToTab} />}
+          {activeTab === 'people' && <PeopleHub projectId={project.id} canManage={canAccess('manage_users', 'write')} onNavigate={goToTab} />}
           {activeTab === 'work' && <WorkHub activities={activities} onNavigate={goToTab} />}
           {activeTab === 'departments' && <DepartmentHub onNavigate={goToTab} />}
           {activeTab === 'notifications' && <AlertHub alerts={alerts} onNavigate={goToTab} />}
