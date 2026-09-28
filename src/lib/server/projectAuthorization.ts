@@ -67,3 +67,29 @@ export async function authorizeProjectRequest(request: Request, projectId: strin
   if (verified.error || !verified.data.user) return { error: 'Your session could not be verified.', status: 401 } as AuthorizationFailure;
   return authorizeProjectUser(admin, verified.data.user.id, projectId, feature, access);
 }
+
+// Notifications are personal inbox records rather than a project capability.
+// This verifies the same tenant, subscription and project-membership boundary
+// without accidentally granting access to the event source itself.
+export async function authorizeProjectMembershipRequest(request: Request, projectId: string) {
+  const token = bearerToken(request);
+  if (!token) return { error: 'Authentication is required.', status: 401 } as AuthorizationFailure;
+  const admin = tenantAdminClient();
+  if (!admin) return { error: 'Tenant authorization is not configured.', status: 503 } as AuthorizationFailure;
+  const verified = await admin.auth.getUser(token);
+  if (verified.error || !verified.data.user) return { error: 'Your session could not be verified.', status: 401 } as AuthorizationFailure;
+  const project = await admin.from('projects').select('id,name,organization_id').eq('id', projectId).maybeSingle();
+  if (project.error || !project.data?.organization_id) return { error: 'Project access is not authorized.', status: 403 } as AuthorizationFailure;
+  const membership = await authorizeProjectUser(admin, verified.data.user.id, projectId, 'executive', 'read');
+  if (!('error' in membership)) return membership;
+  // A field employee may have no Executive feature but is still entitled to
+  // their own notification inbox. Membership never authorizes source data.
+  const [organization, projectUser] = await Promise.all([
+    admin.from('organizations').select('name,subscription_status,access_until').eq('id', project.data.organization_id).maybeSingle(),
+    admin.from('project_users').select('auth_user_id,role,feature_permissions').eq('project_id', projectId).eq('auth_user_id', verified.data.user.id).maybeSingle(),
+  ]);
+  if (organization.error || projectUser.error || !organization.data || !projectUser.data) return { error: 'Project access is not authorized.', status: 403 } as AuthorizationFailure;
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kathmandu', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  if (!['trial', 'active', 'past_due'].includes(organization.data.subscription_status) || (organization.data.access_until && organization.data.access_until < today)) return { error: 'Project access is not authorized.', status: 403 } as AuthorizationFailure;
+  return { admin, userId: verified.data.user.id, role: normalizeRole(projectUser.data.role), permissions: projectUser.data.feature_permissions || {}, project: { id: project.data.id, name: project.data.name, organizationId: project.data.organization_id, organizationName: organization.data.name } } satisfies ProjectAuthorization;
+}

@@ -1,7 +1,6 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { Activity } from '../lib/cpm';
-import { AppNotification, DailyExpense, DailyResourceUsage, EmployeeVisit, storage } from '../lib/storage';
-import { formatBsDateTime } from '../lib/nepaliDate';
+import { DailyExpense, DailyResourceUsage, EmployeeVisit, storage } from '../lib/storage';
 
 interface Props {
   projects: any[];
@@ -32,7 +31,6 @@ export default function DirectorPortfolioDashboard({
   onNavigate,
   onReload,
 }: Props) {
-  const [notifications, setNotifications] = useState<AppNotification[]>(() => storage.getAllNotifications(50));
   const makeProjectRow = useCallback((project: any) => {
     const projectActivities = projectRowsFor(activities, project.id);
     const projectExpenses = projectRowsFor(expenses, project.id).filter(item => item.status !== 'rejected');
@@ -98,11 +96,6 @@ export default function DirectorPortfolioDashboard({
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Could not restore the project.');
     }
-  };
-
-  const markRead = () => {
-    storage.markAllNotificationsRead();
-    setNotifications(storage.getAllNotifications(50));
   };
 
   return <div className="space-y-6">
@@ -175,16 +168,9 @@ export default function DirectorPortfolioDashboard({
 
       <aside className="space-y-4">
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <h2 className="font-bold text-slate-900">Notifications</h2>
-            <button onClick={markRead} className="text-xs font-bold text-blue-700">Mark read</button>
-          </div>
-          <div className="mt-3 space-y-2">
-            {notifications.length === 0 ? <p className="text-sm text-slate-500">No activity yet.</p> : notifications.slice(0, 10).map(note => <div key={note.id} className={`rounded-lg border p-3 text-sm ${note.read ? 'border-slate-200 bg-slate-50' : 'border-blue-200 bg-blue-50'}`}>
-              <div className="font-bold text-slate-900">{note.action}</div>
-              <div className="text-xs text-slate-500">{note.module} · {note.actor || 'User'} · {formatBsDateTime(note.created_at)}</div>
-            </div>)}
-          </div>
+          <h2 className="font-bold text-slate-900">Notifications</h2>
+          <p className="mt-2 text-sm text-slate-600">Open the active project inbox to view server-confirmed updates.</p>
+          <button onClick={() => onNavigate('notifications')} className="mt-3 text-sm font-bold text-blue-700">Open notifications</button>
         </div>
         {alerts.length > 0 && <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 shadow-sm">
           <h2 className="font-bold text-rose-800">Priority alerts</h2>

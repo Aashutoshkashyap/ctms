@@ -5,6 +5,7 @@ import PeopleAssignments from './PeopleAssignments';
 import WorkBoard from './work/WorkBoard';
 import { workItems } from '../lib/workAdapter';
 import DepartmentsWorkspace from './DepartmentsWorkspace';
+import NotificationCenter from './NotificationCenter';
 // Department routes remain available through the UX-4 workspace: tab:'procurement' tab:'budget' tab:'documents' tab:'claims'.
 
 type Navigate = (tab: string) => void;
@@ -43,6 +44,6 @@ export function WorkHub({ projectId, activities, onNavigate }: { projectId: stri
 
 export function PeopleHub({ projectId, canManage, onNavigate }: { projectId: string; canManage: boolean; onNavigate: Navigate }) { return <PeopleAssignments projectId={projectId} canManage={canManage} onNavigate={onNavigate} />; }
 
-export function AlertHub({ alerts, onNavigate }: { alerts: Array<{ type: string; message: string; severity: string }>; onNavigate: Navigate }) { return <div className="space-y-6"><div><h1 className="text-2xl font-extrabold text-slate-950">Notifications</h1><p className="mt-1 text-slate-600">Project alerts generated from current schedule, cost and delivery records.</p></div><div className="space-y-3">{alerts.map((alert, index) => <div key={`${alert.type}-${index}`} className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between"><div><b className="text-amber-950">{alert.type}</b><p className="mt-1 text-sm text-amber-900">{alert.message}</p></div><button onClick={() => onNavigate('work')} className="text-sm font-bold text-blue-800">Review work</button></div>)}{!alerts.length && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 font-semibold text-emerald-900">No active alerts for this project.</div>}</div></div>; }
+export function AlertHub({ projectId, onNavigate }: { projectId: string; onNavigate: Navigate }) { return <NotificationCenter projectId={projectId} onNavigate={onNavigate} />; }
 
 function Metric({ label, value }: { label: string; value: string }) { return <div className="flex items-center justify-between border-b border-slate-100 pb-3 text-sm last:border-0"><dt className="text-slate-500">{label}</dt><dd className="font-bold text-slate-950">{value}</dd></div>; }

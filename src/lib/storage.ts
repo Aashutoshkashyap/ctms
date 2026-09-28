@@ -7,7 +7,7 @@ import { can, normalizeRole, type FeaturePermissions } from './permissions';
 const defaultUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const defaultAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-import { DurableMutationOutbox, createMutationId } from './durableMutationOutbox';
+import { DurableMutationOutbox, createMutationId, type DurableMutation } from './durableMutationOutbox';
 import { mergeBoqSchedule } from './boqSafety';
 import { calculateIpcNetPayable, calculateIpcOutstanding, roundMoney, sumAmounts } from './financialMetrics';
 let cachedSupabaseClient: SupabaseClient | null = null;
@@ -239,17 +239,6 @@ export interface UploadedDocument {
   uploaded_by?: string;
   uploaded_at: string;
   remarks?: string;
-}
-
-export interface AppNotification {
-  id: string;
-  project_id?: string;
-  actor?: string;
-  action: string;
-  module: string;
-  detail: string;
-  created_at: string;
-  read: boolean;
 }
 
 export interface InventoryEvent {
@@ -1259,7 +1248,7 @@ const CLOUD_SYNC_KEYS = new Set([
   'bt_risks', 'bt_handover', 'bt_defects', 'bt_finance_rows', 'bt_documents',
   'bt_procurement_orders', 'bt_store_items', 'bt_contract_obligations',
   'bt_daily_expenses', 'bt_daily_resource_usage', 'bt_employee_visits', 'bt_employees',
-  'bt_uploaded_documents', 'bt_inventory_events', 'bt_notifications'
+  'bt_uploaded_documents', 'bt_inventory_events'
 ]);
 let cloudSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let cloudPullInProgress = false;
@@ -1272,54 +1261,8 @@ const CLOUD_SYNC_ORDER = [
   'bt_variations_claims', 'bt_risks', 'bt_handover', 'bt_defects', 'bt_finance_rows',
   'bt_documents', 'bt_procurement_orders', 'bt_store_items', 'bt_contract_obligations',
   'bt_daily_expenses', 'bt_daily_resource_usage', 'bt_employee_visits', 'bt_employees',
-  'bt_uploaded_documents', 'bt_inventory_events', 'bt_notifications'
+  'bt_uploaded_documents', 'bt_inventory_events'
 ];
-
-const SYNC_LABELS: Record<string, { module: string; action: string }> = {
-  bt_projects_list: { module: 'Projects', action: 'Project list updated' },
-  bt_wbs: { module: 'Schedule', action: 'BOQ/WBS updated' },
-  bt_activities: { module: 'Schedule', action: 'Work programme updated' },
-  bt_dependencies: { module: 'Schedule', action: 'Relationship logic updated' },
-  bt_daily_reports: { module: 'Daily Site Reporting', action: 'Daily report saved' },
-  bt_daily_work_items: { module: 'Daily Site Reporting', action: 'Completed work updated' },
-  bt_material_logs: { module: 'Daily Site Reporting', action: 'Material log updated' },
-  bt_daily_expenses: { module: 'Finance', action: 'Daily expense updated' },
-  bt_ipc: { module: 'Finance', action: 'IPC record updated' },
-  bt_ipc_payments: { module: 'Finance', action: 'IPC payment recorded' },
-  bt_daily_resource_usage: { module: 'Resources', action: 'Resource usage updated' },
-  bt_employee_visits: { module: 'Employees', action: 'Site visit updated' },
-  bt_employees: { module: 'Employees', action: 'Employee record updated' },
-  bt_procurement_orders: { module: 'Procurement', action: 'Procurement record updated' },
-  bt_store_items: { module: 'Inventory', action: 'Store inventory updated' },
-  bt_inventory_events: { module: 'Inventory', action: 'Inventory log updated' },
-  bt_contract_obligations: { module: 'Contracts', action: 'Contract obligation updated' },
-  bt_uploaded_documents: { module: 'Documents', action: 'Document uploaded' },
-  bt_notifications: { module: 'Notifications', action: 'Notification updated' },
-};
-
-function appendNotification(key: string) {
-  if (typeof window === 'undefined' || cloudPullInProgress || key === 'bt_notifications') return;
-  const label = SYNC_LABELS[key];
-  if (!label) return;
-  const projectId = getActiveProjectId();
-  const auth = getLocalItem<{ name?: string } | null>('bt_auth_user', null);
-  const rows = getLocalItem<AppNotification[]>('bt_notifications', []);
-  const last = rows[0];
-  const now = new Date().toISOString();
-  if (last && last.project_id === projectId && last.action === label.action && Date.now() - new Date(last.created_at).getTime() < 1500) return;
-  const next: AppNotification = {
-    id: `note-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    project_id: projectId,
-    actor: auth?.name || 'BuildTrack User',
-    action: label.action,
-    module: label.module,
-    detail: `${label.module} changed in ${storage.getProject()?.name || 'active project'}.`,
-    created_at: now,
-    read: false,
-  };
-  localStorage.setItem('bt_notifications', JSON.stringify([next, ...rows].slice(0, 200)));
-  scheduleCloudSync('bt_notifications');
-}
 
 function scheduleCloudSync(key: string) {
   if (typeof window === 'undefined' || cloudPullInProgress || !CLOUD_SYNC_KEYS.has(key) || !isSupabaseConfigured()) return;
@@ -1340,7 +1283,8 @@ function scheduleCloudSync(key: string) {
 function setLocalItem<T>(key: string, value: T): void {
   if (typeof window !== 'undefined') {
     localStorage.setItem(key, JSON.stringify(value));
-    appendNotification(key);
+    // UX-5A: business notifications are server-authoritative. Local writes
+    // must never appear as confirmed inbox records or replay to the cloud.
     scheduleCloudSync(key);
   }
 }
@@ -1413,7 +1357,6 @@ async function syncLocalKeyToCloud(key: string): Promise<CloudSyncResult> {
     bt_employees: ['employee_profiles', 'bt_employees'],
     bt_uploaded_documents: ['uploaded_documents', 'bt_uploaded_documents'],
     bt_inventory_events: ['inventory_events', 'bt_inventory_events'],
-    bt_notifications: ['app_notifications', 'bt_notifications']
   };
   if (key === 'bt_projects_list') {
     const project = getLocalItem<any[]>('bt_projects_list', []).find(item => item.id === projectId);
@@ -1450,6 +1393,18 @@ async function syncLocalKeyToCloud(key: string): Promise<CloudSyncResult> {
   return upsertCloudRows(table, rows);
 }
 
+async function syncDailyWorkMutationToCloud(mutation: DurableMutation): Promise<CloudSyncResult> {
+  const session = await storage.getAuthSession();
+  const payload = mutation.payload as { report?: Record<string, unknown>; workItems?: Array<Record<string, unknown>>; materialItems?: Array<Record<string, unknown>> };
+  if (!session?.access_token) return { ok: false, message: 'Sign in again to synchronize this daily work update.' };
+  const response = await fetch('/api/site-work', {
+    method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId: mutation.projectId, operationId: mutation.id, report: payload.report, workItems: payload.workItems || [], materialItems: payload.materialItems || [] }),
+  });
+  const data = await response.json().catch(() => ({}));
+  return response.ok ? { ok: true } : { ok: false, message: String(data.error || 'Daily work cloud confirmation was not received.') };
+}
+
 function cloudPullMappings(): Array<[string, string]> {
   return [
     ['wbs_items', 'bt_wbs'],
@@ -1480,7 +1435,6 @@ function cloudPullMappings(): Array<[string, string]> {
     ['employee_profiles', 'bt_employees'],
     ['uploaded_documents', 'bt_uploaded_documents'],
     ['inventory_events', 'bt_inventory_events'],
-    ['app_notifications', 'bt_notifications'],
     ['site_photos', 'bt_site_photos'],
   ];
 }
@@ -2058,13 +2012,12 @@ export const storage = {
       }
       let sync: CloudSyncResult = { ok: true };
       if (mutation.kind === 'daily_work_update') {
-        // The stable report ID and Supabase upserts make retries idempotent.
-        // Keep the mutation unacknowledged until every related row has a
-        // positive cloud response; no local state is claimed as confirmed.
-        for (const key of ['bt_daily_reports', 'bt_daily_work_items', 'bt_material_logs', 'bt_activities']) {
-          sync = await syncLocalKeyToCloud(key);
-          if (!sync.ok) break;
-        }
+        // The protected server endpoint confirms daily work and emits its
+        // workflow event only after that confirmed mutation. Activity timing
+        // remains the existing derived local calculation and is synchronized
+        // afterwards without becoming a separate notification source.
+        sync = await syncDailyWorkMutationToCloud(mutation);
+        if (sync.ok) sync = await syncLocalKeyToCloud('bt_activities');
       } else if (mutation.kind === 'project_collection_sync') {
         const localKey = String(mutation.payload.localKey || mutation.targetId);
         sync = await syncLocalKeyToCloud(localKey);
@@ -2154,7 +2107,7 @@ export const storage = {
       'bt_daily_work_items','bt_material_logs','bt_budget_heads','bt_subcontractors','bt_ipc','bt_ipc_payments','bt_qaqc','bt_safety',
       'bt_variations_claims','bt_risks','bt_handover','bt_defects','bt_documents','bt_procurement_orders',
       'bt_store_items','bt_contract_obligations','bt_site_photos','bt_daily_expenses','bt_daily_resource_usage',
-      'bt_employee_visits','bt_employees','bt_uploaded_documents','bt_inventory_events','bt_notifications'
+      'bt_employee_visits','bt_employees','bt_uploaded_documents','bt_inventory_events'
     ].forEach(key => {
       const rows = getLocalItem<any[]>(key, []);
       if (Array.isArray(rows)) setLocalItem(key, rows.filter(row => row.project_id !== projectId));
@@ -2957,28 +2910,6 @@ export const storage = {
     return record;
   },
 
-  getNotifications: (limit = 20): AppNotification[] => {
-    const projectId = getActiveProjectId();
-    return getLocalItem<AppNotification[]>('bt_notifications', [])
-      .filter(item => !item.project_id || item.project_id === projectId)
-      .slice(0, limit);
-  },
-
-  getAllNotifications: (limit = 50): AppNotification[] => {
-    return getLocalItem<AppNotification[]>('bt_notifications', []).slice(0, limit);
-  },
-
-  markNotificationsRead: () => {
-    const projectId = getActiveProjectId();
-    const rows = getLocalItem<AppNotification[]>('bt_notifications', []);
-    setLocalItem('bt_notifications', rows.map(item => item.project_id === projectId ? { ...item, read: true } : item));
-  },
-
-  markAllNotificationsRead: () => {
-    const rows = getLocalItem<AppNotification[]>('bt_notifications', []);
-    setLocalItem('bt_notifications', rows.map(item => ({ ...item, read: true })));
-  },
-
   getUploadedDocuments: (): UploadedDocument[] => {
     const projectId = getActiveProjectId();
     return getLocalItem<UploadedDocument[]>('bt_uploaded_documents', []).filter(item => item.project_id === projectId);
@@ -3324,7 +3255,6 @@ export const storage = {
       ['employee_profiles', storage.getEmployees()],
       ['uploaded_documents', storage.getUploadedDocuments()],
       ['inventory_events', storage.getInventoryEvents()],
-      ['app_notifications', storage.getNotifications(200)],
       ['finance_rows', storage.getFinanceRows().map(row => ({
         id: row.id, project_id: projectId, row_key: row.id, name: row.name,
         category: row.category, monthly_values: row.values
