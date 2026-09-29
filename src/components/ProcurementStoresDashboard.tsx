@@ -8,6 +8,7 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
   const [orders, setOrders] = useState<ProcurementOrder[]>(() => storage.getProcurementOrders());
   const [items, setItems] = useState<StoreItem[]>(() => storage.getStoreItems());
   const [movements, setMovements] = useState<InventoryEvent[]>([]);
+  const [assignees, setAssignees] = useState<Array<{ auth_user_id: string; name: string }>>([]);
   const [view, setView] = useState<'procurement' | 'stores'>('procurement');
   const [showForm, setShowForm] = useState(false);
   const [editingPoId, setEditingPoId] = useState<string | null>(null);
@@ -19,7 +20,7 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
 
   const [po, setPo] = useState({
     po_number: '', vendor: '', item: '', quantity: 1, unit: 'No.', unit_rate: 0,
-    required_date: '', expected_date: '', order_date: '', delivery_date: '', delivered_quantity: 0, status: 'draft' as ProcurementOrder['status'], remarks: ''
+    required_date: '', expected_date: '', order_date: '', delivery_date: '', delivered_quantity: 0, responsible_person_id: '', status: 'draft' as ProcurementOrder['status'], remarks: ''
   });
   const [stock, setStock] = useState({
     item_code: '', item_name: '', unit: 'No.', opening_stock: 0, received: 0,
@@ -33,7 +34,7 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
   }), [orders, items]);
 
   const headers = async () => ({ Authorization: `Bearer ${(await storage.getAuthSession())?.access_token || ''}`, 'Content-Type': 'application/json' });
-  const load = async () => { if (!isSupabaseConfigured()) return; const [procurementResponse,inventoryResponse]=await Promise.all([fetch(`/api/procurement?projectId=${encodeURIComponent(projectId)}`,{headers:await headers(),cache:'no-store'}),fetch(`/api/stores/inventory?projectId=${encodeURIComponent(projectId)}`,{headers:await headers(),cache:'no-store'})]); const procurement=await procurementResponse.json().catch(()=>({})),inventory=await inventoryResponse.json().catch(()=>({})); if(procurementResponse.ok)setOrders(procurement.orders||[]); if(inventoryResponse.ok){setItems(inventory.items||[]);setMovements(inventory.movements||[]);} if(!procurementResponse.ok&&!inventoryResponse.ok&&procurementResponse.status!==401)setMessage(inventory.error||procurement.error||'Cloud procurement records are unavailable.'); };
+  const load = async () => { if (!isSupabaseConfigured()) return; const requestHeaders=await headers(); const [procurementResponse,inventoryResponse,assignmentResponse]=await Promise.all([fetch(`/api/procurement?projectId=${encodeURIComponent(projectId)}`,{headers:requestHeaders,cache:'no-store'}),fetch(`/api/stores/inventory?projectId=${encodeURIComponent(projectId)}`,{headers:requestHeaders,cache:'no-store'}),fetch(`/api/project-assignments?projectId=${encodeURIComponent(projectId)}`,{headers:requestHeaders,cache:'no-store'})]); const procurement=await procurementResponse.json().catch(()=>({})),inventory=await inventoryResponse.json().catch(()=>({})),assignmentData=await assignmentResponse.json().catch(()=>({})); if(procurementResponse.ok)setOrders(procurement.orders||[]); if(inventoryResponse.ok){setItems(inventory.items||[]);setMovements(inventory.movements||[]);} if(assignmentResponse.ok)setAssignees(assignmentData.activePeople||[]); if(!procurementResponse.ok&&!inventoryResponse.ok&&procurementResponse.status!==401)setMessage(inventory.error||procurement.error||'Cloud procurement records are unavailable.'); };
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(()=>{void load();},[projectId]);
   const saveOrder = async (event: React.FormEvent) => {
@@ -41,7 +42,7 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
     setSaving(true); try { if(isSupabaseConfigured()){const response=await fetch('/api/procurement',{method:editingPoId?'PATCH':'POST',headers:await headers(),body:JSON.stringify({projectId,kind:'order',id:editingPoId,record:po})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||'Purchase order could not be saved.');setOrders(rows=>editingPoId?rows.map(row=>row.id===editingPoId?data.record:row):[...rows,data.record]);}else{storage.saveProcurementOrder(po);setOrders(storage.getProcurementOrders());} setMessage('Purchase order saved.');
     setShowForm(false);
     setEditingPoId(null);
-    setPo({ po_number: '', vendor: '', item: '', quantity: 1, unit: 'No.', unit_rate: 0, required_date: '', expected_date: '', order_date: '', delivery_date: '', delivered_quantity: 0, status: 'draft', remarks: '' }); }catch(error){setMessage(error instanceof Error?error.message:'Purchase order could not be saved.');}finally{setSaving(false);}
+    setPo({ po_number: '', vendor: '', item: '', quantity: 1, unit: 'No.', unit_rate: 0, required_date: '', expected_date: '', order_date: '', delivery_date: '', delivered_quantity: 0, responsible_person_id: '', status: 'draft', remarks: '' }); }catch(error){setMessage(error instanceof Error?error.message:'Purchase order could not be saved.');}finally{setSaving(false);}
   };
 
   const saveStock = async (event: React.FormEvent) => {
@@ -54,7 +55,7 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
 
   const startEditOrder = (order: ProcurementOrder) => {
     setEditingPoId(order.id);
-    setPo({ ...po, ...order });
+    setPo({ ...po, ...order, responsible_person_id: order.responsible_person_id || '' });
     setView('procurement');
     setShowForm(true);
   };
@@ -107,6 +108,7 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
           <Field label="Unit Rate"><input type="number" value={po.unit_rate} onChange={e => setPo({...po, unit_rate:Number(e.target.value)})} /></Field>
           <Field label="Order Date (BS)"><BsDatePicker value={po.order_date || ''} onChange={order_date => setPo({...po, order_date, required_date:order_date})} /></Field>
           <Field label="Delivery Date (BS)"><BsDatePicker value={po.delivery_date || ''} onChange={delivery_date => setPo({...po, delivery_date, expected_date:delivery_date})} /></Field>
+          {assignees.length > 0 && <Field label="Responsible person"><select value={po.responsible_person_id || ''} onChange={e => setPo({...po, responsible_person_id:e.target.value})}><option value="">Not assigned</option>{assignees.map(person => <option key={person.auth_user_id} value={person.auth_user_id}>{person.name}</option>)}</select></Field>}
           <Field label="Status"><select value={po.status} onChange={e => setPo({...po, status:e.target.value as ProcurementOrder['status']})}>{['draft','approved','ordered','partially_delivered','delivered','cancelled'].map(value => <option key={value}>{value}</option>)}</select></Field>
           <Field label="Remarks"><input value={po.remarks} onChange={e => setPo({...po, remarks:e.target.value})} /></Field>
           <button disabled={saving} className="self-end bg-emerald-600 hover:bg-emerald-500 p-2 rounded font-semibold text-white disabled:opacity-60">{saving?'Saving…':editingPoId ? 'Update Purchase Order' : 'Save Purchase Order'}</button>

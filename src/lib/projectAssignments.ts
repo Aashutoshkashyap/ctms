@@ -1,7 +1,26 @@
 import type { Feature, FeaturePermissions } from './permissions';
 
 export type AssignmentStatus = 'scheduled' | 'active' | 'expired';
-export type ProjectAssignment = { id: string; project_id: string; person_id: string; project_role: string; feature_access: FeaturePermissions; start_date: string; end_date: string | null; reports_to_person_id: string | null; created_at?: string };
+export type DepartmentKey = 'site' | 'procurement' | 'stores' | 'finance' | 'hr' | 'equipment' | 'commercial' | 'documents' | 'qaqc' | 'safety';
+export type ProjectAssignment = { id: string; project_id: string; person_id: string; department_key: DepartmentKey | null; project_role: string; feature_access: FeaturePermissions; start_date: string; end_date: string | null; reports_to_person_id: string | null; created_at?: string };
+
+// These are organizational contexts only. They never grant application access;
+// the established project membership and authorization boundary remain decisive.
+export const DEPARTMENTS: Array<{ id: DepartmentKey; name: string }> = [
+  { id: 'site', name: 'Project / Site' }, { id: 'procurement', name: 'Procurement' },
+  { id: 'stores', name: 'Stores / Warehouse' }, { id: 'finance', name: 'Finance' },
+  { id: 'hr', name: 'HR / People' }, { id: 'equipment', name: 'Equipment' },
+  { id: 'commercial', name: 'Commercial / QS' }, { id: 'documents', name: 'Documents / Administration' },
+  { id: 'qaqc', name: 'QA / QC' }, { id: 'safety', name: 'Safety' },
+];
+
+export function departmentName(key: string | null | undefined) {
+  return DEPARTMENTS.find((department) => department.id === key)?.name || 'Not assigned';
+}
+
+export function validDepartmentKey(value: unknown): value is DepartmentKey | null {
+  return value === null || value === '' || (typeof value === 'string' && DEPARTMENTS.some((department) => department.id === value));
+}
 
 export const PROJECT_ROLE_SUGGESTIONS: Record<string, Feature[]> = {
   'Project Manager': ['executive', 'daily_reports', 'schedule', 'budget', 'procurement', 'ipc', 'documents', 'reports'],

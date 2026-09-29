@@ -713,7 +713,7 @@ export default function DashboardShell() {
 
           {activeTab === 'people' && <PeopleHub projectId={project.id} canManage={canAccess('manage_users', 'write')} onNavigate={goToTab} />}
           {activeTab === 'work' && <WorkHub projectId={project.id} activities={activities} onNavigate={goToTab} onRefresh={loadData} />}
-          {activeTab === 'departments' && <DepartmentHub projectId={project.id} activities={activities} onNavigate={goToTab} />}
+          {activeTab === 'departments' && <DepartmentHub projectId={project.id} activities={activities} canManage={canAccess('manage_users', 'write')} onNavigate={goToTab} />}
           {activeTab === 'notifications' && <AlertHub projectId={project.id} onNavigate={goToTab} />}
 
           {activeTab === 'cpm' && (

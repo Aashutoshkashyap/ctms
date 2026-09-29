@@ -94,6 +94,7 @@ export interface ProcurementOrder {
   order_date?: string;
   delivery_date?: string;
   delivered_quantity: number;
+  responsible_person_id?: string | null;
   status: 'draft' | 'approved' | 'ordered' | 'partially_delivered' | 'delivered' | 'cancelled';
   remarks?: string;
 }
