@@ -3,7 +3,8 @@ import React, { useMemo, useState } from 'react';
 import type { Activity } from '../lib/cpm';
 import { storage } from '../lib/storage';
 import { workItems } from '../lib/workAdapter';
-import WorkBoard from './work/WorkBoard';
+import WorkBoardBase from './work/WorkBoard';
+const WorkBoard = ({ items, onNavigate }: { items: ReturnType<typeof workItems>; onNavigate: (tab: string) => void }) => <WorkBoardBase items={items} onNavigate={onNavigate} onRefresh={() => window.location.reload()} />;
 const departments = [
   { id:'site', icon:'🏗️', name:'Project / Site', text:'Today’s work, site reports, photos and progress.', tools:[['daily','Site Reports'],['cpm','Site Activities'],['evidence','Photos'],['expected_actual','Progress']] },
   { id:'procurement', icon:'🛒', name:'Procurement', text:'Buying materials, services and project requirements.', tools:[['procurement','Procurement & purchase orders'],['reports','Reports']] },

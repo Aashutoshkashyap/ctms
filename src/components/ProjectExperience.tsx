@@ -40,7 +40,7 @@ export function ProjectHome({ project, activities, expenses, resourceUsage, aler
 
 export function DepartmentHub({ projectId, activities, onNavigate }: { projectId:string; activities:Activity[]; onNavigate: Navigate }) { return <DepartmentsWorkspace projectId={projectId} activities={activities} onNavigate={onNavigate}/>; }
 
-export function WorkHub({ projectId, activities, onNavigate }: { projectId: string; activities: Activity[]; onNavigate: Navigate }) { return <WorkBoard items={workItems(projectId, activities, storage.getProcurementOrders())} onNavigate={onNavigate} />; }
+export function WorkHub({ projectId, activities, onNavigate, onRefresh }: { projectId: string; activities: Activity[]; onNavigate: Navigate; onRefresh: () => void | Promise<void> }) { return <WorkBoard items={workItems(projectId, activities, storage.getProcurementOrders())} onNavigate={onNavigate} onRefresh={onRefresh} />; }
 
 export function PeopleHub({ projectId, canManage, onNavigate }: { projectId: string; canManage: boolean; onNavigate: Navigate }) { return <PeopleAssignments projectId={projectId} canManage={canManage} onNavigate={onNavigate} />; }
 
