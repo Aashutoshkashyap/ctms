@@ -18,7 +18,9 @@ export async function GET(request: Request) {
   const org = actor.project.organizationId;
   const [project, dailyReports, activities, ipcRows, commercialRows, qualityRows, safetyRows, handoverRows, expenseRows] = await Promise.all([
     actor.admin.from('projects').select('id,name,contract_amount').eq('id', projectId).eq('organization_id', org).maybeSingle(),
-    actor.admin.from('daily_reports').select('*').eq('organization_id', org).eq('project_id', projectId),
+    // daily_reports is project-scoped; it has no organization_id column.
+    // The authorized project boundary above already fixes its organization.
+    actor.admin.from('daily_reports').select('*').eq('project_id', projectId),
     actor.admin.from('activities').select('*').eq('project_id', projectId),
     actor.admin.from('ipc_submissions').select('*').eq('organization_id', org).eq('project_id', projectId),
     actor.admin.from('variations_and_claims').select('*').eq('organization_id', org).eq('project_id', projectId),
@@ -27,7 +29,8 @@ export async function GET(request: Request) {
     actor.admin.from('handover_checklists').select('*').eq('project_id', projectId),
     actor.admin.from('daily_expenses').select('*').eq('organization_id', org).eq('project_id', projectId),
   ]);
-  if (!project.data || [dailyReports, activities, ipcRows, commercialRows, qualityRows, safetyRows, handoverRows, expenseRows].some(result => result.error)) return Response.json({ error: 'The authorized project report could not be loaded.' }, { status: 400 });
+  if (!project.data) return Response.json({ error: 'This project report is not available.' }, { status: 404 });
+  if ([dailyReports, activities, ipcRows, commercialRows, qualityRows, safetyRows, handoverRows, expenseRows].some(result => result.error)) return Response.json({ error: 'We could not load this project report. Try again.' }, { status: 502 });
   const report = buildProjectReport({ type, project: { ...project.data, organization_id: org, project_id: projectId }, organizationId: org, projectId, generatedAt: new Date().toISOString(), dailyReports: dateFiltered(dailyReports.data || [], 'report_date', from, to), activities: (activities.data || []).map((row: any) => ({ ...row, organization_id: org })), ipcRows: dateFiltered(ipcRows.data || [], 'submitted_date', from, to), commercialRows: dateFiltered(commercialRows.data || [], 'notice_date', from, to), qualityRows: dateFiltered(qualityRows.data || [], 'inspection_date', from, to), safetyRows: dateFiltered(safetyRows.data || [], 'log_date', from, to), handoverRows: dateFiltered((handoverRows.data || []).map((row: any) => ({ ...row, organization_id: org })), 'approved_date', from, to), expenseRows: dateFiltered(expenseRows.data || [], 'expense_date', from, to) });
   if (format === 'html') return new Response(report.html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
   if (format === 'csv') return new Response(csvSafeRows(report.rows), { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${type}-report.csv"`, 'Cache-Control': 'no-store' } });
