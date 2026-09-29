@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { isSupabaseConfigured, ProcurementOrder, StoreItem, storage } from '../lib/storage';
+import { InventoryEvent, isSupabaseConfigured, ProcurementOrder, StoreItem, storage } from '../lib/storage';
 import BsDatePicker from './BsDatePicker';
 import { formatBsDate } from '../lib/nepaliDate';
 import RecordDetailsDialog from './RecordDetailsDialog';
@@ -7,11 +7,14 @@ import RecordDetailsDialog from './RecordDetailsDialog';
 export default function ProcurementStoresDashboard({ projectId }: { projectId: string }) {
   const [orders, setOrders] = useState<ProcurementOrder[]>(() => storage.getProcurementOrders());
   const [items, setItems] = useState<StoreItem[]>(() => storage.getStoreItems());
+  const [movements, setMovements] = useState<InventoryEvent[]>([]);
   const [view, setView] = useState<'procurement' | 'stores'>('procurement');
   const [showForm, setShowForm] = useState(false);
   const [editingPoId, setEditingPoId] = useState<string | null>(null);
   const [editingStockId, setEditingStockId] = useState<string | null>(null);
   const [selectedRecord, setSelectedRecord] = useState<object | null>(null);
+  const [movementItem, setMovementItem] = useState<StoreItem | null>(null);
+  const [movement, setMovement] = useState({ movementType: 'RECEIPT', quantity: '', occurredAt: new Date().toISOString().slice(0, 16), reference: '', reason: '', clientOperationId: crypto.randomUUID() });
   const [saving, setSaving] = useState(false); const [message, setMessage] = useState('');
 
   const [po, setPo] = useState({
@@ -26,11 +29,11 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
   const stats = useMemo(() => ({
     committed: orders.filter(order => !['draft', 'cancelled'].includes(order.status)).reduce((sum, order) => sum + order.quantity * order.unit_rate, 0),
     late: orders.filter(order => order.status !== 'delivered' && order.expected_date && order.expected_date < new Date().toISOString().split('T')[0]).length,
-    lowStock: items.filter(item => item.opening_stock + item.received - item.issued <= item.reorder_level).length
+    lowStock: items.filter(item => itemBalance(item) <= item.reorder_level).length
   }), [orders, items]);
 
   const headers = async () => ({ Authorization: `Bearer ${(await storage.getAuthSession())?.access_token || ''}`, 'Content-Type': 'application/json' });
-  const load = async () => { if (!isSupabaseConfigured()) return; const response=await fetch(`/api/procurement?projectId=${encodeURIComponent(projectId)}`,{headers:await headers(),cache:'no-store'}); const data=await response.json().catch(()=>({})); if(response.ok){setOrders(data.orders||[]);setItems(data.items||[]);}else if(response.status!==401)setMessage(data.error||'Cloud procurement records are unavailable.'); };
+  const load = async () => { if (!isSupabaseConfigured()) return; const [procurementResponse,inventoryResponse]=await Promise.all([fetch(`/api/procurement?projectId=${encodeURIComponent(projectId)}`,{headers:await headers(),cache:'no-store'}),fetch(`/api/stores/inventory?projectId=${encodeURIComponent(projectId)}`,{headers:await headers(),cache:'no-store'})]); const procurement=await procurementResponse.json().catch(()=>({})),inventory=await inventoryResponse.json().catch(()=>({})); if(procurementResponse.ok)setOrders(procurement.orders||[]); if(inventoryResponse.ok){setItems(inventory.items||[]);setMovements(inventory.movements||[]);} if(!procurementResponse.ok&&!inventoryResponse.ok&&procurementResponse.status!==401)setMessage(inventory.error||procurement.error||'Cloud procurement records are unavailable.'); };
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(()=>{void load();},[projectId]);
   const saveOrder = async (event: React.FormEvent) => {
@@ -44,16 +47,6 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
   const saveStock = async (event: React.FormEvent) => {
     event.preventDefault();
     setSaving(true); try { if(isSupabaseConfigured()){const response=await fetch('/api/procurement',{method:editingStockId?'PATCH':'POST',headers:await headers(),body:JSON.stringify({projectId,kind:'store',id:editingStockId,record:stock})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||'Store item could not be saved.');setItems(rows=>editingStockId?rows.map(row=>row.id===editingStockId?data.record:row):[...rows,data.record]);}else{storage.saveStoreItem(stock);setItems(storage.getStoreItems());} setMessage('Store item saved.');
-    storage.saveInventoryEvent({
-      item_id: editingStockId || stock.item_code,
-      event_date: new Date().toISOString().slice(0, 10),
-      event_type: 'adjusted',
-      quantity: Number(stock.received || 0) - Number(stock.issued || 0),
-      vendor: stock.vendor,
-      location: stock.location,
-      remarks: `Stock updated for ${stock.item_name}`,
-      recorded_by: 'Store / Site Team'
-    });
     setShowForm(false);
     setEditingStockId(null);
     setStock({ item_code: '', item_name: '', unit: 'No.', opening_stock: 0, received: 0, issued: 0, reorder_level: 0, location: 'Main Store', vendor: '', status: 'available' }); }catch(error){setMessage(error instanceof Error?error.message:'Store item could not be saved.');}finally{setSaving(false);}
@@ -77,6 +70,8 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
     localStorage.setItem('bt_procurement_orders', JSON.stringify(next));
     setOrders(storage.getProcurementOrders());
   };
+  const startMovement = (item: StoreItem, movementType = 'RECEIPT') => { setMovementItem(item); setMovement({ movementType, quantity: '', occurredAt: new Date().toISOString().slice(0, 16), reference: '', reason: '', clientOperationId: crypto.randomUUID() }); setMessage(''); };
+  const saveMovement = async (event: React.FormEvent) => { event.preventDefault(); if(!movementItem)return; if(!isSupabaseConfigured()){setMessage('Connect the cloud database before posting stock movements. Local browser data is not used as stock authority.');return;} setSaving(true); try { const response=await fetch('/api/stores/inventory',{method:'POST',headers:await headers(),body:JSON.stringify({projectId,itemId:movementItem.id,...movement})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||'Stock movement could not be posted.');setMessage('Stock movement posted and saved to the audit trail.');setMovementItem(null);await load();}catch(error){setMessage(error instanceof Error?error.message:'Stock movement could not be posted.');}finally{setSaving(false);} };
 
   return (
     <div className="space-y-5 text-xs" key={projectId}>
@@ -125,12 +120,23 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
           <Field label="Unit"><input value={stock.unit} onChange={e => setStock({...stock, unit:e.target.value})} /></Field>
           <Field label="Location"><input value={stock.location} onChange={e => setStock({...stock, location:e.target.value})} /></Field>
           <Field label="Vendor / Supplier"><input list="vendor-list" value={stock.vendor} onChange={e => setStock({...stock, vendor:e.target.value})} /><datalist id="vendor-list">{[...new Set(orders.map(order=>order.vendor).filter(Boolean))].map(vendor=><option key={vendor} value={vendor}/>)}</datalist></Field>
-          <Field label="Opening"><input type="number" value={stock.opening_stock || ''} onChange={e => setStock({...stock, opening_stock:Number(e.target.value)})} /></Field>
-          <Field label="Received"><input type="number" value={stock.received || ''} onChange={e => setStock({...stock, received:Number(e.target.value)})} /></Field>
-          <Field label="Issued"><input type="number" value={stock.issued || ''} onChange={e => setStock({...stock, issued:Number(e.target.value)})} /></Field>
+          {!editingStockId&&<Field label="Opening Stock"><input type="number" min="0" step="0.001" value={stock.opening_stock || ''} onChange={e => setStock({...stock, opening_stock:Number(e.target.value)})} /></Field>}
           <Field label="Reorder Level"><input type="number" value={stock.reorder_level || ''} onChange={e => setStock({...stock, reorder_level:Number(e.target.value)})} /></Field>
           <Field label="Status"><select value={stock.status} onChange={e => setStock({...stock,status:e.target.value as StoreItem['status']})}>{['available','low_stock','ordered','inactive'].map(value=><option key={value}>{value}</option>)}</select></Field>
           <button disabled={saving} className="self-end bg-emerald-600 hover:bg-emerald-500 p-2 rounded font-semibold text-white disabled:opacity-60">{saving?'Saving…':editingStockId ? 'Update Store Item' : 'Save Store Item'}</button>
+        </form>
+      )}
+
+      {movementItem && (
+        <form onSubmit={saveMovement} className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-blue-50 border border-blue-200 p-4 rounded-xl text-slate-900">
+          <div className="md:col-span-4"><b>{movementItem.item_name}</b><span className="ml-2 text-slate-600">Available: {itemBalance(movementItem)} {movementItem.unit}</span></div>
+          <Field label="Stock action"><select value={movement.movementType} onChange={e=>setMovement({...movement,movementType:e.target.value})}><option value="RECEIPT">Receive stock</option><option value="ISSUE">Issue stock</option><option value="ADJUSTMENT_IN">Adjust stock in</option><option value="ADJUSTMENT_OUT">Adjust stock out</option></select></Field>
+          <Field label="Quantity"><input required type="number" min="0.001" step="0.001" value={movement.quantity} onChange={e=>setMovement({...movement,quantity:e.target.value})}/></Field>
+          <Field label="Date and time"><input required type="datetime-local" value={movement.occurredAt} onChange={e=>setMovement({...movement,occurredAt:e.target.value})}/></Field>
+          <Field label="Reference / destination"><input value={movement.reference} onChange={e=>setMovement({...movement,reference:e.target.value})} placeholder="Delivery note, activity or team"/></Field>
+          <Field label={movement.movementType.startsWith('ADJUSTMENT')?'Reason (required)':'Notes'}><input required={movement.movementType.startsWith('ADJUSTMENT')} value={movement.reason} onChange={e=>setMovement({...movement,reason:e.target.value})} placeholder="Why was this stock moved?"/></Field>
+          <button type="button" onClick={()=>setMovementItem(null)} className="self-end rounded border border-slate-300 bg-white p-2 font-semibold text-slate-700">Cancel</button>
+          <button disabled={saving} className="self-end rounded bg-emerald-600 p-2 font-semibold text-white disabled:opacity-60">{saving?'Posting…':'Post stock movement'}</button>
         </form>
       )}
 
@@ -141,14 +147,18 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
           </table>
         ) : (
           <table className="w-full min-w-[850px]"><thead><tr className="text-slate-400 border-b border-slate-700">{['Code','Material','Vendor','Location','Opening','Received','Issued','Balance','Status','Action'].map(h => <th key={h} className="text-left py-2">{h}</th>)}</tr></thead>
-            <tbody>{items.map(item => { const balance=item.opening_stock+item.received-item.issued; return <tr key={item.id} className="border-b border-slate-800"><td className="py-3 font-mono">{item.item_code}</td><td><b>{item.item_name}</b><div className="text-slate-500">{item.unit}</div></td><td>{item.vendor || '—'}</td><td>{item.location}</td><td>{item.opening_stock}</td><td className="text-emerald-400">+{item.received}</td><td className="text-amber-400">-{item.issued}</td><td className="font-bold">{balance}</td><td><Badge value={balance <= item.reorder_level ? 'reorder' : (item.status || 'healthy')} /></td><td><div className="flex gap-2"><button onClick={()=>setSelectedRecord({...item, balance})} className="font-bold text-slate-100">View details</button><button onClick={()=>startEditStock(item)} className="font-bold text-blue-700">Edit details</button></div></td></tr> })}</tbody>
+            <tbody>{items.map(item => { const balance=itemBalance(item); return <tr key={item.id} className="border-b border-slate-800"><td className="py-3 font-mono">{item.item_code}</td><td><b>{item.item_name}</b><div className="text-slate-500">{item.unit}</div></td><td>{item.vendor || '—'}</td><td>{item.location}</td><td>{item.inventory_opening_balance ?? item.opening_stock}</td><td className="text-emerald-400">{movementTotal(movements,item.id,['RECEIPT','ADJUSTMENT_IN','TRANSFER_IN'])}</td><td className="text-amber-400">{movementTotal(movements,item.id,['ISSUE','ADJUSTMENT_OUT','TRANSFER_OUT'])}</td><td className="font-bold">{balance}</td><td><Badge value={balance <= item.reorder_level ? 'reorder' : (item.status || 'healthy')} /></td><td><div className="flex flex-wrap gap-2"><button onClick={()=>setSelectedRecord({...item, balance, movements:movements.filter(row=>row.item_id===item.id)})} className="font-bold text-slate-100">View details</button><button onClick={()=>startEditStock(item)} className="font-bold text-blue-700">Edit details</button><button onClick={()=>startMovement(item)} className="font-bold text-emerald-700">Receive</button><button onClick={()=>startMovement(item,'ISSUE')} className="font-bold text-amber-700">Issue</button><button onClick={()=>startMovement(item,'ADJUSTMENT_IN')} className="font-bold text-slate-700">Adjust</button></div></td></tr> })}</tbody>
           </table>
         )}
       </div>
+      {view==='stores'&&<div className="rounded-xl border border-slate-700/40 bg-slate-800/50 p-4 overflow-x-auto"><h3 className="mb-3 font-semibold text-slate-100">Recent stock movements</h3><table className="w-full min-w-[760px]"><thead><tr className="border-b border-slate-700 text-left text-slate-400"><th>When</th><th>Item</th><th>Action</th><th>Quantity</th><th>Reference / reason</th><th>Recorded by</th></tr></thead><tbody>{movements.slice(0,12).map(row=><tr key={row.id} className="border-b border-slate-800"><td className="py-2">{row.occurred_at||row.event_date}</td><td>{items.find(item=>item.id===row.item_id)?.item_name||'Store item'}</td><td><Badge value={(row.movement_type||row.event_type).toLowerCase()} /></td><td>{row.quantity}</td><td>{row.reference||row.reason||row.remarks||'—'}</td><td>{row.recorded_by||'—'}</td></tr>)}{!movements.length&&<tr><td colSpan={6} className="py-5 text-slate-400">No posted stock movements yet.</td></tr>}</tbody></table></div>}
       <RecordDetailsDialog title="Procurement record" record={selectedRecord} onClose={()=>setSelectedRecord(null)} />
     </div>
   );
 }
+
+function itemBalance(item: StoreItem) { return Number.isFinite(Number(item.current_stock)) ? Number(item.current_stock) : Number(item.inventory_opening_balance ?? item.opening_stock + item.received - item.issued); }
+function movementTotal(movements: InventoryEvent[], itemId: string, types: string[]) { return movements.filter(row=>row.item_id===itemId&&types.includes(row.movement_type||'')).reduce((total,row)=>total+Number(row.quantity||0),0); }
 
 function Metric({label,value,danger=false}:{label:string;value:string;danger?:boolean}) {
   return <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-4"><div className="text-slate-500 uppercase text-[10px] font-bold">{label}</div><div className={`text-xl font-bold mt-1 ${danger?'text-rose-400':'text-slate-100'}`}>{value}</div></div>;

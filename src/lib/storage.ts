@@ -111,6 +111,8 @@ export interface StoreItem {
   location: string;
   vendor?: string;
   status?: 'available' | 'low_stock' | 'ordered' | 'inactive';
+  inventory_opening_balance?: number;
+  current_stock?: number;
 }
 
 export interface ContractObligation {
@@ -252,6 +254,13 @@ export interface InventoryEvent {
   location?: string;
   remarks?: string;
   recorded_by?: string;
+  movement_type?: 'RECEIPT' | 'ISSUE' | 'ADJUSTMENT_IN' | 'ADJUSTMENT_OUT' | 'TRANSFER_IN' | 'TRANSFER_OUT';
+  occurred_at?: string;
+  actor_user_id?: string;
+  reference?: string;
+  reason?: string;
+  client_operation_id?: string;
+  posted_at?: string;
 }
 
 export interface HandoverItem {
