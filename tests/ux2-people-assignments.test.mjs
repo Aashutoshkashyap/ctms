@@ -27,7 +27,9 @@ test('assignment storage is project scoped, period-safe and does not create brow
 test('people workspace retains UX-1 navigation and provides simple assignment actions', () => {
   const page = fs.readFileSync('src/app/page.tsx', 'utf8');
   const people = fs.readFileSync('src/components/PeopleAssignments.tsx', 'utf8');
-  assert.match(page, /label="People"/); assert.match(page, /Professional tools/);
+  assert.match(page, /id: 'people', label: 'People'/);
+  assert.match(page, /activeTab === 'people' && <PeopleHub/);
+  assert.match(page, /tab: 'workforce', label: 'Workforce & visits'/);
   for (const label of ['Assign Person', 'Project Role', 'capabilities', 'Reports To', 'End Assignment']) assert.match(people, new RegExp(label));
   assert.match(people, /\[projectId\]/);
 });

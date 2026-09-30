@@ -5,11 +5,26 @@ import test from 'node:test';
 const page = fs.readFileSync('src/app/page.tsx', 'utf8');
 const experience = fs.readFileSync('src/components/ProjectExperience.tsx', 'utf8');
 
-test('project-centric navigation exposes the simple workspace and keeps professional tools reachable', () => {
-  for (const label of ['Home', 'Projects', 'People', 'Work', 'Departments', 'Notifications', 'Reports', 'Settings']) assert.match(page, new RegExp(`label="${label}"`));
-  assert.match(page, /label="Administration"/);
-  assert.match(page, /Professional tools/);
-  for (const toolLabel of ['BOQ & Work Schedule', 'Procurement & Stores', 'IPC Billing & Certificates', 'Documents', 'Evidence Vault']) assert.match(page, new RegExp(`label="${toolLabel}"`));
+test('primary navigation exposes exactly the twelve management modules', () => {
+  const registry = page.slice(page.indexOf('const MANAGEMENT_MODULES:'), page.indexOf('const moduleForTab'));
+  const labels = [...registry.matchAll(/\{ id: '[^']+', label: '([^']+)'/g)].map(match => match[1]);
+  assert.deepEqual(labels, ['Home', 'Projects', 'People', 'Work', 'Fleet', 'Inventory', 'Purchases', 'Commercial', 'Quality & Safety', 'Document Vault', 'Reports', 'Settings']);
+  assert.match(page, /aria-label="Primary navigation"/);
+  assert.match(page, /MANAGEMENT_MODULES\.map\(module =>/);
+  assert.doesNotMatch(page, /Professional tools/);
+  assert.match(page, /aria-label="Open notifications"/);
+});
+
+test('legacy tab IDs remain nested and authorized through their parent module', () => {
+  const registry = page.slice(page.indexOf('const MANAGEMENT_MODULES:'), page.indexOf('const moduleForTab'));
+  for (const [module, tab] of [['work', 'cpm'], ['work', 'daily'], ['inventory', 'stores'], ['purchases', 'procurement'], ['commercial', 'ipc'], ['commercial', 'claims'], ['document-vault', 'evidence'], ['settings', 'subscription']]) {
+    const line = registry.split('\n').find(row => row.includes(`id: '${module}'`));
+    assert.ok(line?.includes(`tab: '${tab}'`), `${tab} should be nested in ${module}`);
+  }
+  assert.match(page, /module\.views\.find\(view => isAllowedTab\(view\.tab\)\)/);
+  assert.match(page, /visibleViews\.map\(view =>/);
+  assert.match(page, /isKnownTab\(tab\) && isAllowedTab\(tab\)/);
+  assert.match(page, /initialView=\{activeTab === 'stores' \? 'stores' : 'procurement'\}/);
 });
 
 test('home is project-scoped and presents project progress, money, attention and work entry points', () => {
@@ -26,8 +41,8 @@ test('project switching retains the active-project stale-response guard and clea
 
 test('role navigation and department links remain gated by the existing authorization boundary', () => {
   assert.match(page, /const canAccess = .*can\(authUser\.role, feature, activePermissions, access\)/);
-  assert.match(page, /canAccess\('operations'\).*tab="people"/);
-  assert.match(page, /canAccess\('daily_reports'\).*tab="work"/);
+  assert.match(page, /const isAllowedTab = .*canAccess\(TAB_FEATURES\[tab\]!\)/);
+  assert.match(page, /const visibleViews = activeModule\?\.views\.filter\(view => isAllowedTab\(view\.tab\)\)/);
   assert.match(page, /normalizeRole\(authUser\.role\) === 'project_director'/);
   for (const tab of ['procurement', 'budget', 'documents', 'claims']) assert.match(experience, new RegExp(`tab:'${tab}'`));
 });

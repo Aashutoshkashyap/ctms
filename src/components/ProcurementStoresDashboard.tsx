@@ -4,12 +4,12 @@ import BsDatePicker from './BsDatePicker';
 import { formatBsDate } from '../lib/nepaliDate';
 import RecordDetailsDialog from './RecordDetailsDialog';
 
-export default function ProcurementStoresDashboard({ projectId }: { projectId: string }) {
+export default function ProcurementStoresDashboard({ projectId, initialView }: { projectId: string; initialView?: 'procurement' | 'stores' }) {
   const [orders, setOrders] = useState<ProcurementOrder[]>(() => storage.getProcurementOrders());
   const [items, setItems] = useState<StoreItem[]>(() => storage.getStoreItems());
   const [movements, setMovements] = useState<InventoryEvent[]>([]);
   const [assignees, setAssignees] = useState<Array<{ auth_user_id: string; name: string }>>([]);
-  const [view, setView] = useState<'procurement' | 'stores'>('procurement');
+  const [view, setView] = useState<'procurement' | 'stores'>(initialView || 'procurement');
   const [showForm, setShowForm] = useState(false);
   const [editingPoId, setEditingPoId] = useState<string | null>(null);
   const [editingStockId, setEditingStockId] = useState<string | null>(null);
@@ -93,10 +93,10 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
         <Metric label="Reorder Alerts" value={String(stats.lowStock)} danger={stats.lowStock > 0} />
       </div>
 
-      <div className="flex gap-2 bg-slate-900/60 p-1 rounded-lg w-fit">
+      {!initialView && <div className="flex gap-2 bg-slate-900/60 p-1 rounded-lg w-fit">
         <button onClick={() => { setView('procurement'); setShowForm(false); }} className={`px-4 py-2 rounded ${view === 'procurement' ? 'bg-blue-600' : 'text-slate-400'}`}>Purchase Orders</button>
         <button onClick={() => { setView('stores'); setShowForm(false); }} className={`px-4 py-2 rounded ${view === 'stores' ? 'bg-blue-600' : 'text-slate-400'}`}>Stores Ledger</button>
-      </div>
+      </div>}
 
       {showForm && view === 'procurement' && (
         <form onSubmit={saveOrder} className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-800/60 border border-slate-700 p-4 rounded-xl">

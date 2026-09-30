@@ -41,6 +41,7 @@ import type { Feature, FeaturePermissions } from '../lib/permissions';
 
 type ActiveTab =
   | 'dashboard' | 'projects' | 'people' | 'work' | 'departments' | 'notifications'
+  | 'workforce' | 'stores'
   | 'cpm' | 'expected_actual'
   | 'design' | 'budget' | 'ipc' | 'claims'
   | 'qaqc' | 'safety'
@@ -51,14 +52,41 @@ type ActiveTab =
   | 'settings';
 
 const TAB_FEATURES: Partial<Record<ActiveTab, Feature>> = {
-  people: 'operations', work: 'daily_reports',
+  people: 'operations', workforce: 'operations', work: 'daily_reports',
   cpm: 'schedule', expected_actual: 'schedule', daily: 'daily_reports',
   operations: 'operations', evidence: 'view_evidence', design: 'design', budget: 'budget',
-  ipc: 'ipc', claims: 'claims', procurement: 'procurement', obligations: 'obligations',
+  ipc: 'ipc', claims: 'claims', procurement: 'procurement', stores: 'procurement', obligations: 'obligations',
   qaqc: 'qaqc', safety: 'safety', expenses: 'expenses',
   documents: 'documents', reports: 'reports', handover: 'handover', defects: 'defects',
   subscription: 'subscription', settings: 'settings',
 };
+
+type ManagementModule = {
+  id: string;
+  label: string;
+  icon: string;
+  views: ReadonlyArray<{ tab: ActiveTab; label: string }>;
+};
+
+// Legacy tab IDs remain the internal navigation contract used by dashboard cards,
+// department tools, and the Work Board. The twelve entries below own their UI.
+const MANAGEMENT_MODULES: ReadonlyArray<ManagementModule> = [
+  { id: 'home', label: 'Home', icon: '🏠', views: [{ tab: 'dashboard', label: 'Overview' }] },
+  { id: 'projects', label: 'Projects', icon: '🏗️', views: [{ tab: 'projects', label: 'Projects' }] },
+  { id: 'people', label: 'People', icon: '👥', views: [{ tab: 'people', label: 'Assignments' }, { tab: 'workforce', label: 'Workforce & visits' }] },
+  { id: 'work', label: 'Work', icon: '📋', views: [{ tab: 'work', label: 'Board' }, { tab: 'cpm', label: 'Schedule & WBS' }, { tab: 'expected_actual', label: 'Progress' }, { tab: 'daily', label: 'Daily reports' }, { tab: 'design', label: 'Design' }, { tab: 'handover', label: 'Handover' }] },
+  { id: 'fleet', label: 'Fleet', icon: '🚜', views: [{ tab: 'operations', label: 'Equipment & usage' }] },
+  { id: 'inventory', label: 'Inventory', icon: '📦', views: [{ tab: 'stores', label: 'Stock & movements' }] },
+  { id: 'purchases', label: 'Purchases', icon: '🛒', views: [{ tab: 'procurement', label: 'Purchase orders' }] },
+  { id: 'commercial', label: 'Commercial', icon: '💼', views: [{ tab: 'budget', label: 'Cost & budget' }, { tab: 'ipc', label: 'Valuation & IPC' }, { tab: 'claims', label: 'Claims & variations' }, { tab: 'obligations', label: 'Contracts & securities' }, { tab: 'expenses', label: 'Expenses' }] },
+  { id: 'quality-safety', label: 'Quality & Safety', icon: '🦺', views: [{ tab: 'qaqc', label: 'Quality' }, { tab: 'safety', label: 'Safety' }, { tab: 'defects', label: 'Defects' }] },
+  { id: 'document-vault', label: 'Document Vault', icon: '📁', views: [{ tab: 'documents', label: 'Documents' }, { tab: 'evidence', label: 'Photos & evidence' }] },
+  { id: 'reports', label: 'Reports', icon: '📊', views: [{ tab: 'reports', label: 'Reports' }] },
+  { id: 'settings', label: 'Settings', icon: '⚙️', views: [{ tab: 'settings', label: 'Settings' }, { tab: 'departments', label: 'Departments' }, { tab: 'subscription', label: 'Subscription' }] },
+];
+
+const moduleForTab = (tab: ActiveTab) => MANAGEMENT_MODULES.find(module => module.views.some(view => view.tab === tab));
+const isKnownTab = (value: string): value is ActiveTab => value === 'notifications' || MANAGEMENT_MODULES.some(module => module.views.some(view => view.tab === value));
 
 interface AuthUser {
   name: string;
@@ -175,36 +203,23 @@ function CreateProjectModal({
 // ---------------------------------------------------------------------------
 function NavBtn({
   tab,
-  activeTab,
+  active,
   setActiveTab,
   icon,
   label,
-  accent,
 }: {
   tab: ActiveTab;
-  activeTab: ActiveTab;
+  active: boolean;
   setActiveTab: (t: ActiveTab) => void;
   icon: string;
   label: string;
-  accent?: 'purple' | 'emerald';
 }) {
-  const isActive = activeTab === tab;
   const base = 'w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg transition';
-  const styles = isActive
-    ? accent === 'purple'
-      ? `${base} bg-purple-700 text-white shadow-lg`
-      : accent === 'emerald'
-      ? `${base} bg-emerald-700 text-white shadow-lg`
-      : `${base} bg-blue-600 text-white shadow-lg`
-    : accent === 'purple'
-    ? `${base} text-purple-700 hover:bg-purple-50`
-    : accent === 'emerald'
-    ? `${base} text-emerald-700 hover:bg-emerald-50`
-    : `${base} text-slate-600 hover:bg-blue-50 hover:text-blue-700`;
+  const styles = active ? `${base} bg-blue-600 text-white` : `${base} text-slate-600 hover:bg-blue-50 hover:text-blue-700`;
 
   return (
-    <button onClick={() => setActiveTab(tab)} className={styles}>
-      {icon} {label}
+    <button type="button" onClick={() => setActiveTab(tab)} className={styles} aria-current={active ? 'page' : undefined}>
+      <span aria-hidden="true">{icon}</span><span>{label}</span>
     </button>
   );
 }
@@ -528,16 +543,17 @@ export default function DashboardShell() {
 
   const activePermissions = authUser.feature_permissions || storage.getMembershipForProject(project.id)?.feature_permissions || null;
   const canAccess = (feature: Feature, access: 'read' | 'write' = 'read') => can(authUser.role, feature, activePermissions, access);
-  const isAllowedTab = (tab: ActiveTab) => tab === 'dashboard' || !TAB_FEATURES[tab] || canAccess(TAB_FEATURES[tab]!);
+  const isAllowedTab = (tab: ActiveTab) => isKnownTab(tab) && (tab === 'dashboard' || !TAB_FEATURES[tab] || canAccess(TAB_FEATURES[tab]!));
   const setActiveTabFromMenu = (tab: ActiveTab) => {
-    setActiveTab(tab);
+    if (isAllowedTab(tab)) setActiveTab(tab);
     setMobileMenuOpen(false);
   };
   const goToTab = (tab: string) => {
-    const next = tab as ActiveTab;
-    setActiveTab(isAllowedTab(next) ? next : 'dashboard');
+    setActiveTab(isKnownTab(tab) && isAllowedTab(tab) ? tab : 'dashboard');
     setMobileMenuOpen(false);
   };
+  const activeModule = moduleForTab(activeTab);
+  const visibleViews = activeModule?.views.filter(view => isAllowedTab(view.tab)) || [];
   const activeFeature = TAB_FEATURES[activeTab];
   const isReadOnlyFeature = Boolean(activeFeature && canAccess(activeFeature, 'read') && !canAccess(activeFeature, 'write'));
 
@@ -588,37 +604,11 @@ export default function DashboardShell() {
         </div>
 
         {/* Tab Links */}
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-180px)]">
-          <div className="px-2 pb-2 text-[9px] font-bold uppercase tracking-wider text-slate-500">Project workspace</div>
-          <NavBtn tab="dashboard" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🏠" label="Home" />
-          <NavBtn tab="projects" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🏗️" label="Projects" />
-          <p className="px-3 pt-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Work</p>
-          {canAccess('daily_reports') && <NavBtn tab="work" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📋" label="Tasks & Board" />}
-          {canAccess('schedule') && <NavBtn tab="cpm" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📅" label="Schedule & WBS" />}
-          {canAccess('schedule') && <NavBtn tab="expected_actual" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📈" label="Progress" />}
-          {canAccess('daily_reports') && <NavBtn tab="daily" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📝" label="Daily Reports" />}
-          <p className="px-3 pt-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Resources</p>
-          {canAccess('operations') && <NavBtn tab="people" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="👥" label="People" />}
-          {canAccess('operations') && <NavBtn tab="operations" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🚜" label="Equipment & Materials" />}
-          <p className="px-3 pt-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Delivery</p>
-          {canAccess('procurement') && <NavBtn tab="procurement" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🛒" label="Procurement" />}
-          {canAccess('budget') && <NavBtn tab="budget" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="💰" label="Commercial & Budget" />}
-          {canAccess('ipc') && <NavBtn tab="ipc" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label="Valuation & IPC" />}
-          {canAccess('claims') && <NavBtn tab="claims" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⚖️" label="Claims & Variations" />}
-          {canAccess('obligations') && <NavBtn tab="obligations" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⏰" label="Contracts & Securities" />}
-          {canAccess('expenses') && <NavBtn tab="expenses" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="💳" label="Finance & Expenses" />}
-          <p className="px-3 pt-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Quality & documents</p>
-          {canAccess('qaqc') && <NavBtn tab="qaqc" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="✓" label="Quality" />}
-          {canAccess('safety') && <NavBtn tab="safety" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🦺" label="Safety" />}
-          {canAccess('documents') && <NavBtn tab="documents" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📁" label="Documents" />}
-          {canAccess('view_evidence') && <NavBtn tab="evidence" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🖼️" label="Photos & Evidence" />}
-          {canAccess('reports') && <NavBtn tab="reports" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📊" label="Reports" />}
-          <p className="px-3 pt-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Admin</p>
-          <NavBtn tab="departments" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🏢" label="Departments" />
-          {canAccess('settings') && <NavBtn tab="settings" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⚙️" label="Settings" />}
-          {canAccess('subscription') && <NavBtn tab="subscription" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label="Subscription" />}
-          {normalizeRole(authUser.role) === 'project_director' && <NavBtn tab="projects" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="👑" label="Administration" accent="purple" />}
-
+        <nav aria-label="Primary navigation" className="flex-1 p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-180px)]">
+          {MANAGEMENT_MODULES.map(module => {
+            const firstAccessible = module.views.find(view => isAllowedTab(view.tab));
+            return firstAccessible ? <NavBtn key={module.id} tab={firstAccessible.tab} active={activeModule?.id === module.id} setActiveTab={setActiveTabFromMenu} icon={module.icon} label={module.label} /> : null;
+          })}
         </nav>
       </aside>
 
@@ -678,6 +668,11 @@ export default function DashboardShell() {
 
         {/* ---- Active Dashboard Panel ---- */}
         <main className="app-main flex-1 p-4 md:p-6 overflow-y-auto max-h-[calc(100vh-56px)]">
+          {activeModule && visibleViews.length > 1 && (
+            <nav aria-label={`${activeModule.label} sections`} className="mb-5 flex flex-wrap gap-2 border-b border-slate-200 pb-3">
+              {visibleViews.map(view => <button key={view.tab} type="button" onClick={() => setActiveTabFromMenu(view.tab)} aria-current={activeTab === view.tab ? 'page' : undefined} className={`rounded-lg px-3 py-2 text-sm font-semibold ${activeTab === view.tab ? 'bg-blue-700 text-white' : 'bg-white text-slate-700 hover:bg-blue-50'}`}>{view.label}</button>)}
+            </nav>
+          )}
           {isReadOnlyFeature && <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-950">Your Project Director granted view-only access to this module. Editing and uploads are disabled.</div>}
           <div className={isReadOnlyFeature ? 'feature-read-only' : ''} aria-readonly={isReadOnlyFeature}>
           {activeTab === 'dashboard' && (
@@ -718,6 +713,7 @@ export default function DashboardShell() {
           )}
 
           {activeTab === 'people' && <PeopleHub projectId={project.id} canManage={canAccess('manage_users', 'write')} onNavigate={goToTab} />}
+          {activeTab === 'workforce' && <OperationalControlDashboard key={`workforce-${project.id}`} projectId={project.id} role={authUser.role} userName={authUser.name} activities={activities} />}
           {activeTab === 'work' && <WorkHub projectId={project.id} activities={activities} onNavigate={goToTab} onRefresh={loadData} />}
           {activeTab === 'departments' && <DepartmentHub projectId={project.id} activities={activities} canManage={canAccess('manage_users', 'write')} onNavigate={goToTab} />}
           {activeTab === 'notifications' && <AlertHub projectId={project.id} onNavigate={goToTab} />}
@@ -810,8 +806,8 @@ export default function DashboardShell() {
 
           {activeTab === 'claims' && <CommercialControlWorkspace key={`commercial-${project.id}`} projectId={project.id} role={authUser.role} />}
 
-          {activeTab === 'procurement' && (
-            <ProcurementStoresDashboard key={project.id} projectId={project.id} />
+          {(activeTab === 'procurement' || activeTab === 'stores') && (
+            <ProcurementStoresDashboard key={`${project.id}-${activeTab}`} projectId={project.id} initialView={activeTab === 'stores' ? 'stores' : 'procurement'} />
           )}
 
           {activeTab === 'obligations' && (
