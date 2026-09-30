@@ -30,10 +30,16 @@ import EvidenceVault from '../components/EvidenceVault';
 import DirectorPortfolioDashboard from '../components/DirectorPortfolioDashboard';
 import SuperAdminDashboard from '../components/SuperAdminDashboard';
 import SubscriptionDashboard from '../components/SubscriptionDashboard';
+import EmployeeWorkforceDashboard from '../components/EmployeeWorkforceDashboard';
 import BsDatePicker from '../components/BsDatePicker';
+import BoqMeasurementDashboard from '../components/BoqMeasurementDashboard';
 import IpcValuationWorkspace from '../components/IpcValuationWorkspace';
 import PaymentCertificateWorkspace from '../components/PaymentCertificateWorkspace';
 import { formatBsDate } from '../lib/nepaliDate';
+import { useLanguage } from '../components/LanguageProvider';
+import { saveDailyWorkUpdate } from '../lib/dailyWorkUpdate';
+import { mayRefreshWorkspace, needsPortfolioCollections } from '../lib/lowBandwidth';
+import { isCurrentProject, projectIdFromUrl, workspaceUrl } from '../lib/projectContext';
 import { can, ROLE_LABELS, normalizeRole } from '../lib/permissions';
 import type { Feature, FeaturePermissions } from '../lib/permissions';
 
@@ -45,7 +51,34 @@ type ActiveTab =
   | 'documents'
   | 'procurement' | 'obligations' | 'daily' | 'reports' | 'expenses'
   | 'operations' | 'evidence' | 'subscription'
+  | 'workforce'
+  | 'measurements'
   | 'settings';
+
+const ACTIVE_TABS: ActiveTab[] = ['dashboard', 'cpm', 'expected_actual', 'design', 'budget', 'ipc', 'claims', 'qaqc', 'safety', 'handover', 'defects', 'documents', 'procurement', 'obligations', 'daily', 'reports', 'expenses', 'operations', 'evidence', 'subscription', 'workforce', 'measurements', 'settings'];
+const TAB_TITLES: Record<ActiveTab, { title: string; description: string }> = {
+  dashboard: { title: 'My dashboard', description: 'Your role-specific project workspace.' },
+  cpm: { title: 'BOQ & work schedule', description: 'Programme, activity progress and delay information.' },
+  expected_actual: { title: 'Expected vs actual', description: 'Programme and delivery comparison.' },
+  design: { title: 'Design control', description: 'Drawings, submissions and design records.' }, budget: { title: 'Budget & costs', description: 'Project budget and cost controls.' },
+  ipc: { title: 'IPC billing / valuation', description: 'Measurements, valuations and payment status.' }, claims: { title: 'Variations & claims', description: 'Commercial actions and claim records.' },
+  qaqc: { title: 'QA / QC inspections', description: 'Inspections, tests and outstanding actions.' }, safety: { title: 'Safety / EHS', description: 'Safety inspections, incidents and corrective actions.' },
+  handover: { title: 'Handover checklist', description: 'Completion records and handover readiness.' }, defects: { title: 'Defects maintenance', description: 'Defects and maintenance actions.' },
+  documents: { title: 'Compliance & documents', description: 'Project documents and compliance records.' }, procurement: { title: 'Procurement & stores', description: 'Orders, deliveries, stock and resource records.' },
+  obligations: { title: 'Contract obligations', description: 'Commitments, due dates and contractual actions.' },
+  daily: { title: 'Daily site reporting', description: 'Today’s work, quantities, issues and evidence.' }, reports: { title: 'Reports & exports', description: 'Project reporting and downloadable summaries.' },
+  expenses: { title: 'Daily expense register', description: 'Site expense records and approvals.' }, operations: { title: 'Resources & productivity', description: 'Manpower, equipment, fuel and site visits.' },
+  evidence: { title: 'Director evidence vault', description: 'Private verification photographs and files.' }, subscription: { title: 'Service & billing', description: 'Subscription, validity and transaction history.' },
+  workforce: { title: 'Employee & workforce', description: 'Organization employee records and project team deployment.' },
+  measurements: { title: 'BOQ measurement', description: 'Measured and approved quantities against BOQ work items.' },
+  settings: { title: 'System settings', description: 'Project setup, people and access.' },
+};
+
+function tabFromUrl(): ActiveTab {
+  if (typeof window === 'undefined') return 'dashboard';
+  const tab = new URLSearchParams(window.location.search).get('tab');
+  return ACTIVE_TABS.includes(tab as ActiveTab) ? tab as ActiveTab : 'dashboard';
+}
 
 const TAB_FEATURES: Partial<Record<ActiveTab, Feature>> = {
   cpm: 'schedule', expected_actual: 'schedule', daily: 'daily_reports',
@@ -53,7 +86,7 @@ const TAB_FEATURES: Partial<Record<ActiveTab, Feature>> = {
   ipc: 'ipc', claims: 'claims', procurement: 'procurement', obligations: 'obligations',
   qaqc: 'qaqc', safety: 'safety', expenses: 'expenses',
   documents: 'documents', reports: 'reports', handover: 'handover', defects: 'defects',
-  subscription: 'subscription', settings: 'settings',
+  subscription: 'subscription', workforce: 'manage_users', measurements: 'schedule', settings: 'settings',
 };
 
 interface AuthUser {
@@ -199,7 +232,7 @@ function NavBtn({
     : `${base} text-slate-600 hover:bg-blue-50 hover:text-blue-700`;
 
   return (
-    <button onClick={() => setActiveTab(tab)} className={styles}>
+    <button onClick={() => setActiveTab(tab)} className={styles} aria-current={isActive ? 'page' : undefined}>
       {icon} {label}
     </button>
   );
@@ -209,7 +242,8 @@ function NavBtn({
 // Main App Shell
 // ---------------------------------------------------------------------------
 export default function DashboardShell() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const { language, setLanguage, t } = useLanguage();
+  const [activeTab, setActiveTab] = useState<ActiveTab>(tabFromUrl);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [currentDate] = useState<string>(
     () => new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().split('T')[0]
@@ -222,6 +256,8 @@ export default function DashboardShell() {
   // ---- Project switcher ----
   const [projectsList, setProjectsList] = useState<any[]>([]);
   const [showCreateProject, setShowCreateProject] = useState(false);
+  const [activeProjectId, setActiveProjectId] = useState(() => storage.getActiveProjectId());
+  const [projectSwitching, setProjectSwitching] = useState(false);
 
   // ---- Database States ----
   const [project, setProject] = useState<any>(null);
@@ -232,6 +268,7 @@ export default function DashboardShell() {
   const [budgetHeads, setBudgetHeads] = useState<any[]>([]);
   const [subcontractors, setSubcontractors] = useState<any[]>([]);
   const [ipcSubmissions, setIpcSubmissions] = useState<any[]>([]);
+  const [ipcPayments, setIpcPayments] = useState<any[]>([]);
   const [qaqc, setQaqc] = useState<any[]>([]);
   const [safety, setSafety] = useState<any[]>([]);
   const [claims, setClaims] = useState<any[]>([]);
@@ -245,9 +282,24 @@ export default function DashboardShell() {
   const [allExpenses, setAllExpenses] = useState<any[]>([]);
   const [allResourceUsage, setAllResourceUsage] = useState<any[]>([]);
   const [allEmployeeVisits, setAllEmployeeVisits] = useState<any[]>([]);
+  const [isOnline, setIsOnline] = useState(true);
+  const [syncSummary, setSyncSummary] = useState({ pending: 0, conflicts: 0, lastError: undefined as string | undefined });
+
+  const refreshSyncSummary = () => {
+    if (storage.isSupabaseConfigured()) setSyncSummary(storage.getDurableSyncSummary());
+  };
+
+  useEffect(() => {
+    const onPopState = () => setActiveTab(tabFromUrl());
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   // ---- Database loader ----
-  const loadData = () => {
+  const loadData = (role = authUser?.role, expectedProjectId = storage.getActiveProjectId()) => {
+    // A late cloud pull for Project A must never repopulate the UI after the
+    // user selected Project B.
+    if (!isCurrentProject(expectedProjectId, storage.getActiveProjectId())) return;
     setProject(storage.getProject());
     setProjectsList(storage.getProjectsList());
     setActivities(storage.getActivities());
@@ -257,6 +309,7 @@ export default function DashboardShell() {
     setBudgetHeads(storage.getBudgetHeads());
     setSubcontractors(storage.getSubcontractors());
     setIpcSubmissions(storage.getIPCs());
+    setIpcPayments(storage.getIPCPayments());
     setQaqc(storage.getQAQC());
     setSafety(storage.getSafetyLogs());
     setClaims(storage.getClaims());
@@ -266,11 +319,33 @@ export default function DashboardShell() {
     setExpenses(storage.getDailyExpenses());
     setResourceUsage(storage.getDailyResourceUsage());
     setEmployeeVisits(storage.getEmployeeVisits());
-    setAllActivities(storage.getAllActivities());
-    setAllExpenses(storage.getAllDailyExpenses());
-    setAllResourceUsage(storage.getAllDailyResourceUsage());
-    setAllEmployeeVisits(storage.getAllEmployeeVisits());
+    // Portfolio-wide collections are only consumed by the Director dashboard.
+    // Avoid rebuilding those large client-side lists for every field workflow.
+    if (needsPortfolioCollections(role)) {
+      setAllActivities(storage.getAllActivities());
+      setAllExpenses(storage.getAllDailyExpenses());
+      setAllResourceUsage(storage.getAllDailyResourceUsage());
+      setAllEmployeeVisits(storage.getAllEmployeeVisits());
+    } else {
+      setAllActivities([]); setAllExpenses([]); setAllResourceUsage([]); setAllEmployeeVisits([]);
+    }
   };
+
+  useEffect(() => {
+    const updateConnection = () => {
+      setIsOnline(navigator.onLine);
+      if (navigator.onLine && storage.isSupabaseConfigured()) {
+        void storage.flushDurableMutations(storage.getActiveProjectId()).finally(refreshSyncSummary);
+      }
+    };
+    updateConnection();
+    window.addEventListener('online', updateConnection);
+    window.addEventListener('offline', updateConnection);
+    return () => {
+      window.removeEventListener('online', updateConnection);
+      window.removeEventListener('offline', updateConnection);
+    };
+  }, []);
 
   // Restore only sessions verified by Supabase or the signed HttpOnly demo
   // cookie. Browser storage is a display cache and is never an authority for
@@ -289,7 +364,13 @@ export default function DashboardShell() {
       setAuthUser(verified);
       if (verified) localStorage.setItem('bt_auth_user', JSON.stringify(verified));
       else localStorage.removeItem('bt_auth_user');
-      loadData();
+      if (verified && storage.isSupabaseConfigured()) await storage.flushDurableMutations(storage.getActiveProjectId());
+      const requestedProjectId = projectIdFromUrl(window.location.search);
+      if (requestedProjectId && storage.getMembershipForProject(requestedProjectId)) {
+        storage.setActiveProjectId(requestedProjectId);
+        setActiveProjectId(requestedProjectId);
+      }
+      loadData(verified?.role, storage.getActiveProjectId());
       setAuthChecked(true);
     };
 
@@ -307,17 +388,18 @@ export default function DashboardShell() {
     };
   }, []);
 
-  // Keep shared records fresh across roles and devices. Writes remain
-  // optimistic for field connectivity; focus/online events and a lightweight
-  // interval reconcile the active project from the database.
+  // Keep shared records fresh without constantly re-downloading data in a
+  // background or active data-entry session. The daily form owns its retry
+  // path so a failed field submission is not overwritten by an auto-pull.
   useEffect(() => {
-    if (!authUser || !project?.id || !storage.isSupabaseConfigured()) return;
+    if (!authUser || !project?.id || !storage.isSupabaseConfigured() || activeTab === 'daily') return;
     let active = true;
     let refreshing = false;
     const refresh = async (allProjects = false) => {
-      if (refreshing || document.visibilityState === 'hidden') return;
+      if (refreshing || !mayRefreshWorkspace({ online: navigator.onLine, visible: document.visibilityState === 'visible', activeTab })) return;
       refreshing = true;
       try {
+        await storage.flushDurableMutations(project.id);
         if (allProjects) await storage.bootstrapCloudWorkspace();
         else await storage.pullActiveProjectFromCloud();
         if (active) loadData();
@@ -325,18 +407,21 @@ export default function DashboardShell() {
         refreshing = false;
       }
     };
-    const onFocus = () => { void refresh(true); };
+    const onFocus = () => { void refresh(false); };
     const onOnline = () => { void refresh(false); };
-    const timer = window.setInterval(() => { void refresh(false); }, 60_000);
+    const onVisible = () => { if (document.visibilityState === 'visible') void refresh(false); };
+    const timer = window.setInterval(() => { void refresh(false); }, 180_000);
     window.addEventListener('focus', onFocus);
     window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       active = false;
       window.clearInterval(timer);
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [authUser, project?.id]);
+  }, [authUser, project?.id, activeTab]);
 
   // ---- Auth Handlers ----
   const handleAuthSuccess = async (user: AuthUser) => {
@@ -353,7 +438,7 @@ export default function DashboardShell() {
     if (typeof window !== 'undefined') {
       localStorage.setItem('bt_auth_user', JSON.stringify(verified));
     }
-    loadData();
+    loadData(verified.role);
   };
 
   const handleSignOut = async () => {
@@ -392,7 +477,8 @@ export default function DashboardShell() {
     activities,
     budgetHeads,
     ipcSubmissions,
-    currentDate
+    currentDate,
+    { claims, expenses, ipcPayments }
   );
 
   // ---- Smart Alerts ----
@@ -480,16 +566,27 @@ export default function DashboardShell() {
       successor_id: activityIds.get(item.successor_id) || item.successor_id,
     }));
     const wbsWithUniqueIds = result.wbsItems.map((item, index) => ({ ...item, id: `${prefix}-wbs-${index + 1}` }));
-    storage.applyGeneratedSchedule(wbsWithUniqueIds, activitiesWithUniqueIds, dependenciesWithUniqueIds);
-    const sync = await storage.syncActiveProjectToCloud();
-    if (!sync.ok) throw new Error(sync.message);
+    const imported = await storage.importBoqSchedule({
+      projectId: project.id,
+      wbs: wbsWithUniqueIds,
+      activities: activitiesWithUniqueIds,
+      dependencies: dependenciesWithUniqueIds,
+    });
+    if (!imported.ok) throw new Error(imported.issues.map(issue => issue.message).join(' ') || 'The BOQ import could not be completed.');
     loadData();
   };
   const handleAddDependency = (dep: any) => { storage.addDependency(dep); loadData(); };
   const handleDeleteDependency = (id: string) => { storage.deleteDependency(id); loadData(); };
   const handleUpdatePackage = (pkg: any) => { storage.updateDesignPackage(pkg); loadData(); };
   const handleAddComment = (cmt: any) => { storage.addDesignComment(cmt); loadData(); };
-  const handleSubmitDailyReport = (rep: any, work: any[], mats: any[]) => { storage.submitDailyReport(rep, work, mats); loadData(); };
+  const handleSubmitDailyReport = async (rep: any, work: any[], mats: any[], operationId?: string) => {
+    try {
+      await saveDailyWorkUpdate({ projectId: project.id, report: rep, workItems: work, materialItems: mats, operationId });
+      loadData();
+    } finally {
+      refreshSyncSummary();
+    }
+  };
   const handleUpdateBudget = (bdg: any) => { storage.updateBudgetHead(bdg); loadData(); };
   const handleUpdateClaimStatus = (id: string, status: string) => { storage.updateClaim({ id, status }); loadData(); };
   const handleAddClaim = (clm: any) => { storage.addClaim(clm); loadData(); };
@@ -498,35 +595,76 @@ export default function DashboardShell() {
   const handleAddSafetyLog = (sf: any) => { storage.addSafetyLog(sf); loadData(); };
   const handleAddUser = (usr: any) => { storage.addUser(usr); loadData(); };
   const handleUpdateProject = (proj: any) => { storage.updateProject(proj); loadData(); };
-  const handleDeleteDailyReport = async (id: string) => { await storage.deleteDailyReport(id); loadData(); };
+  const handleDeleteDailyReport = async (id: string) => {
+    try { await storage.deleteDailyReport(id); loadData(); }
+    finally { refreshSyncSummary(); }
+  };
+
+  const retryPendingChanges = async () => {
+    if (!storage.isSupabaseConfigured()) return;
+    await storage.flushDurableMutations(project.id);
+    refreshSyncSummary();
+    loadData(authUser.role);
+  };
 
   const handleSwitchProject = async (id: string) => {
+    if (!id || id === activeProjectId || projectSwitching) return;
+    const switchTo = id;
+    // The selector is authoritative. Clear project-bound screen state before
+    // any network work so Project A cannot remain visible during the switch.
+    setProjectSwitching(true);
     storage.setActiveProjectId(id);
+    setActiveProjectId(id);
+    setProject(null);
+    setActivities([]); setDependencies([]); setDesignPackages([]); setDailyReports([]);
+    setBudgetHeads([]); setSubcontractors([]); setIpcSubmissions([]); setIpcPayments([]);
+    setQaqc([]); setSafety([]); setClaims([]); setHandover([]); setDefects([]); setExpenses([]);
+    window.history.pushState({}, '', workspaceUrl(window.location.href, id, 'dashboard'));
     setActiveTab('dashboard');
     const membership = storage.getMembershipForProject(id);
-    if (membership) {
-      const nextUser = { name: membership.name, email: membership.email, role: membership.role, feature_permissions: membership.feature_permissions || null };
-      setAuthUser(nextUser);
-      localStorage.setItem('bt_auth_user', JSON.stringify(nextUser));
+    try {
+      if (membership) {
+        const nextUser = { name: membership.name, email: membership.email, role: membership.role, feature_permissions: membership.feature_permissions || null };
+        setAuthUser(nextUser);
+        localStorage.setItem('bt_auth_user', JSON.stringify(nextUser));
+      }
+      if (navigator.onLine && storage.isSupabaseConfigured()) {
+        await storage.pullActiveProjectFromCloud();
+        await storage.flushDurableMutations(id);
+      }
+      if (isCurrentProject(switchTo, storage.getActiveProjectId())) loadData(membership?.role, switchTo);
+    } finally {
+      if (isCurrentProject(switchTo, storage.getActiveProjectId())) setProjectSwitching(false);
     }
-    await storage.pullActiveProjectFromCloud();
-    loadData();
   };
 
   const activePermissions = authUser.feature_permissions || storage.getMembershipForProject(project.id)?.feature_permissions || null;
   const canAccess = (feature: Feature, access: 'read' | 'write' = 'read') => can(authUser.role, feature, activePermissions, access);
   const isAllowedTab = (tab: ActiveTab) => tab === 'dashboard' || !TAB_FEATURES[tab] || canAccess(TAB_FEATURES[tab]!);
+  const updateTabUrl = (tab: ActiveTab) => {
+    window.history.pushState({}, '', workspaceUrl(window.location.href, activeProjectId, tab));
+  };
   const setActiveTabFromMenu = (tab: ActiveTab) => {
     setActiveTab(tab);
+    updateTabUrl(tab);
     setMobileMenuOpen(false);
   };
   const goToTab = (tab: string) => {
     const next = tab as ActiveTab;
-    setActiveTab(isAllowedTab(next) ? next : 'dashboard');
+    const allowed = isAllowedTab(next) ? next : 'dashboard';
+    setActiveTab(allowed);
+    updateTabUrl(allowed);
     setMobileMenuOpen(false);
   };
   const activeFeature = TAB_FEATURES[activeTab];
   const isReadOnlyFeature = Boolean(activeFeature && canAccess(activeFeature, 'read') && !canAccess(activeFeature, 'write'));
+  const navHeading = ['field_employee', 'site_engineer', 'subcontractor'].includes(authUser.role)
+    ? 'My site work'
+    : authUser.role === 'project_manager'
+      ? 'Project delivery'
+      : authUser.role === 'project_director'
+        ? 'Project oversight'
+        : 'My workspace';
 
   return (
     <div className="app-shell min-h-screen flex flex-col md:flex-row font-sans">
@@ -576,15 +714,17 @@ export default function DashboardShell() {
 
         {/* Tab Links */}
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-180px)]">
-          <div className="text-[9px] font-bold text-slate-500 uppercase px-2 mb-1.5 tracking-wider">Project Operations</div>
-          <NavBtn tab="dashboard" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📊" label="My Dashboard" />
-          {canAccess('schedule') && <NavBtn tab="cpm" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📅" label="BOQ & Work Schedule" />}
+          <div className="text-[9px] font-bold text-slate-500 uppercase px-2 mb-1.5 tracking-wider">{navHeading === 'My site work' ? t('shell.mySiteWork') : navHeading === 'Project delivery' ? t('shell.projectDelivery') : navHeading === 'Project oversight' ? t('shell.projectOversight') : t('shell.myWorkspace')}</div>
+          <NavBtn tab="dashboard" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📊" label={t('nav.dashboard')} />
+          {canAccess('schedule') && <NavBtn tab="cpm" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📅" label={t('nav.schedule')} />}
+          {canAccess('schedule') && <NavBtn tab="measurements" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📐" label="BOQ Measurement" />}
           {canAccess('schedule') && <NavBtn tab="expected_actual" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📈" label="Expected vs Actual" />}
-          {canAccess('daily_reports') && <NavBtn tab="daily" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📝" label="Daily Site Reporting" />}
-          {canAccess('operations') && <NavBtn tab="operations" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🚜" label="Resources & Productivity" />}
+          {canAccess('daily_reports') && <NavBtn tab="daily" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📝" label={t('nav.daily')} />}
+          {canAccess('operations') && <NavBtn tab="operations" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🚜" label={t('nav.operations')} />}
+          {canAccess('manage_users') && <NavBtn tab="workforce" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="👥" label="Employee & Workforce" />}
           {canAccess('view_evidence') && <NavBtn tab="evidence" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🖼️" label="Director Evidence Vault" />}
 
-          <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Engineering & Controls</div>
+          <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">{t('shell.additionalTools')}</div>
           {canAccess('budget') && <NavBtn tab="budget" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="💰" label="Budget & Costs" />}
           {canAccess('ipc') && <NavBtn tab="ipc" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label="IPC Billing / Valuation" />}
           {canAccess('claims') && <NavBtn tab="claims" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⚖️" label="Variations & Claims" />}
@@ -596,9 +736,9 @@ export default function DashboardShell() {
           {canAccess('safety') && <NavBtn tab="safety" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🦺" label="Safety / EHS Logs" />}
 
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Finance & Documents</div>
-          {canAccess('expenses') && <NavBtn tab="expenses" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label="Daily Expense Register" accent="emerald" />}
-          {canAccess('documents') && <NavBtn tab="documents" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📁" label="Compliance & Documents" accent="emerald" />}
-          {canAccess('reports') && <NavBtn tab="reports" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📤" label="Reports & Exports" accent="emerald" />}
+          {canAccess('expenses') && <NavBtn tab="expenses" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label={t('nav.expenses')} accent="emerald" />}
+          {canAccess('documents') && <NavBtn tab="documents" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📁" label={t('nav.documents')} accent="emerald" />}
+          {canAccess('reports') && <NavBtn tab="reports" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📤" label={t('nav.reports')} accent="emerald" />}
 
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Completion Dossier</div>
           {canAccess('handover') && <NavBtn tab="handover" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🔑" label="Handover Checklist" />}
@@ -606,7 +746,7 @@ export default function DashboardShell() {
 
           <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Account & Setup</div>
           {canAccess('subscription') && <NavBtn tab="subscription" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label="Service & Billing" accent="purple" />}
-          {canAccess('settings') && <NavBtn tab="settings" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⚙️" label="System Settings" />}
+          {canAccess('settings') && <NavBtn tab="settings" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⚙️" label={t('nav.settings')} />}
         </nav>
       </aside>
 
@@ -625,8 +765,9 @@ export default function DashboardShell() {
               <span className="rounded-lg bg-purple-50 px-3 py-2 text-xs font-bold text-purple-700">Platform Subscription Console</span>
             ) : <>
               <select
-                value={project.id}
+                value={activeProjectId}
                 onChange={(e) => { void handleSwitchProject(e.target.value); }}
+                disabled={projectSwitching}
                 className="bg-slate-950 border border-slate-800 px-3 py-2 rounded-lg text-xs text-slate-200 font-semibold focus:outline-none max-w-[180px] md:max-w-[300px] truncate"
               >
                 {projectsList.map((p: any) => (
@@ -646,23 +787,28 @@ export default function DashboardShell() {
           <div className="flex items-center gap-3 shrink-0">
             <div className="flex items-center gap-1 text-slate-500 hidden lg:flex">
               <span>📅</span>
-              <span className="font-mono">{formatBsDate(currentDate, { long: true })}</span>
+              <span className="font-mono">{formatBsDate(currentDate, { long: true, language })}</span>
             </div>
 
             {/* Role indicator */}
             <div className="flex items-center gap-1.5">
-              <span className="text-slate-500 hidden sm:inline">Role:</span>
+              <span className="text-slate-500 hidden sm:inline">{t('shell.role')}:</span>
               <span className="bg-slate-800 border border-slate-700 px-2 py-0.5 rounded text-[10px] text-blue-400 font-bold capitalize">
                 {ROLE_LABELS[normalizeRole(authUser.role)]}
               </span>
             </div>
+            <label className="sr-only" htmlFor="language">Language</label><select id="language" value={language} onChange={event => setLanguage(event.target.value as typeof language)} className="min-h-9 rounded-lg border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700"><option value="ne">नेपाली</option><option value="en">English</option></select>
           </div>
         </header>
+        {!isOnline && <div role="status" className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-950">{t('common.noConnection')} Changes are preserved on this device and will retry when you reconnect.</div>}
+        {isOnline && syncSummary.conflicts > 0 && <div role="alert" className="flex flex-wrap items-center justify-between gap-2 border-b border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-950"><span>{syncSummary.conflicts} saved-on-device change{syncSummary.conflicts === 1 ? '' : 's'} need review before they can be synchronized. {syncSummary.lastError || ''}</span><button type="button" onClick={() => void retryPendingChanges()} className="min-h-9 rounded-md bg-rose-700 px-3 py-1.5 font-bold text-white">Retry connection</button></div>}
+        {isOnline && syncSummary.conflicts === 0 && syncSummary.pending > 0 && <div role="status" className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-950"><span>{syncSummary.pending} change{syncSummary.pending === 1 ? '' : 's'} saved on this device and awaiting cloud confirmation. {syncSummary.lastError || ''}</span><button type="button" onClick={() => void retryPendingChanges()} className="min-h-9 rounded-md bg-amber-700 px-3 py-1.5 font-bold text-white">Retry now</button></div>}
 
         {/* ---- Active Dashboard Panel ---- */}
-        <main className="app-main flex-1 p-4 md:p-6 overflow-y-auto max-h-[calc(100vh-56px)]">
+        <main id="main-content" className="app-main flex-1 p-4 md:p-6 overflow-y-auto max-h-[calc(100vh-56px)]" tabIndex={-1}>
+          {activeTab !== 'dashboard' && <div className="mb-5 flex flex-col gap-1 border-b border-slate-200 pb-4 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-wide text-blue-700">{t('shell.projectContext')} · {project.name}</p><h1 className="text-2xl font-extrabold text-slate-900">{TAB_TITLES[activeTab].title}</h1><p className="text-sm text-slate-600">{TAB_TITLES[activeTab].description}</p></div><button onClick={() => goToTab('dashboard')} className="min-h-10 self-start rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">{t('common.back')}</button></div>}
           {isReadOnlyFeature && <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-950">Your Project Director granted view-only access to this module. Editing and uploads are disabled.</div>}
-          <div className={isReadOnlyFeature ? 'feature-read-only' : ''} aria-readonly={isReadOnlyFeature}>
+          {!isAllowedTab(activeTab) ? <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-950"><h1 className="font-bold">{t('common.accessDenied')}</h1><p className="mt-1 text-sm">Ask your Project Director to review your access, or return to your dashboard.</p><button onClick={() => goToTab('dashboard')} className="mt-3 min-h-10 rounded-lg bg-amber-700 px-3 py-2 text-sm font-bold text-white">{t('common.back')}</button></div> : <div className={isReadOnlyFeature ? 'feature-read-only' : ''} aria-readonly={isReadOnlyFeature}>
           {activeTab === 'dashboard' && (
             authUser.role === 'project_director' ? (
               <DirectorPortfolioDashboard
@@ -719,6 +865,8 @@ export default function DashboardShell() {
               currentDate={currentDate}
             />
           )}
+
+          {activeTab === 'measurements' && <BoqMeasurementDashboard projectId={project.id} canReview={authUser.role === 'project_director'} />}
 
           {activeTab === 'daily' && (
             <DailyReportingDashboard
@@ -782,7 +930,7 @@ export default function DashboardShell() {
           {activeTab === 'claims' && <CommercialControlWorkspace key={`commercial-${project.id}`} projectId={project.id} role={authUser.role} />}
 
           {activeTab === 'procurement' && (
-            <ProcurementStoresDashboard key={project.id} projectId={project.id} />
+            <ProcurementStoresDashboard key={project.id} projectId={project.id} canEdit={canAccess('procurement', 'write')} />
           )}
 
           {activeTab === 'obligations' && (
@@ -851,6 +999,8 @@ export default function DashboardShell() {
 
           {activeTab === 'subscription' && <SubscriptionDashboard />}
 
+          {activeTab === 'workforce' && <EmployeeWorkforceDashboard organizationId={project.organization_id} projectId={project.id} canManage={authUser.role === 'business_admin'} />}
+
           {activeTab === 'settings' && (
             <SettingsPanel
               users={users}
@@ -862,7 +1012,7 @@ export default function DashboardShell() {
               onUsersChanged={loadData}
             />
           )}
-          </div>
+          </div>}
         </main>
       </div>
     </div>

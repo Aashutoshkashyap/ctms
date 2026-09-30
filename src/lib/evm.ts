@@ -1,5 +1,6 @@
 // Earned Value Management (EVM) and Risk Projections Engine
-import { Activity, diffDays } from './cpm';
+import { Activity } from './cpm';
+import { calculateProjectFinancials, calculateProjectProgress } from './projectMetrics';
 
 export interface EVMMetrics {
   contractAmount: number;
@@ -23,57 +24,28 @@ export function calculateEVM(
   activities: Activity[],
   budgetHeads: any[],
   ipcSubmissions: any[],
-  currentDateStr: string
+  currentDateStr: string,
+  options: { claims?: any[]; expenses?: any[]; ipcPayments?: any[] } = {},
 ): EVMMetrics {
-  // 1. Calculate Overall Planned Progress
-  let totalPlannedProgress = 0;
-  activities.forEach(act => {
-    let actPlannedProgress = 0;
-    const start = act.baseline_start;
-    const finish = act.baseline_finish;
-    
-    if (diffDays(currentDateStr, start) > 0) {
-      // Current date is before baseline start
-      actPlannedProgress = 0;
-    } else if (diffDays(finish, currentDateStr) >= 0) {
-      // Current date is after baseline finish
-      actPlannedProgress = 1.0;
-    } else {
-      // Current date is in between
-      const totalDays = diffDays(start, finish);
-      const elapsedDays = diffDays(start, currentDateStr);
-      actPlannedProgress = totalDays > 0 ? elapsedDays / totalDays : 0;
-    }
-    
-    totalPlannedProgress += actPlannedProgress * act.weightage;
+  const progress = calculateProjectProgress(activities, currentDateStr);
+  const financials = calculateProjectFinancials({
+    contractAmount: projectAmount,
+    budgetHeads,
+    claims: options.claims,
+    expenses: options.expenses,
+    ipcSubmissions,
+    ipcPayments: options.ipcPayments,
   });
-
-  // 2. Calculate Overall Actual Progress
-  let totalActualProgress = 0;
-  activities.forEach(act => {
-    let actActualProgress = 0;
-    if (act.status === 'completed') {
-      actActualProgress = 1.0;
-    } else if (act.status === 'in_progress') {
-      actActualProgress = act.planned_quantity > 0 
-        ? act.actual_quantity / act.planned_quantity 
-        : 0;
-    }
-    totalActualProgress += actActualProgress * act.weightage;
-  });
-
-  // Bound progress values to [0, 100]
-  const plannedProgress = Math.max(0, Math.min(100, totalPlannedProgress));
-  const actualProgress = Math.max(0, Math.min(100, totalActualProgress));
-  const scheduleVariance = actualProgress - plannedProgress;
+  const { plannedProgress, actualProgress, scheduleVariance } = progress;
+  const projectValue = financials.revisedContractAmount;
 
   // Earned Value and Planned Value
-  const earnedValue = projectAmount * (actualProgress / 100);
-  const plannedValue = projectAmount * (plannedProgress / 100);
+  const earnedValue = projectValue * (actualProgress / 100);
+  const plannedValue = projectValue * (plannedProgress / 100);
 
   // 3. Actual Cost from Budget Heads
-  const actualCost = budgetHeads.reduce((sum, bh) => sum + Number(bh.actual_cost || 0), 0);
-  const internalBudget = budgetHeads.reduce((sum, bh) => sum + Number(bh.internal_budget || 0), 0);
+  const actualCost = financials.budgetActualCost;
+  const internalBudget = budgetHeads.reduce((sum, bh) => sum + (Number.isFinite(Number(bh.internal_budget)) ? Number(bh.internal_budget) : 0), 0);
 
   // CPI and SPI
   const cpi = actualCost > 0 ? earnedValue / actualCost : 1.0;
@@ -87,19 +59,12 @@ export function calculateEVM(
   // Work done value is equivalent to Earned Value (or contract value of actual completed)
   const workDoneValue = earnedValue; 
   
-  const totalIPCClaimed = ipcSubmissions.reduce((sum, ipc) => sum + Number(ipc.claimed_amount || 0), 0);
-  const totalIPCCertified = ipcSubmissions.reduce((sum, ipc) => sum + Number(ipc.certified_amount || 0), 0);
-  const totalPaymentReceived = ipcSubmissions.reduce((sum, ipc) => {
-    if (ipc.status === 'paid') return sum + Number(ipc.paid_amount || ipc.certified_amount || 0);
-    return sum;
-  }, 0);
-
-  const billingGap = Math.max(0, workDoneValue - totalIPCClaimed);
-  const paymentGap = Math.max(0, totalIPCCertified - totalPaymentReceived);
-  const cashGap = Math.max(0, actualCost - totalPaymentReceived);
+  const billingGap = Math.max(0, workDoneValue - financials.billedAmount);
+  const paymentGap = financials.outstandingAmount;
+  const cashGap = Math.max(0, actualCost - financials.paidAmount);
 
   return {
-    contractAmount: projectAmount,
+    contractAmount: projectValue,
     plannedProgress,
     actualProgress,
     scheduleVariance,

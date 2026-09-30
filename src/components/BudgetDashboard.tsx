@@ -1,6 +1,7 @@
 // Budget and Cost Dashboard Component (Page 6)
 import React, { useState } from 'react';
 import { EVMMetrics } from '../lib/evm';
+import { sumBudgetValues } from '../lib/projectMetrics';
 
 interface BudgetDashboardProps {
   budgetHeads: any[];
@@ -37,10 +38,8 @@ export default function BudgetDashboard({
     alert('Actual cost updated successfully.');
   };
 
-  const totalContract = budgetHeads.reduce((sum, b) => sum + Number(b.contract_value), 0);
-  const totalBudget = budgetHeads.reduce((sum, b) => sum + Number(b.internal_budget), 0);
-  const totalActual = budgetHeads.reduce((sum, b) => sum + Number(b.actual_cost), 0);
-  const totalCommitted = budgetHeads.reduce((sum, b) => sum + Number(b.committed_cost), 0);
+  const budgetTotals = sumBudgetValues(budgetHeads);
+  const { contractValue: totalContract, internalBudget: totalBudget, actualCost: totalActual, committedCost: totalCommitted } = budgetTotals;
 
   return (
     <div className="space-y-6">
@@ -55,7 +54,7 @@ export default function BudgetDashboard({
         <div className="bg-slate-800/50 border border-slate-700/40 p-4 rounded-xl shadow-lg">
           <div className="text-slate-400 text-xs font-semibold uppercase">Actual Cost (AC)</div>
           <div className="text-xl font-bold mt-1 text-rose-400">NPR {(totalActual / 1000000).toFixed(2)}M</div>
-          <div className="text-[9px] text-slate-500 mt-2">Sum of cash expenses logged at site</div>
+          <div className="text-[9px] text-slate-500 mt-2">Budget-head actual cost; separate from the daily expense register</div>
         </div>
 
         <div className="bg-slate-800/50 border border-slate-700/40 p-4 rounded-xl shadow-lg">

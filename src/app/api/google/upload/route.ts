@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   if (!config) return NextResponse.json({ ok: false, message: 'Google OAuth is not configured.' }, { status: 503 });
   const projectId = request.headers.get('x-buildtrack-project') || '';
   if (!projectId) return NextResponse.json({ ok: false, message: 'Project is required.' }, { status: 400 });
-  const authorization = await authorizeGoogleRequest(request, projectId, UPLOAD_ROLES);
+  const authorization = await authorizeGoogleRequest(request, projectId, UPLOAD_ROLES, 'upload_evidence', 'write');
   if ('error' in authorization) return NextResponse.json({ ok: false, message: authorization.error }, { status: authorization.status });
 
   const form = await request.formData();

@@ -5,9 +5,16 @@ import { getGoogleSecuritySecret, getGoogleWorkspaceConfig } from '../../../../l
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
+  const projectId = new URL(request.url).searchParams.get('projectId') || '';
+  if (!projectId) return NextResponse.json({ configured: false, connected: false, message: 'Project is required.' }, { status: 400 });
+  const authorization = await authorizeGoogleRequest(request, projectId, [
+    'project_director', 'business_admin', 'project_manager', 'planning_engineer', 'site_engineer', 'field_employee',
+    'qa_qc_engineer', 'safety_officer', 'qs_billing_engineer', 'accountant', 'store_officer',
+    'design_coordinator', 'subcontractor',
+  ], 'upload_evidence', 'read');
+  if ('error' in authorization) return NextResponse.json({ configured: false, connected: false, message: authorization.error }, { status: authorization.status });
   const config = getGoogleWorkspaceConfig(request);
   const secured = Boolean(getGoogleSecuritySecret());
-  const projectId = new URL(request.url).searchParams.get('projectId') || '';
   if (!config || !secured) {
     return NextResponse.json({
       configured: false,
@@ -18,13 +25,6 @@ export async function GET(request: Request) {
       ],
     }, { headers: { 'Cache-Control': 'no-store' } });
   }
-  if (!projectId) return NextResponse.json({ configured: true, connected: false, message: 'Project is required.' }, { status: 400 });
-  const authorization = await authorizeGoogleRequest(request, projectId, [
-    'project_director', 'business_admin', 'project_manager', 'planning_engineer', 'site_engineer', 'field_employee',
-    'qa_qc_engineer', 'safety_officer', 'qs_billing_engineer', 'accountant', 'store_officer',
-    'design_coordinator', 'subcontractor',
-  ]);
-  if ('error' in authorization) return NextResponse.json({ configured: true, connected: false, message: authorization.error }, { status: authorization.status });
   const connection = await readGoogleConnection(authorization.admin, projectId);
   const { data: previousConnection } = connection ? { data: null } : await authorization.admin
     .from('google_connections')

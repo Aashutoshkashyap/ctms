@@ -3,6 +3,7 @@ import { Activity } from '../lib/cpm';
 import { EVMMetrics } from '../lib/evm';
 import { storage } from '../lib/storage';
 import { formatBsDate } from '../lib/nepaliDate';
+import { csvSafeRows, escapeReportHtml } from '../lib/reportSafety';
 
 type ReportType = 'daily'|'weekly'|'monthly'|'ipc'|'claims'|'quality'|'safety'|'handover';
 interface Props { project:any; activities:Activity[]; evm:EVMMetrics; dailyReports:any[]; ipc:any[]; claims:any[]; qaqc:any[]; safety:any[]; handover:any[]; userRole:string; }
@@ -14,7 +15,7 @@ export default function ReportCenter(props:Props){
     let body='';let mime='text/plain';const ext=format;
     if(format==='html'){body=`<!doctype html><html><head><meta charset="utf-8"><title>${generated.title}</title><style>body{font-family:Arial;padding:32px;max-width:1000px;margin:auto}h1{color:#17365d}table{border-collapse:collapse;width:100%;margin:18px 0}th,td{border:1px solid #ccc;padding:8px;text-align:left}th{background:#eef3f8}.metric{display:inline-block;padding:12px;margin:4px;background:#eef3f8}</style></head><body>${generated.html}</body></html>`;mime='text/html';}
     if(format==='json'){body=JSON.stringify(generated.data,null,2);mime='application/json';}
-    if(format==='csv'){const rows=generated.rows||[];body=rows.map(row=>row.map(cell=>`"${String(cell??'').replaceAll('"','""')}"`).join(',')).join('\n');mime='text/csv';}
+    if(format==='csv'){const rows=generated.rows||[];body=csvSafeRows(rows);mime='text/csv';}
     const url=URL.createObjectURL(new Blob([body],{type:mime}));const a=document.createElement('a');a.href=url;a.download=`${props.project.name.replace(/[^a-z0-9]+/gi,'-').toLowerCase()}-${type}.${ext}`;a.click();URL.revokeObjectURL(url);
   };
   return <div className="space-y-5 text-xs">
@@ -27,7 +28,7 @@ export default function ReportCenter(props:Props){
 
 function buildReport(type:ReportType,p:Props){
   const project=p.project;const now=new Date();const today=new Date(now.getTime()-now.getTimezoneOffset()*60_000).toISOString().split('T')[0];
-  const head=`<h1>${project.name}</h1><p><b>${label(type)}</b> · Generated ${formatBsDate(today, { long: true })}</p><p>Contract ${project.contract_number||'—'} · ${project.currency} ${Number(project.contract_amount).toLocaleString()}</p>`;
+  const head=`<h1>${escapeReportHtml(project.name)}</h1><p><b>${label(type)}</b> · Generated ${escapeReportHtml(formatBsDate(today, { long: true }))}</p><p>Contract ${escapeReportHtml(project.contract_number||'—')} · ${escapeReportHtml(project.currency)} ${Number(project.contract_amount).toLocaleString()}</p>`;
   const metrics=`<div><span class="metric">Planned ${p.evm.plannedProgress.toFixed(1)}%</span><span class="metric">Actual ${p.evm.actualProgress.toFixed(1)}%</span><span class="metric">SPI ${p.evm.spi.toFixed(2)}</span><span class="metric">CPI ${p.evm.cpi.toFixed(2)}</span></div>`;
   let rows:any[][]=[];let section='';
   if(type==='daily'){rows=[['Date (BS)','Weather','Manpower','Equipment','Obstruction'],...p.dailyReports.map(r=>[formatBsDate(r.report_date),r.weather,r.manpower_total,r.equipment_total,r.obstruction_reasons])];section=table(rows);}
@@ -41,5 +42,5 @@ function buildReport(type:ReportType,p:Props){
   return{title:label(type),html:`${head}${section}`,rows,data:{project,type,generated_at:new Date().toISOString(),metrics:p.evm,rows,photos:p.userRole==='project_director'?storage.getSitePhotos():[]}};
 }
 function table(rows:any[][]){if(!rows.length)return'<p>No records available.</p>';return `<table><thead><tr>${rows[0].map(v=>`<th>${esc(v)}</th>`).join('')}</tr></thead><tbody>${rows.slice(1).map(row=>`<tr>${row.map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>`}
-function esc(value:any){return String(value??'—').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
+function esc(value:any){return escapeReportHtml(value)}
 function label(type:ReportType){return({daily:'Daily Site Report Register',weekly:'Weekly Lookahead Plan',monthly:'Monthly Progress Report',ipc:'IPC Support File',claims:'Variation and EOT Support Report',quality:'QA/QC Dossier',safety:'Safety and EHS Report',handover:'Handover Dossier'} as Record<ReportType,string>)[type]}

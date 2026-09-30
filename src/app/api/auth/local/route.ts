@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import {
   createDemoSession,
+  demoAuthEnabled,
   DEMO_SESSION_COOKIE,
   DEMO_SESSION_MAX_AGE_SECONDS,
   getClientIp,
@@ -69,6 +70,7 @@ async function sha256(value: string) {
 }
 
 export async function POST(request: Request) {
+  if (!demoAuthEnabled()) return Response.json({ error: 'Local demo authentication is disabled.' }, { status: 403 });
   const ip = getClientIp(request);
   const limit = rateLimit({ key: `local-auth:${ip}`, limit: 8, windowMs: 60_000 });
   if (!limit.allowed) return rateLimitResponse(limit.resetAt);

@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, message: 'Project, valid recipient, subject and message are required.' }, { status: 400 });
   }
   if (subject.length > 200 || message.length > 20_000) return NextResponse.json({ ok: false, message: 'Email content is too long.' }, { status: 413 });
-  const authorization = await authorizeGoogleRequest(request, projectId, ['project_director', 'project_manager']);
+  const authorization = await authorizeGoogleRequest(request, projectId, ['project_director', 'project_manager'], 'reports', 'write');
   if ('error' in authorization) return NextResponse.json({ ok: false, message: authorization.error }, { status: authorization.status });
   const connection = await readGoogleConnection(authorization.admin, projectId);
   if (!connection?.encrypted_refresh_token) return NextResponse.json({ ok: false, message: 'The Project Director has not connected Google Workspace.' }, { status: 409 });

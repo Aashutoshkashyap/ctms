@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getPlatformAdminClient } from '../../../../lib/server/platformAdmin';
 import { getClientIp, rateLimit, rateLimitResponse } from '../../../../lib/server/security';
+import { can } from '../../../../lib/permissions';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,29 +24,37 @@ export async function GET(request: Request) {
   if (!token) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 });
   const { data: auth, error: authError } = await admin.auth.getUser(token);
   if (authError || !auth.user) return NextResponse.json({ error: 'Your session could not be verified.' }, { status: 401 });
+  const platform = await admin.from('platform_admins').select('auth_user_id').eq('auth_user_id', auth.user.id).maybeSingle();
+  if (platform.error || platform.data) return NextResponse.json({ error: 'Tenant billing access is required.' }, { status: 403 });
 
   let organizationId = '';
   const { data: organizationMembership } = await admin
     .from('organization_members')
-    .select('organization_id,status')
+    .select('organization_id,status,role')
     .eq('auth_user_id', auth.user.id)
     .eq('status', 'active')
     .limit(1)
     .maybeSingle();
   organizationId = organizationMembership?.organization_id || '';
+  let billingAllowed = Boolean(organizationMembership && ['business_admin', 'project_director'].includes(organizationMembership.role));
   if (!organizationId) {
     const { data: projectMembership } = await admin
       .from('project_users')
-      .select('project_id')
+      .select('project_id,role,feature_permissions')
       .eq('auth_user_id', auth.user.id)
       .limit(1)
       .maybeSingle();
     if (projectMembership?.project_id) {
       const { data: project } = await admin.from('projects').select('organization_id').eq('id', projectMembership.project_id).maybeSingle();
       organizationId = project?.organization_id || '';
+      billingAllowed = can(projectMembership.role, 'subscription', projectMembership.feature_permissions);
     }
   }
   if (!organizationId) return NextResponse.json({ error: 'No business tenant is assigned to this account.' }, { status: 404 });
+  const membershipState = await admin.from('organization_members').select('status').eq('organization_id', organizationId).eq('auth_user_id', auth.user.id).maybeSingle();
+  if (membershipState.error || (membershipState.data && membershipState.data.status !== 'active') || !billingAllowed) {
+    return NextResponse.json({ error: 'Tenant billing access is required.' }, { status: 403 });
+  }
 
   const currentDate = today();
   const [organization, notifications, transactions] = await Promise.all([
@@ -62,7 +71,7 @@ export async function GET(request: Request) {
       .order('created_at', { ascending: false })
       .limit(50),
   ]);
-  if (organization.error) return NextResponse.json({ error: organization.error.message }, { status: 404 });
+  if (organization.error || !organization.data) return NextResponse.json({ error: 'Tenant billing information is unavailable.' }, { status: 404 });
   const accessUntil = organization.data.access_until as string | null;
   return NextResponse.json({
     organization: organization.data,

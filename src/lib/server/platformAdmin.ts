@@ -1,6 +1,4 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { cookies } from 'next/headers';
-import { DEMO_SESSION_COOKIE, readDemoSession } from './security';
 
 export type PlatformAuthorization = {
   admin: SupabaseClient;
@@ -41,15 +39,5 @@ export async function authorizePlatformOwner(request: Request) {
     }
   }
 
-  const cookieStore = await cookies();
-  const demo = await readDemoSession(cookieStore.get(DEMO_SESSION_COOKIE)?.value);
-  if (demo?.role === 'super_admin') {
-    const { data: platformAdmin } = await admin
-      .from('platform_admins')
-      .select('auth_user_id,email')
-      .eq('email', demo.email)
-      .maybeSingle();
-    if (platformAdmin) return { admin, actorId: platformAdmin.auth_user_id, actorEmail: platformAdmin.email } as PlatformAuthorization;
-  }
   return { error: 'Platform Superadmin access is required.', status: 403 } as const;
 }

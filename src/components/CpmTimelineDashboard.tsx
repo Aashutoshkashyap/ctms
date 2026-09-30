@@ -4,6 +4,7 @@ import { Activity, Dependency, diffDays, addDays } from '../lib/cpm';
 import BsDatePicker from './BsDatePicker';
 import { formatBsDate } from '../lib/nepaliDate';
 import { generateWbsFromTender } from '../lib/ai';
+import { activityActualProgress } from '../lib/projectMetrics';
 
 interface CpmTimelineDashboardProps {
   activities: Activity[];
@@ -59,7 +60,7 @@ export default function CpmTimelineDashboard({
     const forecastDelay = Math.max(0, diffDays(act.baseline_finish, forecastFinish));
     const overdueDays = act.status === 'completed' ? 0 : Math.max(0, diffDays(act.baseline_finish, today));
     const delayDays = Math.max(forecastDelay, overdueDays);
-    const progress = act.planned_quantity > 0 ? (act.actual_quantity / act.planned_quantity) * 100 : 0;
+    const progress = activityActualProgress(act);
     if (act.status === 'completed') return delayDays > 0
       ? { delayDays, remark: `Completed ${delayDays} day${delayDays === 1 ? '' : 's'} after baseline — retain as delay record` }
       : { delayDays: 0, remark: 'Completed within baseline' };
@@ -214,10 +215,10 @@ export default function CpmTimelineDashboard({
           <textarea required rows={7} value={tenderText} onChange={event=>setTenderText(event.target.value)} className="w-full rounded-lg p-3" placeholder="Example: Item 1 site establishment; Item 2 excavation in soil 12,000 m3; Item 3 PCC bedding 450 m3; Item 4 RCC foundation…" />
           <div className="flex flex-wrap gap-2">
             <button disabled={tenderBusy} className="rounded-lg bg-purple-700 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60">{tenderBusy?'Generating…':'Generate BOQ draft'}</button>
-            {tenderResult&&<button type="button" disabled={tenderBusy||activities.length>0} onClick={()=>void applyTenderSchedule()} className="rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">Use generated BOQ schedule</button>}
+            {tenderResult&&<button type="button" disabled={tenderBusy} onClick={()=>void applyTenderSchedule()} className="rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">Review and safely import BOQ schedule</button>}
           </div>
           {tenderMessage&&<div className="rounded-lg bg-purple-50 p-3 text-sm text-purple-900">{tenderMessage}</div>}
-          {activities.length>0&&<div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">This project already has BOQ work items. To protect linked daily reports and finance records, generated schedules can only be applied to a blank project. Manual BOQ entry remains available.</div>}
+          {activities.length>0&&<div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">This project already has BOQ work. Import adds new items and updates only deterministic matches; it never removes existing BOQ items, activities, links, daily records, or finance records. Any ambiguous item is stopped and reported.</div>}
           {tenderResult&&<div className="max-h-64 overflow-auto rounded-lg border border-slate-200"><table className="w-full text-left text-xs"><thead><tr><th className="p-2">BOQ</th><th className="p-2">Description of work</th><th className="p-2">Duration</th><th className="p-2">Quantity</th></tr></thead><tbody>{tenderResult.activities.map(item=><tr key={item.id}><td className="p-2 font-mono">{item.wbs_code}</td><td className="p-2 font-semibold text-slate-900">{item.name}</td><td className="p-2">{item.planned_duration} days</td><td className="p-2">{item.planned_quantity} {item.unit}</td></tr>)}</tbody></table></div>}
         </form>
       )}
@@ -376,7 +377,7 @@ export default function CpmTimelineDashboard({
                       {act.status === 'in_progress' && (
                         <div 
                           className="bg-emerald-400/30 h-full"
-                          style={{ width: `${(act.actual_quantity / (act.planned_quantity || 1)) * 100}%` }}
+                          style={{ width: `${activityActualProgress(act)}%` }}
                         ></div>
                       )}
                     </div>

@@ -2,14 +2,16 @@ import React, { useMemo, useState } from 'react';
 import { ProcurementOrder, StoreItem, storage } from '../lib/storage';
 import BsDatePicker from './BsDatePicker';
 import { formatBsDate } from '../lib/nepaliDate';
+import RecordDetailsDialog from './RecordDetailsDialog';
 
-export default function ProcurementStoresDashboard({ projectId }: { projectId: string }) {
+export default function ProcurementStoresDashboard({ projectId, canEdit = false }: { projectId: string; canEdit?: boolean }) {
   const [orders, setOrders] = useState<ProcurementOrder[]>(() => storage.getProcurementOrders());
   const [items, setItems] = useState<StoreItem[]>(() => storage.getStoreItems());
   const [view, setView] = useState<'procurement' | 'stores'>('procurement');
   const [showForm, setShowForm] = useState(false);
   const [editingPoId, setEditingPoId] = useState<string | null>(null);
   const [editingStockId, setEditingStockId] = useState<string | null>(null);
+  const [selectedRecord, setSelectedRecord] = useState<Record<string, unknown> | null>(null);
 
   const [po, setPo] = useState({
     po_number: '', vendor: '', item: '', quantity: 1, unit: 'No.', unit_rate: 0,
@@ -80,9 +82,9 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
           <h2 className="text-base font-semibold text-slate-100">Procurement & Stores Control</h2>
           <p className="text-slate-400">Purchase commitments, delivery dates, receipts, issues and reorder alerts.</p>
         </div>
-        <button onClick={() => setShowForm(value => !value)} className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg font-semibold text-white">
+        {canEdit && <button onClick={() => setShowForm(value => !value)} className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg font-semibold text-white">
           + {view === 'procurement' ? 'New Purchase Order' : 'New Store Item'}
-        </button>
+        </button>}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -96,7 +98,7 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
         <button onClick={() => { setView('stores'); setShowForm(false); }} className={`px-4 py-2 rounded ${view === 'stores' ? 'bg-blue-600' : 'text-slate-400'}`}>Stores Ledger</button>
       </div>
 
-      {showForm && view === 'procurement' && (
+      {canEdit && showForm && view === 'procurement' && (
         <form onSubmit={saveOrder} className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-800/60 border border-slate-700 p-4 rounded-xl">
           <Field label="PO Number"><input required value={po.po_number} onChange={e => setPo({...po, po_number:e.target.value})} /></Field>
           <Field label="Vendor"><input required value={po.vendor} onChange={e => setPo({...po, vendor:e.target.value})} /></Field>
@@ -112,7 +114,7 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
         </form>
       )}
 
-      {showForm && view === 'stores' && (
+      {canEdit && showForm && view === 'stores' && (
         <form onSubmit={saveStock} className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-800/60 border border-slate-700 p-4 rounded-xl">
           <Field label="Item Code"><input required value={stock.item_code} onChange={e => setStock({...stock, item_code:e.target.value})} /></Field>
           <Field label="Item Name"><input required value={stock.item_name} onChange={e => setStock({...stock, item_name:e.target.value})} /></Field>
@@ -131,14 +133,15 @@ export default function ProcurementStoresDashboard({ projectId }: { projectId: s
       <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-4 overflow-x-auto">
         {view === 'procurement' ? (
           <table className="w-full min-w-[980px]"><thead><tr className="text-slate-400 border-b border-slate-700">{['PO','Vendor / Item','Qty','Value','Order Date (BS)','Delivery Date (BS)','Delivered','Status','Remarks','Action'].map(h => <th key={h} className="text-left py-2">{h}</th>)}</tr></thead>
-            <tbody>{orders.map(order => <tr key={order.id} className="border-b border-slate-800"><td className="py-3 font-mono">{order.po_number}</td><td><b>{order.vendor}</b><div className="text-slate-500">{order.item}</div></td><td>{order.quantity} {order.unit}</td><td>NPR {(order.quantity * order.unit_rate).toLocaleString()}</td><td>{formatBsDate(order.order_date || order.required_date)}</td><td>{formatBsDate(order.delivery_date || order.expected_date)}</td><td>{order.delivered_quantity}</td><td><Badge value={order.status} /></td><td>{order.remarks || '—'}</td><td><div className="flex gap-2"><button onClick={()=>startEditOrder(order)} className="font-bold text-blue-700">Edit</button><button onClick={()=>deleteOrder(order.id)} className="font-bold text-rose-700">Delete</button></div></td></tr>)}</tbody>
+            <tbody>{orders.map(order => <tr key={order.id} className="border-b border-slate-800"><td className="py-3 font-mono">{order.po_number}</td><td><b>{order.vendor}</b><div className="text-slate-500">{order.item}</div></td><td>{order.quantity} {order.unit}</td><td>NPR {(order.quantity * order.unit_rate).toLocaleString()}</td><td>{formatBsDate(order.order_date || order.required_date)}</td><td>{formatBsDate(order.delivery_date || order.expected_date)}</td><td>{order.delivered_quantity}</td><td><Badge value={order.status} /></td><td>{order.remarks || '—'}</td><td><div className="flex gap-2"><button onClick={()=>setSelectedRecord(order)} className="font-bold text-slate-100">View details</button>{canEdit&&<><button onClick={()=>startEditOrder(order)} className="font-bold text-blue-700">Edit details</button><button onClick={()=>deleteOrder(order.id)} className="font-bold text-rose-700">Delete</button></>}</div></td></tr>)}</tbody>
           </table>
         ) : (
           <table className="w-full min-w-[850px]"><thead><tr className="text-slate-400 border-b border-slate-700">{['Code','Material','Vendor','Location','Opening','Received','Issued','Balance','Status','Action'].map(h => <th key={h} className="text-left py-2">{h}</th>)}</tr></thead>
-            <tbody>{items.map(item => { const balance=item.opening_stock+item.received-item.issued; return <tr key={item.id} className="border-b border-slate-800"><td className="py-3 font-mono">{item.item_code}</td><td><b>{item.item_name}</b><div className="text-slate-500">{item.unit}</div></td><td>{item.vendor || '—'}</td><td>{item.location}</td><td>{item.opening_stock}</td><td className="text-emerald-400">+{item.received}</td><td className="text-amber-400">-{item.issued}</td><td className="font-bold">{balance}</td><td><Badge value={balance <= item.reorder_level ? 'reorder' : (item.status || 'healthy')} /></td><td><button onClick={()=>startEditStock(item)} className="font-bold text-blue-700">Edit</button></td></tr> })}</tbody>
+            <tbody>{items.map(item => { const balance=item.opening_stock+item.received-item.issued; return <tr key={item.id} className="border-b border-slate-800"><td className="py-3 font-mono">{item.item_code}</td><td><b>{item.item_name}</b><div className="text-slate-500">{item.unit}</div></td><td>{item.vendor || '—'}</td><td>{item.location}</td><td>{item.opening_stock}</td><td className="text-emerald-400">+{item.received}</td><td className="text-amber-400">-{item.issued}</td><td className="font-bold">{balance}</td><td><Badge value={balance <= item.reorder_level ? 'reorder' : (item.status || 'healthy')} /></td><td><div className="flex gap-2"><button onClick={()=>setSelectedRecord({...item, balance})} className="font-bold text-slate-100">View details</button>{canEdit&&<button onClick={()=>startEditStock(item)} className="font-bold text-blue-700">Edit details</button>}</div></td></tr> })}</tbody>
           </table>
         )}
       </div>
+      <RecordDetailsDialog title={view === 'procurement' ? 'Purchase order' : 'Store item'} record={selectedRecord} onClose={()=>setSelectedRecord(null)} />
     </div>
   );
 }

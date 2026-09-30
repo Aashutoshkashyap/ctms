@@ -5,11 +5,11 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const auth = request.headers.get('authorization') || '';
-    if (auth !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ ok: false, message: 'Unauthorized keep-alive request.' }, { status: 401 });
-    }
+  const auth = request.headers.get('authorization') || '';
+  // A production maintenance endpoint must fail closed. Local development can
+  // run the application without invoking this route.
+  if (!cronSecret || auth !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ ok: false, message: 'Unauthorized keep-alive request.' }, { status: 401 });
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

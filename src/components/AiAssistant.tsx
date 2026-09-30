@@ -48,15 +48,23 @@ export default function AiAssistant({
     }
   };
 
-  const handleApplyWbs = () => {
+  const handleApplyWbs = async () => {
     if (!wbsResult) return;
-    if (confirm('Warning: This will overwrite all current WBS activities and dependencies for the active project. Proceed?')) {
-      storage.applyGeneratedSchedule(wbsResult.wbsItems, wbsResult.activities, wbsResult.dependencies);
-      if (onReloadData) onReloadData();
-      alert('WBS and network dependencies applied successfully! Project CPM has been re-scheduled.');
-      setWbsResult(null);
-      setInputText('');
-    }
+    if (!confirm('Review complete? This safe import adds or deterministically updates BOQ work. It never deletes existing project work.')) return;
+    const project = storage.getProject();
+    const prefix = `${project.id}-${Date.now()}`;
+    const activityIds = new Map(wbsResult.activities.map(item => [item.id, `${prefix}-${item.id}`]));
+    const imported = await storage.importBoqSchedule({
+      projectId: project.id,
+      wbs: wbsResult.wbsItems.map((item, index) => ({ ...item, id: `${prefix}-wbs-${index + 1}` })),
+      activities: wbsResult.activities.map(item => ({ ...item, id: activityIds.get(item.id)! })),
+      dependencies: wbsResult.dependencies.map((item, index) => ({ ...item, id: `${prefix}-dep-${index + 1}`, predecessor_id: activityIds.get(item.predecessor_id) || item.predecessor_id, successor_id: activityIds.get(item.successor_id) || item.successor_id })),
+    });
+    if (!imported.ok) return alert(imported.issues.map(issue => issue.message).join('\n') || 'The BOQ import could not be completed.');
+    if (onReloadData) onReloadData();
+    alert(`BOQ import complete: ${imported.counts.created} created, ${imported.counts.updated} updated, ${imported.counts.unchanged} unchanged.`);
+    setWbsResult(null);
+    setInputText('');
   };
 
   const handleParseSubmit = async (e: React.FormEvent) => {
@@ -452,7 +460,7 @@ export default function AiAssistant({
               
               <div className="flex justify-end gap-2">
                 <button
-                  onClick={handleApplyWbs}
+                  onClick={() => void handleApplyWbs()}
                   className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded shadow transition"
                 >
                   📥 Apply WBS to Project Database & CPM

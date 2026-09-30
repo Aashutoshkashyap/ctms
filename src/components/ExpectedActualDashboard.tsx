@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Activity } from '../lib/cpm';
 import { EVMMetrics } from '../lib/evm';
 import { formatBsDate } from '../lib/nepaliDate';
+import { activityActualProgress, activityPlannedProgress, calculateProjectFinancials } from '../lib/projectMetrics';
 
 interface ExpectedActualDashboardProps {
   activities: Activity[];
@@ -23,17 +24,7 @@ export default function ExpectedActualDashboard({
 }: ExpectedActualDashboardProps) {
   const [activeCase, setActiveCase] = useState<'progress' | 'cost' | 'design' | 'ipc'>('progress');
 
-  // Calculate planned progress for activities
-  const getActPlanned = (act: Activity): number => {
-    const start = new Date(act.baseline_start);
-    const finish = new Date(act.baseline_finish);
-    const cur = new Date(currentDate);
-    if (cur < start) return 0;
-    if (cur > finish) return 100;
-    const total = finish.getTime() - start.getTime();
-    const elapsed = cur.getTime() - start.getTime();
-    return total > 0 ? (elapsed / total) * 100 : 0;
-  };
+  const ipcFinancials = calculateProjectFinancials({ ipcSubmissions });
 
   return (
     <div className="space-y-6">
@@ -85,8 +76,8 @@ export default function ExpectedActualDashboard({
                 </thead>
                 <tbody className="divide-y divide-slate-800 text-slate-300">
                   {activities.map(act => {
-                    const planned = getActPlanned(act);
-                    const actual = act.status === 'completed' ? 100 : (act.actual_quantity / (act.planned_quantity || 1)) * 100;
+                    const planned = activityPlannedProgress(act, currentDate);
+                    const actual = activityActualProgress(act);
                     const variance = actual - planned;
                     
                     // Root causes and mitigations
@@ -238,7 +229,7 @@ export default function ExpectedActualDashboard({
               <div className="bg-slate-900/40 p-4 border border-slate-800 rounded-lg space-y-2">
                 <div className="text-[10px] uppercase font-bold text-slate-500">Net Payment Received</div>
                 <div className="text-2xl font-bold text-emerald-400">
-                  NPR {(ipcSubmissions.filter(i => i.status === 'paid').reduce((sum, i) => sum + Number(i.paid_amount || i.certified_amount || 0), 0)).toLocaleString()}
+                  NPR {ipcFinancials.paidAmount.toLocaleString()}
                 </div>
                 <div className="text-[9px] text-slate-400">Total cash cleared in joint venture bank accounts.</div>
               </div>

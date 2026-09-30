@@ -2,6 +2,8 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Activity } from '../lib/cpm';
 import { AppNotification, DailyExpense, DailyResourceUsage, EmployeeVisit, storage } from '../lib/storage';
 import { formatBsDateTime } from '../lib/nepaliDate';
+import { useLanguage } from './LanguageProvider';
+import { calculateProjectFinancials, calculateProjectProgress } from '../lib/projectMetrics';
 
 interface Props {
   projects: any[];
@@ -32,6 +34,7 @@ export default function DirectorPortfolioDashboard({
   onNavigate,
   onReload,
 }: Props) {
+  const { t } = useLanguage();
   const [notifications, setNotifications] = useState<AppNotification[]>(() => storage.getAllNotifications(50));
   const makeProjectRow = useCallback((project: any) => {
     const projectActivities = projectRowsFor(activities, project.id);
@@ -39,11 +42,11 @@ export default function DirectorPortfolioDashboard({
     const projectResources = projectRowsFor(resourceUsage, project.id);
     const completedActivities = projectActivities.filter(item => item.status === 'completed').length;
     const delayed = projectActivities.filter(item => item.status !== 'completed' && new Date().toISOString().slice(0, 10) > item.baseline_finish).length;
-    const progressWeight = projectActivities.reduce((sum, item) => sum + (item.planned_quantity ? (item.actual_quantity / item.planned_quantity) * item.weightage : 0), 0);
     const fuel = projectResources.reduce((sum, item) => sum + Number(item.fuel_litres || 0), 0);
     const work = projectResources.reduce((sum, item) => sum + Number(item.work_quantity || 0), 0);
-    const budgetSpent = projectExpenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
-    const contractAmount = Number(project.contract_amount || 0);
+    const financials = calculateProjectFinancials({ contractAmount: project.contract_amount, expenses: projectExpenses });
+    const budgetSpent = financials.expenseTotal;
+    const contractAmount = financials.contractAmount;
     const completion = projectActivities.length ? (completedActivities / projectActivities.length) * 100 : 0;
     return {
       project,
@@ -54,7 +57,7 @@ export default function DirectorPortfolioDashboard({
       budgetSpent,
       contractAmount,
       budgetSpentPct: contractAmount ? (budgetSpent / contractAmount) * 100 : 0,
-      progress: Math.min(100, progressWeight || completion),
+      progress: projectActivities.length ? calculateProjectProgress(projectActivities, new Date().toISOString().slice(0, 10)).actualProgress : 0,
       completion,
       workFuel: fuel ? work / fuel : 0,
       visits: projectRowsFor(visits, project.id).filter(item => item.status === 'on_site').length,
@@ -120,6 +123,15 @@ export default function DirectorPortfolioDashboard({
           <Metric label="Delayed Items" value={String(totals.delayed)} warning={totals.delayed > 0} />
           <Metric label="Archived" value={String(totals.archived)} />
         </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="director-attention" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3"><h2 id="director-attention" className="font-bold text-slate-900">{t('director.attention')}</h2></div>
+      <div className="grid gap-3 md:grid-cols-3">
+        <button onClick={() => onNavigate('cpm')} className="min-h-20 rounded-lg border border-rose-200 bg-rose-50 p-3 text-left"><span className="font-bold text-rose-900">{t('director.delays')} · {totals.delayed}</span><span className="mt-1 block text-sm text-rose-800">{t('director.openSchedule')}</span></button>
+        <button onClick={() => onNavigate('expenses')} className="min-h-20 rounded-lg border border-amber-200 bg-amber-50 p-3 text-left"><span className="font-bold text-amber-900">{t('director.costs')}</span><span className="mt-1 block text-sm text-amber-800">{t('director.openCosts')}</span></button>
+        <button onClick={() => onNavigate('reports')} className="min-h-20 rounded-lg border border-blue-200 bg-blue-50 p-3 text-left"><span className="font-bold text-blue-900">{t('director.reports')}</span><span className="mt-1 block text-sm text-blue-800">{t('director.openReports')}</span></button>
       </div>
     </section>
 

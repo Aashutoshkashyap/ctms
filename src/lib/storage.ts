@@ -1,7 +1,8 @@
 // Storage and Database Adapter Layer - Multi-Project and Supabase Connect wizard
 import { calculateCPM, Activity, Dependency, ProjectInfo, diffDays, addDays } from './cpm';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import type { FeaturePermissions } from './permissions';
+import { can, type FeaturePermissions } from './permissions';
+import { prepareSafeBoqImport, type BoqImportResult } from './boqImport';
 
 // Environment variables fallback
 const defaultUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -458,7 +459,6 @@ const MOCK_USERS = [
   { id: 'usr-14', email: 'store@buildtrack.com', name: 'Raju Gurung', role: 'store_officer' }
 ];
 
-const LOCAL_DEMO_EMAILS = new Set(MOCK_USERS.map(user => user.email.toLowerCase()));
 
 function resolveLoginIdentifier(identifier: string) {
   const normalized = identifier.trim().toLowerCase();
@@ -1680,6 +1680,7 @@ export const storage = {
     const loginEmail = resolveLoginIdentifier(email);
     const client = getSupabaseClient();
     if (!client) {
+      if (process.env.NODE_ENV !== 'development') throw new Error('Cloud authentication is not configured.');
       return signInWithLocalFallback(loginEmail, password);
     }
     try {
@@ -1713,7 +1714,6 @@ export const storage = {
         session: data.session
       };
     } catch (error) {
-      if (LOCAL_DEMO_EMAILS.has(loginEmail)) return signInWithLocalFallback(loginEmail, password);
       if (error instanceof Error) throw error;
       throw new Error(isNetworkLikeError(error) ? 'The cloud workspace is temporarily unreachable.' : 'Sign-in failed.');
     }
@@ -1941,7 +1941,8 @@ export const storage = {
         email: sourceMembership.email,
         name: sourceMembership.name,
         role: sourceMembership.role,
-        feature_permissions: sourceMembership.feature_permissions || {},
+        // New-project bootstrap cannot copy authorization overrides onto oneself.
+        feature_permissions: {},
       });
       if (directoryError) {
         await client.from('projects').delete().eq('id', newProject.id);
@@ -1950,7 +1951,7 @@ export const storage = {
       const memberships = storage.getProjectMemberships();
       localStorage.setItem('bt_project_memberships', JSON.stringify([
         ...memberships,
-        { id: `${newProject.id}-${session.user.id}`, auth_user_id: session.user.id, project_id: newProject.id, ...sourceMembership },
+        { id: `${newProject.id}-${session.user.id}`, auth_user_id: session.user.id, project_id: newProject.id, ...sourceMembership, feature_permissions: {} },
       ]));
     }
     list.push(newProject);
@@ -2203,14 +2204,6 @@ export const storage = {
     return list.filter(w => w.project_id === projId);
   },
 
-  setWbsRaw: (items: WbsItem[]) => {
-    const projId = getActiveProjectId();
-    const allItems = getLocalItem<WbsItem[]>('bt_wbs', MOCK_WBS);
-    const remaining = allItems.filter(item => item.project_id !== projId);
-    const formatted = items.map(item => ({ ...item, project_id: projId }));
-    setLocalItem('bt_wbs', [...remaining, ...formatted]);
-  },
-
   // 4. Activities (filtered by project)
   getActivities: (): Activity[] => {
     const projId = getActiveProjectId();
@@ -2288,17 +2281,6 @@ export const storage = {
     return newActivity;
   },
 
-  // Bulk set WBS activities (useful for AI tender scans)
-  setActivitiesRaw: (newActs: Activity[]) => {
-    const projId = getActiveProjectId();
-    const allActs = getLocalItem('bt_activities', MOCK_ACTIVITIES);
-    // Clear items for active project and add new ones
-    const filtered = allActs.filter(a => a.project_id !== projId);
-    const formatted = newActs.map(a => ({ ...a, project_id: projId }));
-    setLocalItem('bt_activities', [...filtered, ...formatted]);
-    storage.recalculateSchedule();
-  },
-
   // 5. Dependencies (filtered by project)
   getDependencies: (): Dependency[] => {
     const projId = getActiveProjectId();
@@ -2327,20 +2309,71 @@ export const storage = {
     storage.recalculateSchedule();
   },
 
-  // Bulk set dependencies (AI scans)
-  setDependenciesRaw: (newDeps: Dependency[]) => {
-    const projId = getActiveProjectId();
-    const allDeps = getLocalItem('bt_dependencies', MOCK_DEPENDENCIES);
-    const filtered = allDeps.filter(d => d.project_id !== projId);
-    const formatted = newDeps.map(d => ({ ...d, project_id: projId }));
-    setLocalItem('bt_dependencies', [...filtered, ...formatted]);
-    storage.recalculateSchedule();
-  },
+  /**
+   * Safe BOQ import boundary. It is merge-only: no missing WBS item, activity,
+   * dependency, daily report, or linked field record is ever deleted.
+   */
+  importBoqSchedule: async (input: { projectId: string; wbs: WbsItem[]; activities: Activity[]; dependencies: Dependency[] }): Promise<BoqImportResult> => {
+    const reject = (message: string): BoqImportResult => ({
+      ok: false, counts: { created: 0, updated: 0, unchanged: 0, conflicted: 0, rejected: 1 },
+      issues: [{ code: 'IMPORT_REJECTED', entity: 'activity', message }],
+      wbs: storage.getWBS(), activities: storage.getActivities(), dependencies: storage.getDependencies(),
+    });
+    const projectId = input.projectId?.trim();
+    if (!projectId || projectId !== getActiveProjectId()) return reject('The BOQ import project does not match the active project.');
+    const client = getSupabaseClient();
+    let accessToken = '';
+    let existing: { wbs: WbsItem[]; activities: Activity[]; dependencies: Dependency[] } = { wbs: storage.getWBS(), activities: storage.getActivities(), dependencies: storage.getDependencies() };
 
-  applyGeneratedSchedule: (items: WbsItem[], activities: Activity[], dependencies: Dependency[]) => {
-    storage.setWbsRaw(items);
-    storage.setActivitiesRaw(activities);
-    storage.setDependenciesRaw(dependencies);
+    if (client) {
+      const { data: { session } } = await client.auth.getSession();
+      if (!session?.user) return reject('Sign in before importing BOQ work.');
+      accessToken = session.access_token;
+      const [{ data: project, error: projectError }, { data: membership, error: membershipError }] = await Promise.all([
+        client.from('projects').select('id,organization_id').eq('id', projectId).maybeSingle(),
+        client.from('project_users').select('project_id,auth_user_id,role,feature_permissions').eq('project_id', projectId).eq('auth_user_id', session.user.id).maybeSingle(),
+      ]);
+      if (projectError || !project) return reject('The selected project is unavailable or belongs to another organization.');
+      if (membershipError || !membership || !can(membership.role, 'schedule', membership.feature_permissions as FeaturePermissions, 'write')) return reject('You are not authorized to manage BOQ and work schedule data for this project.');
+      const [wbsResult, activityResult, dependencyResult] = await Promise.all([
+        client.from('wbs_items').select('*').eq('project_id', projectId),
+        client.from('activities').select('*').eq('project_id', projectId),
+        client.from('activity_dependencies').select('*').eq('project_id', projectId),
+      ]);
+      if (wbsResult.error || activityResult.error || dependencyResult.error) return reject(`Could not validate the current BOQ schedule: ${(wbsResult.error || activityResult.error || dependencyResult.error)?.message}`);
+      existing = { wbs: (wbsResult.data || []) as WbsItem[], activities: (activityResult.data || []) as Activity[], dependencies: (dependencyResult.data || []) as Dependency[] };
+    } else {
+      // Local-only operation is intentionally limited to the active local
+      // workspace. A cloud-connected project always verifies the real actor.
+      const localUser = await storage.getVerifiedLocalDemoUser();
+      if (!localUser || !['project_director', 'project_manager', 'planning_engineer'].includes(localUser.role) || !can(localUser.role, 'schedule', undefined, 'write')) return reject('An authorized local user is required to import BOQ work.');
+    }
+
+    const plan = prepareSafeBoqImport(existing, { projectId, wbs: input.wbs, activities: input.activities, dependencies: input.dependencies });
+    if (!plan.ok) return plan;
+    if (client) {
+      // The server repeats authorization and planning against the authoritative
+      // tenant snapshot before it performs its merge-only upserts.
+      const response = await fetch('/api/boq/import', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ projectId, wbs: input.wbs, activities: input.activities, dependencies: input.dependencies }),
+      });
+      const serverPlan = await response.json().catch(() => null) as BoqImportResult | { message?: string } | null;
+      if (!response.ok || !serverPlan || !('ok' in serverPlan) || !serverPlan.ok) {
+        const message = serverPlan && 'message' in serverPlan ? serverPlan.message : undefined;
+        return { ...plan, ok: false, counts: { ...plan.counts, rejected: plan.counts.rejected + 1 }, issues: [...plan.issues, { code: 'PERSISTENCE_FAILURE', entity: 'activity', message: message || 'BOQ import could not be persisted.' }] };
+      }
+      existing = { wbs: serverPlan.wbs, activities: serverPlan.activities, dependencies: serverPlan.dependencies };
+    }
+    const committedPlan = client ? { ...plan, ...existing } : plan;
+    const allWbs: WbsItem[] = getLocalItem<WbsItem[]>('bt_wbs', MOCK_WBS).filter(item => item.project_id !== projectId);
+    const allActivities = getLocalItem<any[]>('bt_activities', MOCK_ACTIVITIES).filter(item => item.project_id !== projectId);
+    const allDependencies = getLocalItem<any[]>('bt_dependencies', MOCK_DEPENDENCIES).filter(item => item.project_id !== projectId);
+    setLocalItem('bt_wbs', [...allWbs, ...committedPlan.wbs.map(item => ({ ...item, project_id: projectId }))]);
+    setLocalItem('bt_activities', [...allActivities, ...committedPlan.activities.map(item => ({ ...item, project_id: projectId }))]);
+    setLocalItem('bt_dependencies', [...allDependencies, ...committedPlan.dependencies.map(item => ({ ...item, project_id: projectId }))]);
+    storage.recalculateSchedule();
+    return committedPlan;
   },
 
   // CPM auto schedule re-trigger
@@ -2470,12 +2503,8 @@ export const storage = {
     return newReport;
   },
   deleteDailyReport: async (reportId: string) => {
-    const client = getSupabaseClient();
-    const session = client ? await storage.getAuthSession() : null;
-    if (client && session) {
-      const { error } = await client.from('daily_reports').delete().eq('id', reportId);
-      if (error) throw new Error(error.message);
-    }
+    const projectId = getActiveProjectId();
+    storage.enqueueDailyReportDeletion(reportId, projectId);
     const reports = getLocalItem<any[]>('bt_daily_reports', MOCK_DAILY_REPORTS);
     const remaining = reports.filter(r => r.id !== reportId);
     setLocalItem('bt_daily_reports', remaining);
@@ -2489,6 +2518,8 @@ export const storage = {
     setLocalItem('bt_material_logs', filteredMats);
 
     storage.recalculateSchedule();
+    const sync = await storage.flushDurableMutations(projectId);
+    if (!sync.ok) throw new Error(sync.message);
   },
 
   // 8. Cost & Budget (filtered by project)
@@ -3209,12 +3240,13 @@ export const storage = {
     return photo;
   },
 
-  syncActiveProjectToCloud: async () => {
+  syncActiveProjectToCloud: async (expectedProjectId?: string) => {
     const client = getSupabaseClient();
     if (!client) return { ok: false, message: 'Supabase is not configured.' };
     const session = await storage.getAuthSession();
     if (!session) return { ok: false, message: 'Sign in to Supabase before synchronizing.' };
     const projectId = getActiveProjectId();
+    if (expectedProjectId && expectedProjectId !== projectId) return { ok: false, message: 'Active project changed before cloud synchronization.' };
     const project = storage.getProject();
     const currentProfile = await storage.getCurrentAuthUser();
     const signedInUser = currentProfile || {
@@ -3235,7 +3267,8 @@ export const storage = {
       ['activity_dependencies', storage.getDependencies()],
       ['design_packages', designPackages],
       ['design_comments', designComments],
-      ['daily_reports', reports],
+      // Daily reports are revisioned and must travel through the server
+      // compare-and-set command, never this legacy collection synchronizer.
       ['daily_work_items', reports.flatMap((report: any) => storage.getDailyWorkItems(report.id)).map((item: any) => ({ ...item, project_id: projectId }))],
       ['material_logs', reports.flatMap((report: any) => storage.getDailyMaterialLogs(report.id)).map((item: any) => ({ ...item, project_id: projectId }))],
       ['budget_heads', storage.getBudgetHeads()],

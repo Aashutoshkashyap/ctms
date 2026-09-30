@@ -3,6 +3,9 @@ import { Activity } from '../lib/cpm';
 import { DailyExpense, DailyResourceUsage, EmployeeVisit } from '../lib/storage';
 import { can, normalizeRole, ROLE_HOME_COPY, ROLE_LABELS } from '../lib/permissions';
 import type { FeaturePermissions } from '../lib/permissions';
+import { useLanguage } from './LanguageProvider';
+import type { TranslationKey } from '../lib/i18n';
+import { todayAdDate } from '../lib/nepaliDate';
 
 interface Props {
   role: string;
@@ -15,6 +18,49 @@ interface Props {
   alerts: Array<{ type: string; message: string; severity: string }>;
   onNavigate: (tab: string) => void;
   featurePermissions?: FeaturePermissions | null;
+}
+
+type NextAction = { label: TranslationKey; tab: string; icon: string; feature: Parameters<typeof can>[1] };
+
+function actionsForRole(role: string): NextAction[] {
+  switch (normalizeRole(role)) {
+    case 'business_admin': return [
+      { icon: '👥', label: 'action.people', tab: 'settings', feature: 'manage_users' }, { icon: '🏗️', label: 'action.projects', tab: 'settings', feature: 'manage_projects' },
+    ];
+    case 'planning_engineer': return [
+      { icon: '📅', label: 'action.schedule', tab: 'cpm', feature: 'schedule' }, { icon: '📈', label: 'action.progress', tab: 'expected_actual', feature: 'schedule' }, { icon: '📤', label: 'director.reports', tab: 'reports', feature: 'reports' },
+    ];
+    case 'design_coordinator': return [
+      { icon: '📐', label: 'action.design', tab: 'design', feature: 'design' }, { icon: '📁', label: 'action.report', tab: 'documents', feature: 'documents' },
+    ];
+    case 'field_employee': return [
+      { icon: '📝', label: 'daily.today', tab: 'daily', feature: 'daily_reports' },
+      { icon: '🚜', label: 'action.progress', tab: 'operations', feature: 'operations' },
+      { icon: '🧾', label: 'action.expenses', tab: 'expenses', feature: 'expenses' },
+    ];
+    case 'site_engineer': return [
+      { icon: '📝', label: 'daily.today', tab: 'daily', feature: 'daily_reports' }, { icon: '🚜', label: 'action.progress', tab: 'operations', feature: 'operations' }, { icon: '🧪', label: 'action.quality', tab: 'qaqc', feature: 'qaqc' },
+    ];
+    case 'project_manager': return [
+      { icon: '📅', label: 'action.plan', tab: 'cpm', feature: 'schedule' }, { icon: '📝', label: 'action.progress', tab: 'daily', feature: 'daily_reports' }, { icon: '⚖️', label: 'action.commercial', tab: 'claims', feature: 'claims' },
+    ];
+    case 'accountant':
+    case 'qs_billing_engineer': return [
+      { icon: '🧾', label: 'action.expenses', tab: 'expenses', feature: 'expenses' }, { icon: '📄', label: 'action.ipc', tab: 'ipc', feature: 'ipc' }, { icon: '💰', label: 'action.commercial', tab: 'budget', feature: 'budget' },
+    ];
+    case 'store_officer': return [
+      { icon: '🚚', label: 'action.stock', tab: 'procurement', feature: 'procurement' }, { icon: '🚜', label: 'action.progress', tab: 'operations', feature: 'operations' },
+    ];
+    case 'qa_qc_engineer': return [
+      { icon: '🧪', label: 'action.quality', tab: 'qaqc', feature: 'qaqc' }, { icon: '📝', label: 'action.progress', tab: 'daily', feature: 'daily_reports' },
+    ];
+    case 'safety_officer': return [
+      { icon: '🦺', label: 'action.safety', tab: 'safety', feature: 'safety' }, { icon: '🚜', label: 'action.progress', tab: 'operations', feature: 'operations' },
+    ];
+    default: return [
+      { icon: '📅', label: 'action.schedule', tab: 'cpm', feature: 'schedule' }, { icon: '📝', label: 'action.report', tab: 'daily', feature: 'daily_reports' }, { icon: '📤', label: 'director.reports', tab: 'reports', feature: 'reports' },
+    ];
+  }
 }
 
 const moduleCards = [
@@ -30,11 +76,12 @@ const moduleCards = [
 ] as const;
 
 export default function RoleDashboard({ role, userName, project, activities, expenses, resourceUsage, visits, alerts, onNavigate, featurePermissions }: Props) {
+  const { t } = useLanguage();
   const normalizedRole = normalizeRole(role);
   const copy = ROLE_HOME_COPY[normalizedRole];
   const metrics = useMemo(() => {
     const approvedExpenses = expenses.filter(item => item.status === 'approved');
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayAdDate();
     const activeActivities = activities.filter(item => item.status === 'in_progress').length;
     const delayedActivities = activities.filter(item => {
       const forecastDelay = (item.early_finish || item.baseline_finish) > item.baseline_finish;
@@ -54,6 +101,7 @@ export default function RoleDashboard({ role, userName, project, activities, exp
   }, [activities, expenses, resourceUsage, visits]);
 
   const visibleCards = moduleCards.filter(card => can(role, card.feature, featurePermissions));
+  const nextActions = actionsForRole(role).filter(action => can(role, action.feature, featurePermissions));
   const metricCards = [
     ...(can(role, 'schedule', featurePermissions) || can(role, 'executive', featurePermissions) ? [
       { label: 'Active Work', value: String(metrics.activeActivities), warning: false },
@@ -100,10 +148,23 @@ export default function RoleDashboard({ role, userName, project, activities, exp
       </div>
     </section>}
 
+    <section aria-labelledby="next-actions-heading">
+      <div className="mb-3">
+        <h2 id="next-actions-heading" className="text-lg font-bold text-slate-900">{t('home.next')}</h2>
+        <p className="text-sm text-slate-500">Start with the actions that match your role. More authorised tools remain below.</p>
+      </div>
+      {nextActions.length > 0 ? <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {nextActions.map(action => <button key={action.tab} onClick={() => onNavigate(action.tab)} className="group flex min-h-24 items-center gap-3 rounded-xl border border-blue-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-400 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-xl">{action.icon}</span>
+          <span><span className="block font-bold text-slate-900">{t(action.label)}</span></span>
+        </button>)}
+      </div> : <EmptyState title="No action is assigned here yet" copy="Your Project Director can grant additional module access when work is assigned to you." />}
+    </section>
+
     <section>
       <div className="mb-3">
-        <h2 className="text-lg font-bold text-slate-900">Your workspace</h2>
-        <p className="text-sm text-slate-500">Only modules authorized for this role are shown.</p>
+        <h2 className="text-lg font-bold text-slate-900">{t('home.workspace')}</h2>
+        <p className="text-sm text-slate-500">{t('home.authorized')}</p>
       </div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {visibleCards.map(card => <button key={card.tab} onClick={() => onNavigate(card.tab)} className="group rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md">
@@ -113,8 +174,13 @@ export default function RoleDashboard({ role, userName, project, activities, exp
           </div>
         </button>)}
       </div>
+      {visibleCards.length === 0 && <EmptyState title="No project tools are available" copy="Ask your Project Director to review your role and module access." />}
     </section>
   </div>;
+}
+
+function EmptyState({ title, copy }: { title: string; copy: string }) {
+  return <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-600"><p className="font-bold text-slate-800">{title}</p><p className="mt-1">{copy}</p></div>;
 }
 
 function Metric({ label, value, warning = false }: { label: string; value: string; warning?: boolean }) {

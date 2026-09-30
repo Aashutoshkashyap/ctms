@@ -234,9 +234,45 @@ button:active {
 }
 
 button:focus-visible,
-a:focus-visible {
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
   outline: 3px solid rgba(59, 130, 246, 0.28);
   outline-offset: 2px;
+}
+
+button:not(:disabled),
+a,
+input[type="file"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Field users regularly work from a phone in bright conditions. Preserve the
+   dense desktop workspace while keeping direct actions comfortably tappable. */
+@media (max-width: 767px) {
+  .app-main {
+    padding-bottom: 2rem;
+  }
+
+  .app-main button:not(.text-xs):not([class~="text-[10px]"]) {
+    min-height: 44px;
+  }
+
+  .app-main table {
+    font-size: 0.875rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* The original control-room UI leaned heavily on tiny labels. Keep the dense
