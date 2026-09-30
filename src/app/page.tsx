@@ -592,32 +592,33 @@ export default function DashboardShell() {
           <div className="px-2 pb-2 text-[9px] font-bold uppercase tracking-wider text-slate-500">Project workspace</div>
           <NavBtn tab="dashboard" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🏠" label="Home" />
           <NavBtn tab="projects" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🏗️" label="Projects" />
+          <p className="px-3 pt-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Work</p>
+          {canAccess('daily_reports') && <NavBtn tab="work" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📋" label="Tasks & Board" />}
+          {canAccess('schedule') && <NavBtn tab="cpm" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📅" label="Schedule & WBS" />}
+          {canAccess('schedule') && <NavBtn tab="expected_actual" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📈" label="Progress" />}
+          {canAccess('daily_reports') && <NavBtn tab="daily" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📝" label="Daily Reports" />}
+          <p className="px-3 pt-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Resources</p>
           {canAccess('operations') && <NavBtn tab="people" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="👥" label="People" />}
-          {canAccess('daily_reports') && <NavBtn tab="work" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📋" label="Work" />}
-          <NavBtn tab="departments" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🏢" label="Departments" />
-          <NavBtn tab="notifications" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🔔" label="Notifications" />
+          {canAccess('operations') && <NavBtn tab="operations" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🚜" label="Equipment & Materials" />}
+          <p className="px-3 pt-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Delivery</p>
+          {canAccess('procurement') && <NavBtn tab="procurement" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🛒" label="Procurement" />}
+          {canAccess('budget') && <NavBtn tab="budget" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="💰" label="Commercial & Budget" />}
+          {canAccess('ipc') && <NavBtn tab="ipc" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label="Valuation & IPC" />}
+          {canAccess('claims') && <NavBtn tab="claims" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⚖️" label="Claims & Variations" />}
+          {canAccess('obligations') && <NavBtn tab="obligations" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⏰" label="Contracts & Securities" />}
+          {canAccess('expenses') && <NavBtn tab="expenses" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="💳" label="Finance & Expenses" />}
+          <p className="px-3 pt-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Quality & documents</p>
+          {canAccess('qaqc') && <NavBtn tab="qaqc" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="✓" label="Quality" />}
+          {canAccess('safety') && <NavBtn tab="safety" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🦺" label="Safety" />}
+          {canAccess('documents') && <NavBtn tab="documents" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📁" label="Documents" />}
+          {canAccess('view_evidence') && <NavBtn tab="evidence" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🖼️" label="Photos & Evidence" />}
           {canAccess('reports') && <NavBtn tab="reports" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📊" label="Reports" />}
+          <p className="px-3 pt-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Admin</p>
+          <NavBtn tab="departments" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🏢" label="Departments" />
           {canAccess('settings') && <NavBtn tab="settings" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⚙️" label="Settings" />}
+          {canAccess('subscription') && <NavBtn tab="subscription" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label="Subscription" />}
           {normalizeRole(authUser.role) === 'project_director' && <NavBtn tab="projects" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="👑" label="Administration" accent="purple" />}
 
-          <details className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-1.5">
-            <summary className="cursor-pointer px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600">Professional tools</summary>
-            <div className="space-y-1 pt-1">
-              {canAccess('schedule') && <NavBtn tab="cpm" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📅" label="BOQ & Work Schedule" />}
-              {canAccess('schedule') && <NavBtn tab="expected_actual" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📈" label="Expected vs Actual" />}
-              {canAccess('daily_reports') && <NavBtn tab="daily" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📝" label="Daily Site Reporting" />}
-              {canAccess('operations') && <NavBtn tab="operations" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🚜" label="Resources & Productivity" />}
-              {canAccess('budget') && <NavBtn tab="budget" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="💰" label="Budget & Costs" />}
-              {canAccess('ipc') && <NavBtn tab="ipc" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label="IPC Billing & Certificates" />}
-              {canAccess('claims') && <NavBtn tab="claims" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⚖️" label="Variations & Claims" />}
-              {canAccess('procurement') && <NavBtn tab="procurement" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🛒" label="Procurement & Stores" />}
-              {canAccess('documents') && <NavBtn tab="documents" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📁" label="Documents" accent="emerald" />}
-              {canAccess('expenses') && <NavBtn tab="expenses" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="💳" label="Expenses" accent="emerald" />}
-              {canAccess('obligations') && <NavBtn tab="obligations" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⏰" label="Contract Obligations" />}
-              {canAccess('view_evidence') && <NavBtn tab="evidence" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🖼️" label="Evidence Vault" />}
-              {canAccess('subscription') && <NavBtn tab="subscription" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label="Service & Billing" accent="purple" />}
-            </div>
-          </details>
         </nav>
       </aside>
 
@@ -660,6 +661,10 @@ export default function DashboardShell() {
               <span>📅</span>
               <span className="font-mono">{formatBsDate(currentDate, { long: true })}</span>
             </div>
+
+            <button onClick={() => setActiveTabFromMenu('notifications')} className="relative rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 hover:bg-slate-800" aria-label="Open notifications">
+              🔔
+            </button>
 
             {/* Role indicator */}
             <div className="flex items-center gap-1.5">
