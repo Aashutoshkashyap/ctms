@@ -33,7 +33,10 @@ import SubscriptionDashboard from '../components/SubscriptionDashboard';
 import BsDatePicker from '../components/BsDatePicker';
 import IpcValuationWorkspace from '../components/IpcValuationWorkspace';
 import PaymentCertificateWorkspace from '../components/PaymentCertificateWorkspace';
-import { AlertHub, DepartmentHub, PeopleHub, ProjectHome, WorkHub } from '../components/ProjectExperience';
+import { AlertHub, DepartmentHub, PeopleHub, WorkHub } from '../components/ProjectExperience';
+import { ManagementHome, ProjectOverview } from '../components/ManagementHome';
+import { PageHeader, SectionHeader } from '../components/ManagementUI';
+import ModuleSnapshot from '../components/ModuleSnapshot';
 import { formatBsDate } from '../lib/nepaliDate';
 import { isCurrentProject, projectIdFromUrl, workspaceUrl } from '../lib/projectContext';
 import { can, ROLE_LABELS, normalizeRole } from '../lib/permissions';
@@ -131,47 +134,47 @@ function CreateProjectModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="w-full max-w-md space-y-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" role="presentation">
+      <div className="w-full max-w-md space-y-5 rounded-xl border border-slate-200 bg-white p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="create-project-title">
         <div className="flex justify-between items-center">
-          <h2 className="text-sm font-bold text-slate-900">Create New Project</h2>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-200 text-lg">✕</button>
+          <h2 id="create-project-title" className="text-xl font-bold text-slate-950">Create a project</h2>
+          <button type="button" onClick={onClose} aria-label="Close create project" className="text-slate-600 hover:text-slate-900 text-lg">✕</button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+        <form onSubmit={handleSubmit} className="space-y-4 text-sm">
           <div>
-            <label className="block text-slate-400 mb-1">Project Name</label>
+            <label className="block font-semibold text-slate-700 mb-1">Project name</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Pokhara Airport Access Road (D&B)"
-              className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-slate-200 focus:outline-none focus:border-blue-500"
+              className="w-full bg-white border border-slate-300 p-2.5 rounded-lg text-slate-950 focus-visible:outline-2 focus-visible:outline-blue-600"
               required
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-slate-400 mb-1">Contract Start Date</label>
+              <label className="block font-semibold text-slate-700 mb-1">Contract start date</label>
               <BsDatePicker value={startDate} onChange={setStartDate} />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Duration (Days)</label>
+              <label className="block font-semibold text-slate-700 mb-1">Duration (days)</label>
               <input
                 type="number"
                 value={duration}
                 onChange={(e) => setDuration(Number(e.target.value))}
-                className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-slate-200 focus:outline-none focus:border-blue-500"
+                className="w-full bg-white border border-slate-300 p-2.5 rounded-lg text-slate-950 focus-visible:outline-2 focus-visible:outline-blue-600"
               />
             </div>
           </div>
           <div>
-            <label className="block text-slate-400 mb-1">Contract Amount (NPR)</label>
+            <label className="block font-semibold text-slate-700 mb-1">Contract amount (NPR)</label>
             <input
               type="number"
               value={amount}
               onChange={(e) => setAmount(Number(e.target.value))}
-              className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-slate-200 focus:outline-none focus:border-blue-500"
+              className="w-full bg-white border border-slate-300 p-2.5 rounded-lg text-slate-950 focus-visible:outline-2 focus-visible:outline-blue-600"
             />
           </div>
 
@@ -179,14 +182,14 @@ function CreateProjectModal({
             <button
               type="submit"
               disabled={submitting}
-              className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow transition"
+              className="flex-1 py-2.5 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded-lg transition"
             >
               {submitting ? 'Creating…' : 'Create Project'}
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-lg transition"
+              className="flex-1 py-2.5 border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 font-semibold rounded-lg transition"
             >
               Cancel
             </button>
@@ -214,12 +217,12 @@ function NavBtn({
   icon: string;
   label: string;
 }) {
-  const base = 'w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg transition';
-  const styles = active ? `${base} bg-blue-600 text-white` : `${base} text-slate-600 hover:bg-blue-50 hover:text-blue-700`;
+  const base = 'app-primary-link w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold rounded-lg transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600';
+  const styles = active ? `${base} bg-blue-700 text-white shadow-sm` : `${base} text-slate-700 hover:bg-blue-50 hover:text-blue-800`;
 
   return (
     <button type="button" onClick={() => setActiveTab(tab)} className={styles} aria-current={active ? 'page' : undefined}>
-      <span aria-hidden="true">{icon}</span><span>{label}</span>
+      <span aria-hidden="true" className="flex h-6 w-6 items-center justify-center text-lg">{icon}</span><span>{label}</span>
     </button>
   );
 }
@@ -554,6 +557,15 @@ export default function DashboardShell() {
   };
   const activeModule = moduleForTab(activeTab);
   const visibleViews = activeModule?.views.filter(view => isAllowedTab(view.tab)) || [];
+  const homeEntries = MANAGEMENT_MODULES.filter(module => !['home', 'projects', 'settings'].includes(module.id)).flatMap(module => {
+    const firstAccessible = module.views.find(view => isAllowedTab(view.tab));
+    const description: Record<string, string> = {
+      people: 'Assignments and workforce', work: 'Tasks, schedule and daily work', fleet: 'Equipment and usage',
+      inventory: 'Stock and movements', purchases: 'Orders and suppliers', commercial: 'Costs, billing and contracts',
+      'quality-safety': 'Inspections and incidents', 'document-vault': 'Documents and evidence', reports: 'Reports and analysis',
+    };
+    return firstAccessible ? [{ label: module.label, icon: module.icon, tab: firstAccessible.tab, description: description[module.id] || module.label }] : [];
+  });
   const activeFeature = TAB_FEATURES[activeTab];
   const isReadOnlyFeature = Boolean(activeFeature && canAccess(activeFeature, 'read') && !canAccess(activeFeature, 'write'));
 
@@ -571,40 +583,40 @@ export default function DashboardShell() {
       {/* SIDEBAR NAVIGATION                                                   */}
       {/* ------------------------------------------------------------------ */}
       {mobileMenuOpen && <button aria-label="Close menu overlay" className="app-menu-overlay fixed inset-0 z-30 bg-black/45 md:hidden" onClick={() => setMobileMenuOpen(false)} />}
-      <aside className={`app-sidebar fixed inset-y-0 left-0 z-40 w-[86vw] max-w-80 border-r flex flex-col shrink-0 transition-transform duration-200 md:static md:z-auto md:w-72 md:max-w-none md:translate-x-0 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside className={`app-sidebar fixed inset-y-0 left-0 z-40 w-[86vw] max-w-80 border-r flex flex-col shrink-0 transition-transform duration-200 md:static md:z-auto md:w-64 md:max-w-none md:translate-x-0 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         {/* Brand header */}
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-200">B</span>
+        <div className="p-5 border-b border-slate-200 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="w-10 h-10 rounded-xl bg-blue-700 text-white flex items-center justify-center font-extrabold shadow-sm">B</span>
             <div>
-              <span className="font-extrabold text-slate-100 text-sm tracking-tight">BuildTrack D&amp;B</span>
-              <span className="block text-[9px] font-bold text-slate-500 uppercase tracking-widest">Project Control System</span>
+              <span className="font-extrabold text-slate-950 text-base tracking-tight">BuildTrack</span>
+              <span className="block text-xs font-medium text-slate-500">Construction management</span>
             </div>
           </div>
-          <span className="text-xs bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-mono">v1.3</span>
         </div>
 
         {/* Signed-in user badge */}
-        <div className="px-3 py-2 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-[10px] font-bold text-white">
+        <div className="px-4 py-4 border-b border-slate-200 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 bg-blue-100 rounded-full flex items-center justify-center text-sm font-bold text-blue-800 shrink-0">
               {authUser.name.charAt(0).toUpperCase()}
             </div>
-            <div>
-              <p className="text-[10px] font-semibold text-slate-200 truncate max-w-[110px]">{authUser.name}</p>
-              <p className="text-[9px] text-slate-500 capitalize">{authUser.role.replace(/_/g, ' ')}</p>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-950 truncate">{authUser.name}</p>
+              <p className="text-xs text-slate-500 truncate">{ROLE_LABELS[normalizeRole(authUser.role)]}</p>
             </div>
           </div>
           <button
             onClick={handleSignOut}
-            className="text-[9px] text-slate-500 hover:text-rose-400 font-semibold transition"
+            className="shrink-0 text-xs text-slate-600 hover:text-rose-700 font-semibold transition focus-visible:outline-2 focus-visible:outline-blue-600"
           >
-            Sign Out
+            Sign out
           </button>
         </div>
 
         {/* Tab Links */}
-        <nav aria-label="Primary navigation" className="flex-1 p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-180px)]">
+        <nav aria-label="Primary navigation" className="flex-1 p-3 space-y-0.5 overflow-y-auto max-h-[calc(100vh-180px)]">
+          <p className="px-3 pb-2 pt-1 text-xs font-bold uppercase tracking-wider text-slate-500">Management</p>
           {MANAGEMENT_MODULES.map(module => {
             const firstAccessible = module.views.find(view => isAllowedTab(view.tab));
             return firstAccessible ? <NavBtn key={module.id} tab={firstAccessible.tab} active={activeModule?.id === module.id} setActiveTab={setActiveTabFromMenu} icon={module.icon} label={module.label} /> : null;
@@ -617,7 +629,7 @@ export default function DashboardShell() {
       {/* ------------------------------------------------------------------ */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header toolbar */}
-        <header className="app-header h-14 border-b flex items-center justify-between px-4 shrink-0 text-xs gap-2">
+        <header className="app-header min-h-16 border-b flex items-center justify-between px-4 py-2 md:px-6 shrink-0 text-xs gap-2">
           {/* Left: Project switcher */}
           <div className="flex items-center gap-2 min-w-0">
             <button onClick={() => setMobileMenuOpen(true)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-lg font-bold text-slate-700 shadow-sm md:hidden" aria-label="Open menu">
@@ -630,7 +642,8 @@ export default function DashboardShell() {
                 value={activeProjectId}
                 onChange={(e) => { void handleSwitchProject(e.target.value); }}
                 disabled={projectSwitching}
-                className="bg-slate-950 border border-slate-800 px-3 py-2 rounded-lg text-xs text-slate-200 font-semibold focus:outline-none max-w-[180px] md:max-w-[300px] truncate"
+                aria-label="Current project"
+                className="bg-white border border-slate-300 px-3 py-2 rounded-lg text-sm text-slate-900 font-semibold focus-visible:outline-2 focus-visible:outline-blue-600 max-w-[150px] md:max-w-[300px] truncate"
               >
                 {projectsList.map((p: any) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
@@ -638,7 +651,7 @@ export default function DashboardShell() {
               </select>
               {canAccess('manage_projects', 'write') && <button
                 onClick={() => setShowCreateProject(true)}
-                className="px-2 py-1 bg-blue-600/80 hover:bg-blue-600 text-white text-[10px] font-bold rounded transition whitespace-nowrap"
+                className="px-3 py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold rounded-lg transition whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
               >
                 + New Project
               </button>}
@@ -652,14 +665,13 @@ export default function DashboardShell() {
               <span className="font-mono">{formatBsDate(currentDate, { long: true })}</span>
             </div>
 
-            <button onClick={() => setActiveTabFromMenu('notifications')} className="relative rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 hover:bg-slate-800" aria-label="Open notifications">
+            <button onClick={() => setActiveTabFromMenu('notifications')} className="relative rounded-lg border border-slate-300 bg-white px-3 py-2 text-lg text-slate-800 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-blue-600" aria-label="Open notifications">
               🔔
             </button>
 
             {/* Role indicator */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-slate-500 hidden sm:inline">Role:</span>
-              <span className="bg-slate-800 border border-slate-700 px-2 py-0.5 rounded text-[10px] text-blue-400 font-bold capitalize">
+            <div className="hidden items-center gap-1.5 lg:flex">
+              <span className="bg-blue-50 border border-blue-100 px-2.5 py-1 rounded-full text-xs text-blue-800 font-bold capitalize">
                 {ROLE_LABELS[normalizeRole(authUser.role)]}
               </span>
             </div>
@@ -667,49 +679,43 @@ export default function DashboardShell() {
         </header>
 
         {/* ---- Active Dashboard Panel ---- */}
-        <main className="app-main flex-1 p-4 md:p-6 overflow-y-auto max-h-[calc(100vh-56px)]">
+        <main className="app-main flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto max-h-[calc(100vh-64px)]">
+          {activeModule && !['home', 'projects'].includes(activeModule.id) && <p className="mb-4 text-xs font-semibold text-slate-500" aria-label="Current location">{project.name} <span aria-hidden="true">/</span> <span className="text-slate-800">{activeModule.label}</span>{activeModule.views.length > 1 && <span> / {activeModule.views.find(view => view.tab === activeTab)?.label}</span>}</p>}
           {activeModule && visibleViews.length > 1 && (
             <nav aria-label={`${activeModule.label} sections`} className="mb-5 flex flex-wrap gap-2 border-b border-slate-200 pb-3">
-              {visibleViews.map(view => <button key={view.tab} type="button" onClick={() => setActiveTabFromMenu(view.tab)} aria-current={activeTab === view.tab ? 'page' : undefined} className={`rounded-lg px-3 py-2 text-sm font-semibold ${activeTab === view.tab ? 'bg-blue-700 text-white' : 'bg-white text-slate-700 hover:bg-blue-50'}`}>{view.label}</button>)}
+              {visibleViews.map(view => <button key={view.tab} type="button" onClick={() => setActiveTabFromMenu(view.tab)} aria-current={activeTab === view.tab ? 'page' : undefined} className={`rounded-lg px-3 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-blue-600 ${activeTab === view.tab ? 'bg-blue-700 text-white' : 'bg-white text-slate-700 hover:bg-blue-50'}`}>{view.label}</button>)}
             </nav>
           )}
           {isReadOnlyFeature && <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-950">Your Project Director granted view-only access to this module. Editing and uploads are disabled.</div>}
           <div className={isReadOnlyFeature ? 'feature-read-only' : ''} aria-readonly={isReadOnlyFeature}>
+          {activeModule && !['inventory', 'purchases'].includes(activeModule.id) && visibleViews[0]?.tab === activeTab && <ModuleSnapshot moduleId={activeModule.id} projectName={project.name} contractAmount={Number(project.contract_amount || 0)} activities={activities} expenses={expenses} resourceUsage={resourceUsage} employeeVisits={employeeVisits} peopleCount={users.length} ipcCount={ipcSubmissions.length} qaqcCount={qaqc.length} safetyCount={safety.length} defectsCount={defects.length} today={currentDate} canSeeFinancialSummary={canAccess('budget') && canAccess('expenses')} />}
           {activeTab === 'dashboard' && (
             authUser.role === 'super_admin' ? (
               <SuperAdminDashboard />
             ) : (
-              <ProjectHome
-                project={project}
-                activities={activities}
-                expenses={expenses}
+              <ManagementHome
+                projects={projectsList}
+                currentProject={project}
+                activities={normalizeRole(authUser.role) === 'project_director' ? allActivities : activities}
+                expenses={normalizeRole(authUser.role) === 'project_director' ? allExpenses : expenses}
                 resourceUsage={resourceUsage}
+                usersCount={users.length}
                 alerts={alerts}
+                entries={homeEntries}
+                portfolio={normalizeRole(authUser.role) === 'project_director'}
+                canSeeCommercial={canAccess('budget') && canAccess('expenses')}
                 onNavigate={goToTab}
               />
             )
           )}
 
           {activeTab === 'projects' && (
-            normalizeRole(authUser.role) === 'project_director' ? (
-              <DirectorPortfolioDashboard
-                projects={projectsList}
-                activeProjectId={project.id}
-                activities={allActivities}
-                expenses={allExpenses}
-                resourceUsage={allResourceUsage}
-                visits={allEmployeeVisits}
-                alerts={alerts}
-                onSwitchProject={handleSwitchProject}
-                onNavigate={goToTab}
-                onReload={loadData}
-              />
-            ) : (
-              <section className="space-y-5">
-                <div><h1 className="text-2xl font-extrabold text-slate-950">Projects</h1><p className="mt-1 text-slate-600">Choose the project you are working on. Your work and records reload safely when you switch.</p></div>
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{projectsList.map((item: any) => <button key={item.id} onClick={() => { void handleSwitchProject(item.id); }} disabled={projectSwitching} className={`rounded-2xl border p-5 text-left shadow-sm transition ${item.id === project.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white hover:border-blue-300'}`}><p className="font-bold text-slate-950">{item.name}</p><p className="mt-2 text-sm text-slate-500">{item.status || 'Active'} · NPR {Number(item.contract_amount || 0).toLocaleString()}</p><p className="mt-4 text-sm font-bold text-blue-800">{item.id === project.id ? 'Current project' : 'Open project →'}</p></button>)}</div>
-              </section>
-            )
+            <section className="space-y-7">
+              <PageHeader eyebrow="Projects" title="Your projects" description="Choose a project to see its work, people and finances. Records always follow the selected project." action={canAccess('manage_projects', 'write') ? <button type="button" onClick={() => setShowCreateProject(true)} className="rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">+ New project</button> : undefined} />
+              <ProjectOverview project={project} activities={normalizeRole(authUser.role) === 'project_director' ? allActivities : activities} expenses={normalizeRole(authUser.role) === 'project_director' ? allExpenses : expenses} resources={normalizeRole(authUser.role) === 'project_director' ? allResourceUsage : resourceUsage} entries={homeEntries} canSeeCommercial={canAccess('budget') && canAccess('expenses')} onNavigate={goToTab} />
+              <div className="space-y-3"><SectionHeader title="Project list" description="Select a project to make it your active workspace." /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{projectsList.map((item: any) => <button type="button" key={item.id} onClick={() => { void handleSwitchProject(item.id); }} disabled={projectSwitching} aria-current={item.id === project.id ? 'page' : undefined} className={`rounded-xl border bg-white p-4 text-left shadow-sm transition hover:border-blue-400 focus-visible:outline-2 focus-visible:outline-blue-600 ${item.id === project.id ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'}`}><span className="flex items-start justify-between gap-3"><span className="font-semibold text-slate-950">{item.name}</span><span className="text-xs font-semibold text-slate-600">{item.status || 'Active'}</span></span><span className="mt-2 block text-sm text-slate-600">{[item.client, item.location].filter(Boolean).join(' · ') || 'Project workspace'}</span><span className="mt-4 block text-sm font-semibold text-blue-800">{item.id === project.id ? 'Current project' : 'Open project →'}</span></button>)}</div></div>
+              {normalizeRole(authUser.role) === 'project_director' && <details className="rounded-xl border border-slate-200 bg-white p-4"><summary className="cursor-pointer text-sm font-semibold text-blue-800">Portfolio controls and archived projects</summary><div className="mt-5"><DirectorPortfolioDashboard projects={projectsList} activeProjectId={project.id} activities={allActivities} expenses={allExpenses} resourceUsage={allResourceUsage} visits={allEmployeeVisits} alerts={alerts} onSwitchProject={handleSwitchProject} onNavigate={goToTab} onReload={loadData} /></div></details>}
+            </section>
           )}
 
           {activeTab === 'people' && <PeopleHub projectId={project.id} canManage={canAccess('manage_users', 'write')} onNavigate={goToTab} />}

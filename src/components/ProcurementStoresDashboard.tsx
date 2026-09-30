@@ -75,22 +75,20 @@ export default function ProcurementStoresDashboard({ projectId, initialView }: {
   const saveMovement = async (event: React.FormEvent) => { event.preventDefault(); if(!movementItem)return; if(!isSupabaseConfigured()){setMessage('Connect the cloud database before posting stock movements. Local browser data is not used as stock authority.');return;} setSaving(true); try { const response=await fetch('/api/stores/inventory',{method:'POST',headers:await headers(),body:JSON.stringify({projectId,itemId:movementItem.id,...movement})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||'Stock movement could not be posted.');setMessage('Stock movement posted and saved to the audit trail.');setMovementItem(null);await load();}catch(error){setMessage(error instanceof Error?error.message:'Stock movement could not be posted.');}finally{setSaving(false);} };
 
   return (
-    <div className="space-y-5 text-xs" key={projectId}>
+    <div className="space-y-6 text-sm text-slate-800" key={projectId}>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-slate-100">Procurement & Stores Control</h2>
-          <p className="text-slate-400">Purchase commitments, delivery dates, receipts, issues and reorder alerts.</p>
+          <h1 className="text-xl font-bold text-slate-950">{view === 'stores' ? 'Inventory & stock' : 'Purchases & orders'}</h1>
+          <p className="mt-1 text-sm text-slate-600">{view === 'stores' ? 'Check balances, receive or issue stock, and review every movement.' : 'Track supplier orders, delivery dates, and what still needs attention.'}</p>
         </div>
-        <button onClick={() => setShowForm(value => !value)} className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg font-semibold text-white">
+        <button onClick={() => setShowForm(value => !value)} className="bg-blue-700 hover:bg-blue-800 px-4 py-2.5 rounded-lg font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">
           + {view === 'procurement' ? 'New Purchase Order' : 'New Store Item'}
         </button>
       </div>
       {message&&<div role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-950">{message}</div>}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Metric label="Committed Procurement" value={`NPR ${(stats.committed / 1_000_000).toFixed(1)}M`} />
-        <Metric label="Late Deliveries" value={String(stats.late)} danger={stats.late > 0} />
-        <Metric label="Reorder Alerts" value={String(stats.lowStock)} danger={stats.lowStock > 0} />
+        {view === 'procurement' ? <><Metric label="Active orders" value={String(orders.filter(order => !['delivered', 'cancelled'].includes(order.status)).length)} /><Metric label="Committed value" value={`NPR ${Math.round(stats.committed).toLocaleString()}`} /><Metric label="Late deliveries" value={String(stats.late)} danger={stats.late > 0} /></> : <><Metric label="Stock items" value={String(items.length)} /><Metric label="Low stock" value={String(stats.lowStock)} danger={stats.lowStock > 0} /><Metric label="Recent movements" value={String(movements.length)} /></>}
       </div>
 
       {!initialView && <div className="flex gap-2 bg-slate-900/60 p-1 rounded-lg w-fit">
@@ -99,7 +97,7 @@ export default function ProcurementStoresDashboard({ projectId, initialView }: {
       </div>}
 
       {showForm && view === 'procurement' && (
-        <form onSubmit={saveOrder} className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-800/60 border border-slate-700 p-4 rounded-xl">
+        <form onSubmit={saveOrder} className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-white border border-slate-200 p-5 rounded-xl shadow-sm">
           <Field label="PO Number"><input required value={po.po_number} onChange={e => setPo({...po, po_number:e.target.value})} /></Field>
           <Field label="Vendor"><input required value={po.vendor} onChange={e => setPo({...po, vendor:e.target.value})} /></Field>
           <Field label="Item / Package"><input required value={po.item} onChange={e => setPo({...po, item:e.target.value})} /></Field>
@@ -116,7 +114,7 @@ export default function ProcurementStoresDashboard({ projectId, initialView }: {
       )}
 
       {showForm && view === 'stores' && (
-        <form onSubmit={saveStock} className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-800/60 border border-slate-700 p-4 rounded-xl">
+        <form onSubmit={saveStock} className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-white border border-slate-200 p-5 rounded-xl shadow-sm">
           <Field label="Item Code"><input required value={stock.item_code} onChange={e => setStock({...stock, item_code:e.target.value})} /></Field>
           <Field label="Item Name"><input required value={stock.item_name} onChange={e => setStock({...stock, item_name:e.target.value})} /></Field>
           <Field label="Unit"><input value={stock.unit} onChange={e => setStock({...stock, unit:e.target.value})} /></Field>
@@ -142,18 +140,18 @@ export default function ProcurementStoresDashboard({ projectId, initialView }: {
         </form>
       )}
 
-      <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-4 overflow-x-auto">
+      <div className="bg-white border border-slate-200 rounded-xl p-4 overflow-x-auto shadow-sm">
         {view === 'procurement' ? (
-          <table className="w-full min-w-[980px]"><thead><tr className="text-slate-400 border-b border-slate-700">{['PO','Vendor / Item','Qty','Value','Order Date (BS)','Delivery Date (BS)','Delivered','Status','Remarks','Action'].map(h => <th key={h} className="text-left py-2">{h}</th>)}</tr></thead>
-            <tbody>{orders.map(order => <tr key={order.id} className="border-b border-slate-800"><td className="py-3 font-mono">{order.po_number}</td><td><b>{order.vendor}</b><div className="text-slate-500">{order.item}</div></td><td>{order.quantity} {order.unit}</td><td>NPR {(order.quantity * order.unit_rate).toLocaleString()}</td><td>{formatBsDate(order.order_date || order.required_date)}</td><td>{formatBsDate(order.delivery_date || order.expected_date)}</td><td>{order.delivered_quantity}</td><td><Badge value={order.status} /></td><td>{order.remarks || '—'}</td><td><div className="flex gap-2"><button onClick={()=>setSelectedRecord({...order})} className="font-bold text-slate-100">View details</button><button onClick={()=>startEditOrder(order)} className="font-bold text-blue-700">Edit details</button><button onClick={()=>deleteOrder(order.id)} className="font-bold text-rose-700">Delete</button></div></td></tr>)}</tbody>
+          <table className="w-full min-w-[980px]"><thead><tr className="text-slate-600 border-b border-slate-200">{['PO','Vendor / Item','Qty','Value','Order Date (BS)','Delivery Date (BS)','Delivered','Status','Remarks','Action'].map(h => <th key={h} className="text-left py-2 font-semibold">{h}</th>)}</tr></thead>
+            <tbody>{orders.map(order => <tr key={order.id} className="border-b border-slate-100"><td className="py-3 font-mono">{order.po_number}</td><td><b>{order.vendor}</b><div className="text-slate-500">{order.item}</div></td><td>{order.quantity} {order.unit}</td><td>NPR {(order.quantity * order.unit_rate).toLocaleString()}</td><td>{formatBsDate(order.order_date || order.required_date)}</td><td>{formatBsDate(order.delivery_date || order.expected_date)}</td><td>{order.delivered_quantity}</td><td><Badge value={order.status} /></td><td>{order.remarks || '—'}</td><td><div className="flex flex-wrap gap-2"><button onClick={()=>setSelectedRecord({...order})} className="font-semibold text-blue-800">View details</button><button onClick={()=>startEditOrder(order)} className="font-semibold text-blue-800">Edit</button><button onClick={()=>deleteOrder(order.id)} className="font-semibold text-rose-700">Delete</button></div></td></tr>)}</tbody>
           </table>
         ) : (
-          <table className="w-full min-w-[850px]"><thead><tr className="text-slate-400 border-b border-slate-700">{['Code','Material','Vendor','Location','Opening','Received','Issued','Balance','Status','Action'].map(h => <th key={h} className="text-left py-2">{h}</th>)}</tr></thead>
-            <tbody>{items.map(item => { const balance=itemBalance(item); return <tr key={item.id} className="border-b border-slate-800"><td className="py-3 font-mono">{item.item_code}</td><td><b>{item.item_name}</b><div className="text-slate-500">{item.unit}</div></td><td>{item.vendor || '—'}</td><td>{item.location}</td><td>{item.inventory_opening_balance ?? item.opening_stock}</td><td className="text-emerald-400">{movementTotal(movements,item.id,['RECEIPT','ADJUSTMENT_IN','TRANSFER_IN'])}</td><td className="text-amber-400">{movementTotal(movements,item.id,['ISSUE','ADJUSTMENT_OUT','TRANSFER_OUT'])}</td><td className="font-bold">{balance}</td><td><Badge value={balance <= item.reorder_level ? 'reorder' : (item.status || 'healthy')} /></td><td><div className="flex flex-wrap gap-2"><button onClick={()=>setSelectedRecord({...item, balance, movements:movements.filter(row=>row.item_id===item.id)})} className="font-bold text-slate-100">View details</button><button onClick={()=>startEditStock(item)} className="font-bold text-blue-700">Edit details</button><button onClick={()=>startMovement(item)} className="font-bold text-emerald-700">Receive</button><button onClick={()=>startMovement(item,'ISSUE')} className="font-bold text-amber-700">Issue</button><button onClick={()=>startMovement(item,'ADJUSTMENT_IN')} className="font-bold text-slate-700">Adjust</button></div></td></tr> })}</tbody>
+          <table className="w-full min-w-[850px]"><thead><tr className="text-slate-600 border-b border-slate-200">{['Code','Material','Vendor','Location','Opening','Received','Issued','Balance','Status','Action'].map(h => <th key={h} className="text-left py-2 font-semibold">{h}</th>)}</tr></thead>
+            <tbody>{items.map(item => { const balance=itemBalance(item); return <tr key={item.id} className="border-b border-slate-100"><td className="py-3 font-mono">{item.item_code}</td><td><b>{item.item_name}</b><div className="text-slate-500">{item.unit}</div></td><td>{item.vendor || '—'}</td><td>{item.location}</td><td>{item.inventory_opening_balance ?? item.opening_stock}</td><td className="text-emerald-700">{movementTotal(movements,item.id,['RECEIPT','ADJUSTMENT_IN','TRANSFER_IN'])}</td><td className="text-amber-800">{movementTotal(movements,item.id,['ISSUE','ADJUSTMENT_OUT','TRANSFER_OUT'])}</td><td className="font-bold">{balance}</td><td><Badge value={balance <= item.reorder_level ? 'reorder' : (item.status || 'healthy')} /></td><td><div className="flex flex-wrap gap-2"><button onClick={()=>setSelectedRecord({...item, balance, movements:movements.filter(row=>row.item_id===item.id)})} className="font-semibold text-blue-800">View details</button><button onClick={()=>startEditStock(item)} className="font-semibold text-blue-800">Edit</button><button onClick={()=>startMovement(item)} className="font-semibold text-emerald-800">Receive</button><button onClick={()=>startMovement(item,'ISSUE')} className="font-semibold text-amber-800">Issue</button><button onClick={()=>startMovement(item,'ADJUSTMENT_IN')} className="font-semibold text-slate-800">Adjust</button></div></td></tr> })}</tbody>
           </table>
         )}
       </div>
-      {view==='stores'&&<div className="rounded-xl border border-slate-700/40 bg-slate-800/50 p-4 overflow-x-auto"><h3 className="mb-3 font-semibold text-slate-100">Recent stock movements</h3><table className="w-full min-w-[760px]"><thead><tr className="border-b border-slate-700 text-left text-slate-400"><th>When</th><th>Item</th><th>Action</th><th>Quantity</th><th>Reference / reason</th><th>Recorded by</th></tr></thead><tbody>{movements.slice(0,12).map(row=><tr key={row.id} className="border-b border-slate-800"><td className="py-2">{row.occurred_at||row.event_date}</td><td>{items.find(item=>item.id===row.item_id)?.item_name||'Store item'}</td><td><Badge value={(row.movement_type||row.event_type).toLowerCase()} /></td><td>{row.quantity}</td><td>{row.reference||row.reason||row.remarks||'—'}</td><td>{row.recorded_by||'—'}</td></tr>)}{!movements.length&&<tr><td colSpan={6} className="py-5 text-slate-400">No posted stock movements yet.</td></tr>}</tbody></table></div>}
+      {view==='stores'&&<div className="rounded-xl border border-slate-200 bg-white p-4 overflow-x-auto shadow-sm"><h3 className="mb-3 text-base font-semibold text-slate-950">Recent stock movements</h3><table className="w-full min-w-[760px]"><thead><tr className="border-b border-slate-200 text-left text-slate-600"><th>When</th><th>Item</th><th>Action</th><th>Quantity</th><th>Reference / reason</th><th>Recorded by</th></tr></thead><tbody>{movements.slice(0,12).map(row=><tr key={row.id} className="border-b border-slate-100"><td className="py-2">{row.occurred_at||row.event_date}</td><td>{items.find(item=>item.id===row.item_id)?.item_name||'Store item'}</td><td><Badge value={(row.movement_type||row.event_type).toLowerCase()} /></td><td>{row.quantity}</td><td>{row.reference||row.reason||row.remarks||'—'}</td><td>{row.recorded_by||'—'}</td></tr>)}{!movements.length&&<tr><td colSpan={6} className="py-5 text-slate-500">No posted stock movements yet.</td></tr>}</tbody></table></div>}
       <RecordDetailsDialog title="Procurement record" record={selectedRecord} onClose={()=>setSelectedRecord(null)} />
     </div>
   );
@@ -163,13 +161,13 @@ function itemBalance(item: StoreItem) { return Number.isFinite(Number(item.curre
 function movementTotal(movements: InventoryEvent[], itemId: string, types: string[]) { return movements.filter(row=>row.item_id===itemId&&types.includes(row.movement_type||'')).reduce((total,row)=>total+Number(row.quantity||0),0); }
 
 function Metric({label,value,danger=false}:{label:string;value:string;danger?:boolean}) {
-  return <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-4"><div className="text-slate-500 uppercase text-[10px] font-bold">{label}</div><div className={`text-xl font-bold mt-1 ${danger?'text-rose-400':'text-slate-100'}`}>{value}</div></div>;
+  return <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm"><div className="text-slate-600 text-sm font-medium">{label}</div><div className={`text-2xl font-bold mt-2 tabular-nums ${danger?'text-rose-800':'text-slate-950'}`}>{value}</div></div>;
 }
 function Field({label,children}:{label:string;children:React.ReactNode}) {
-  return <label className="text-slate-400 space-y-1"><span className="block">{label}</span><span className="[&_input]:w-full [&_select]:w-full [&_input]:bg-slate-950 [&_select]:bg-slate-950 [&_input]:border [&_select]:border [&_input]:border-slate-700 [&_select]:border-slate-700 [&_input]:p-2 [&_select]:p-2 [&_input]:rounded [&_select]:rounded [&_input]:text-slate-200 [&_select]:text-slate-200">{children}</span></label>;
+  return <label className="text-sm font-medium text-slate-700 space-y-1"><span className="block">{label}</span><span className="[&_input]:w-full [&_select]:w-full [&_input]:bg-white [&_select]:bg-white [&_input]:border [&_select]:border [&_input]:border-slate-300 [&_select]:border-slate-300 [&_input]:p-2 [&_select]:p-2 [&_input]:rounded-lg [&_select]:rounded-lg [&_input]:text-slate-950 [&_select]:text-slate-950">{children}</span></label>;
 }
 function Badge({value}:{value:string}) {
   const warning=['ordered','partially_delivered','reorder'].includes(value);
   const good=['delivered','healthy','approved'].includes(value);
-  return <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${warning?'bg-amber-500/10 text-amber-400':good?'bg-emerald-500/10 text-emerald-400':'bg-slate-700 text-slate-300'}`}>{value.replaceAll('_',' ')}</span>;
+  return <span className={`px-2 py-1 rounded-full text-xs font-semibold ${warning?'bg-amber-50 text-amber-900':good?'bg-emerald-50 text-emerald-800':'bg-slate-100 text-slate-700'}`}>{value.replaceAll('_',' ')}</span>;
 }

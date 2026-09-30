@@ -27,9 +27,13 @@ test('legacy tab IDs remain nested and authorized through their parent module', 
   assert.match(page, /initialView=\{activeTab === 'stores' \? 'stores' : 'procurement'\}/);
 });
 
-test('home is project-scoped and presents project progress, money, attention and work entry points', () => {
-  for (const label of ['Current project', 'Overall progress', 'Money', 'Work requiring attention', 'Progress']) assert.match(experience, new RegExp(label));
-  assert.match(page, /<ProjectHome[\s\S]*project=\{project\}/);
+test('home presents authorized portfolio or current-project information without a second business authority', () => {
+  const home = fs.readFileSync('src/components/ManagementHome.tsx', 'utf8');
+  assert.match(page, /<ManagementHome/);
+  assert.match(page, /portfolio=\{normalizeRole\(authUser\.role\) === 'project_director'\}/);
+  for (const label of ['Management areas', 'Tasks complete', 'Expenses logged', 'Attention now']) assert.match(home, new RegExp(label));
+  assert.match(home, /item\.project_id && projectIds\.has\(item\.project_id\)/);
+  assert.match(home, /BarChart/);
   assert.match(experience, /storage\.getProcurementOrders\(\)/);
 });
 
