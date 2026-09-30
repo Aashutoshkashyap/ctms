@@ -220,6 +220,25 @@ export async function createDriveFolder(accessToken: string, name: string, paren
   });
 }
 
+export async function findDriveFolder(accessToken: string, name: string, parentId: string) {
+  const query = [`mimeType = 'application/vnd.google-apps.folder'`, `name = '${name.replace(/'/g, "\\'")}'`, `'${parentId.replace(/'/g, "\\'")}' in parents`, 'trashed = false'].join(' and ');
+  const response = await googleFetch<{ files?: Array<{ id: string; name: string }> }>(`${DRIVE_API}/files?q=${encodeURIComponent(query)}&fields=files(id,name)&pageSize=1`, accessToken);
+  return response.files?.[0] || null;
+}
+
+// Folder organization is metadata-driven. Repeated uploads use the same
+// folder instead of creating duplicate project/date/module trees.
+export async function ensureDriveFolderPath(accessToken: string, parentId: string, names: string[]) {
+  let folderId = parentId;
+  for (const rawName of names.filter(Boolean)) {
+    const name = safeDriveName(rawName);
+    const existing = await findDriveFolder(accessToken, name, folderId);
+    const folder = existing || await createDriveFolder(accessToken, name, folderId);
+    folderId = folder.id;
+  }
+  return folderId;
+}
+
 export async function createSpreadsheet(accessToken: string, title: string) {
   return googleFetch<{ spreadsheetId: string; spreadsheetUrl: string }>(SHEETS_API, accessToken, {
     method: 'POST',

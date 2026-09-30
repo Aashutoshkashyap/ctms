@@ -19,6 +19,7 @@ import DefectsDashboard from '../components/DefectsDashboard';
 import SettingsPanel from '../components/SettingsPanel';
 import AuthLayout from '../components/AuthLayout';
 import DocumentTracker from '../components/DocumentTracker';
+import DocumentVault from '../components/DocumentVault';
 import ProcurementStoresDashboard from '../components/ProcurementStoresDashboard';
 import ContractObligationsDashboard from '../components/ContractObligationsDashboard';
 import DailyReportingDashboard from '../components/DailyReportingDashboard';
@@ -835,7 +836,10 @@ export default function DashboardShell() {
 
           {/* ---- NEW: Document Registry ---- */}
           {activeTab === 'documents' && (
-            <DocumentTracker key={project.id} userRole={authUser.role} projectId={project.id} userName={authUser.name} userEmail={authUser.email} />
+            <div className="space-y-6" key={project.id}>
+              <DocumentVault projectId={project.id} />
+              <DocumentTracker userRole={authUser.role} projectId={project.id} userName={authUser.name} userEmail={authUser.email} />
+            </div>
           )}
 
           {activeTab === 'reports' && (
