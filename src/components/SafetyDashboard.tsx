@@ -5,6 +5,7 @@ import { storage } from '../lib/storage';
 import { formatBsDate, todayAdDate } from '../lib/nepaliDate';
 import UploadProgress from './UploadProgress';
 import { useSubmissionLock } from '../lib/useSubmissionLock';
+import { MetricCard, SectionHeader } from './ManagementUI';
 
 interface SafetyDashboardProps {
   safetyLogs: any[];
@@ -75,38 +76,11 @@ export default function SafetyDashboard({
   return (
     <div className="space-y-6"><UploadProgress active={saving} label="Uploading and securing the safety report…"/>
       {/* Cumulative Metrics Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-slate-800/50 border border-slate-700/40 p-4 rounded-xl text-center shadow">
-          <div className="text-slate-400 text-xs font-semibold">Toolbox Talks (Talks)</div>
-          <div className="text-2xl font-bold mt-1 text-slate-100">{cumulativeToolbox}</div>
-          <span className="text-[9px] text-slate-500 block mt-1">Pre-shift safety briefings</span>
-        </div>
-
-        <div className="bg-slate-800/50 border border-red-700/20 p-4 rounded-xl text-center shadow">
-          <div className="text-slate-400 text-xs font-semibold">Safety Incidents</div>
-          <div className="text-2xl font-bold mt-1 text-rose-400">{cumulativeIncidents}</div>
-          <span className="text-[9px] text-rose-400 font-bold block mt-1">{cumulativeIncidents > 0 ? 'Urgent Review' : 'Zero Incident Target'}</span>
-        </div>
-
-        <div className="bg-slate-800/50 border border-amber-700/20 p-4 rounded-xl text-center shadow">
-          <div className="text-slate-400 text-xs font-semibold">Near Misses Reported</div>
-          <div className="text-2xl font-bold mt-1 text-amber-400">{cumulativeNearMisses}</div>
-          <span className="text-[9px] text-slate-500 block mt-1">Hazard identifications logged</span>
-        </div>
-
-        <div className="bg-slate-800/50 border border-slate-700/40 p-4 rounded-xl text-center shadow">
-          <div className="text-slate-400 text-xs font-semibold">Active Work Permits</div>
-          <div className="text-2xl font-bold mt-1 text-slate-100">{cumulativePermits}</div>
-          <span className="text-[9px] text-slate-500 block mt-1">Height, excav, electrical permits</span>
-        </div>
-      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Toolbox talks logged" value={String(cumulativeToolbox)} /><MetricCard label="Incidents logged" value={String(cumulativeIncidents)} tone="red" /><MetricCard label="Near misses logged" value={String(cumulativeNearMisses)} tone="amber" /><MetricCard label="Permits logged" value={String(cumulativePermits)} /></div>
 
       {/* Action Header */}
-      <div className="flex justify-between items-center bg-slate-800/40 p-4 border border-slate-700/30 rounded-xl shadow">
-        <div>
-          <h2 className="text-slate-200 text-base font-semibold">EHS & Safety Management Control</h2>
-          <p className="text-xs text-slate-400">Record daily safety audits, register hazard issues, and manage hot work / confined space permits.</p>
-        </div>
+      <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <SectionHeader title="Site safety records" description="Log daily safety activity and attach reports for incidents or environmental events." />
         {canEdit && (
           <button 
             onClick={() => setShowAddForm(!showAddForm)}
@@ -119,7 +93,7 @@ export default function SafetyDashboard({
 
       {/* Add form */}
       {showAddForm && (
-        <form onSubmit={handleSubmit} className="bg-slate-800/80 border border-slate-700 p-4 rounded-xl space-y-4 max-w-2xl shadow-lg text-xs">
+        <form onSubmit={handleSubmit} className="max-w-2xl space-y-4 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm">
           <h3 className="text-slate-200 font-bold uppercase tracking-wider">Log Site Safety parameters</h3>
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">

@@ -688,7 +688,7 @@ export default function DashboardShell() {
           )}
           {isReadOnlyFeature && <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-950">Your Project Director granted view-only access to this module. Editing and uploads are disabled.</div>}
           <div className={isReadOnlyFeature ? 'feature-read-only' : ''} aria-readonly={isReadOnlyFeature}>
-          {activeModule && !['inventory', 'purchases'].includes(activeModule.id) && visibleViews[0]?.tab === activeTab && <ModuleSnapshot moduleId={activeModule.id} projectName={project.name} contractAmount={Number(project.contract_amount || 0)} activities={activities} expenses={expenses} resourceUsage={resourceUsage} employeeVisits={employeeVisits} peopleCount={users.length} ipcCount={ipcSubmissions.length} qaqcCount={qaqc.length} safetyCount={safety.length} defectsCount={defects.length} today={currentDate} canSeeFinancialSummary={canAccess('budget') && canAccess('expenses')} />}
+          {activeModule && !['inventory', 'purchases'].includes(activeModule.id) && visibleViews[0]?.tab === activeTab && <ModuleSnapshot moduleId={activeModule.id} projectName={project.name} contractAmount={Number(project.contract_amount || 0)} activities={activities} expenses={expenses} resourceUsage={resourceUsage} employeeVisits={employeeVisits} peopleCount={users.length} ipcCount={ipcSubmissions.length} qaqcCount={qaqc.length} safetyCount={safety.length} defectsCount={defects.length} pendingInspections={qaqc.filter(item => item.status === 'pending').length} failedInspections={qaqc.filter(item => item.status === 'failed').length} safetyIncidents={safety.reduce((sum, item) => sum + Number(item.incidents || 0), 0)} today={currentDate} canSeeFinancialSummary={canAccess('budget') && canAccess('expenses')} />}
           {activeTab === 'dashboard' && (
             authUser.role === 'super_admin' ? (
               <SuperAdminDashboard />
@@ -718,8 +718,8 @@ export default function DashboardShell() {
             </section>
           )}
 
-          {activeTab === 'people' && <PeopleHub projectId={project.id} canManage={canAccess('manage_users', 'write')} onNavigate={goToTab} />}
-          {activeTab === 'workforce' && <OperationalControlDashboard key={`workforce-${project.id}`} projectId={project.id} role={authUser.role} userName={authUser.name} activities={activities} />}
+          {activeTab === 'people' && <PeopleHub key={project.id} projectId={project.id} canManage={canAccess('manage_users', 'write')} onNavigate={goToTab} />}
+          {activeTab === 'workforce' && <OperationalControlDashboard key={`workforce-${project.id}`} projectId={project.id} role={authUser.role} userName={authUser.name} activities={activities} focus="people" />}
           {activeTab === 'work' && <WorkHub projectId={project.id} activities={activities} onNavigate={goToTab} onRefresh={loadData} />}
           {activeTab === 'departments' && <DepartmentHub projectId={project.id} activities={activities} canManage={canAccess('manage_users', 'write')} onNavigate={goToTab} />}
           {activeTab === 'notifications' && <AlertHub projectId={project.id} onNavigate={goToTab} />}
@@ -766,7 +766,7 @@ export default function DashboardShell() {
           )}
 
           {activeTab === 'operations' && (
-            <OperationalControlDashboard key={project.id} projectId={project.id} role={authUser.role} userName={authUser.name} activities={activities} />
+            <OperationalControlDashboard key={project.id} projectId={project.id} role={authUser.role} userName={authUser.name} activities={activities} focus="fleet" />
           )}
 
           {activeTab === 'evidence' && (
@@ -845,7 +845,7 @@ export default function DashboardShell() {
           {activeTab === 'documents' && (
             <div className="space-y-6" key={project.id}>
               <DocumentVault projectId={project.id} />
-              <DocumentTracker userRole={authUser.role} projectId={project.id} userName={authUser.name} userEmail={authUser.email} />
+              <details className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><summary className="cursor-pointer text-base font-semibold text-slate-950">Controlled document register</summary><div className="mt-5"><DocumentTracker userRole={authUser.role} projectId={project.id} userName={authUser.name} userEmail={authUser.email} /></div></details>
             </div>
           )}
 
@@ -876,6 +876,7 @@ export default function DashboardShell() {
 
           {activeTab === 'settings' && (
             <SettingsPanel
+              key={project.id}
               users={users}
               onAddUser={handleAddUser}
               onResetDb={storage.resetDatabase}

@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { isSupabaseConfigured, storage } from '../lib/storage';
 import { buildDefaultPermissions, defaultPermissionLevel, DIRECTOR_MANAGED_FEATURES } from '../lib/permissions';
 import type { FeaturePermissions, PermissionLevel } from '../lib/permissions';
+import { PageHeader } from './ManagementUI';
 
 interface SettingsPanelProps {
   users: any[];
@@ -180,29 +181,30 @@ export default function SettingsPanel({
   };
 
   return (
-    <div className="space-y-6 text-xs text-slate-300">
+    <div className="space-y-6 text-sm text-slate-700">
+      <PageHeader eyebrow="Settings" title="Project settings" description="Manage project details, team access and connected storage from one place." />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Project Details */}
-        <div className="bg-slate-800/50 border border-slate-700/40 p-5 rounded-xl shadow space-y-4">
-          <h3 className="text-slate-200 text-sm font-semibold">Project & Contract Details</h3>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+          <h3 className="text-base font-semibold text-slate-950">Project details</h3>
           <form onSubmit={handleProjectUpdateSubmit} className="space-y-3">
             <div>
-              <label className="block text-slate-400 mb-1">Project Name</label>
+              <label className="mb-1 block font-medium text-slate-700">Project name</label>
               <input
                 type="text"
                 value={projName}
                 onChange={(e) => setProjName(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
+                className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-950"
                 required
               />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Contract Amount (NPR)</label>
+              <label className="mb-1 block font-medium text-slate-700">Contract amount (NPR)</label>
               <input
                 type="number"
                 value={contractAmt}
                 onChange={(e) => setContractAmt(Number(e.target.value))}
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
+                className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-950"
                 required
               />
             </div>
@@ -238,10 +240,10 @@ export default function SettingsPanel({
         </div>
       </div>
 
-      <div className="bg-white border border-blue-100 rounded-xl p-5 shadow-sm space-y-4 text-slate-700">
+      <details className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm text-slate-700"><summary className="cursor-pointer text-base font-semibold text-slate-950">Google Drive & document storage</summary><div className="mt-5 space-y-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
-            <h3 className="text-slate-900 text-sm font-bold">Tenant-owned Google Drive Storage</h3>
+            <h3 className="text-slate-900 text-sm font-bold">Business Google Drive connection</h3>
             <p className="mt-1 text-sm text-slate-500">
               Let each business store its own project files, employee records, expense sheets, photos and documents in its own Google Drive. Superadmin sees subscription/access only, not tenant files.
             </p>
@@ -302,40 +304,40 @@ export default function SettingsPanel({
         <p className="text-[10px] text-slate-500">
           Gmail sending can be enabled later for project notices and report emails using the optional gmail.send scope. It is intentionally disabled by default to keep Google verification simpler.
         </p>
-      </div>
+      </div></details>
 
       {/* Users and Roles list */}
-      <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-5 shadow space-y-4">
-        <h3 className="text-slate-200 text-sm font-semibold">JV / Project Personnel Directory</h3>
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+        <h3 className="text-base font-semibold text-slate-950">Team access</h3>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <form onSubmit={handleAddUserSubmit} className="lg:col-span-1 border border-slate-750 p-4 rounded-lg bg-slate-900/20 space-y-3">
-            <h4 className="text-slate-200 font-semibold mb-1">Add Personnel</h4>
+          <form onSubmit={handleAddUserSubmit} className="lg:col-span-1 rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
+            <h4 className="mb-1 font-semibold text-slate-950">Add team member</h4>
             <div>
-              <label className="block text-slate-400 mb-1">Name</label>
+              <label className="mb-1 block font-medium text-slate-700">Name</label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
+                className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-950"
                 required
               />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Email</label>
+              <label className="mb-1 block font-medium text-slate-700">Email</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
+                className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-950"
                 required
               />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Role Permission</label>
+              <label className="mb-1 block font-medium text-slate-700">Role</label>
               <select
                 value={role}
                 onChange={(e) => { setRole(e.target.value); setPermissions(buildDefaultPermissions(e.target.value)); }}
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
+                className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-950"
               >
                 <option value="business_admin">Business Administrator</option>
                 <option value="project_director">Project Director</option>
@@ -355,7 +357,7 @@ export default function SettingsPanel({
               </select>
             </div>
             {isSupabaseConfigured() && <div>
-              <label className="block text-slate-400 mb-1">Temporary Password</label>
+              <label className="mb-1 block font-medium text-slate-700">Temporary password</label>
               <input
                 type="text"
                 minLength={10}
@@ -363,7 +365,7 @@ export default function SettingsPanel({
                 value={temporaryPassword}
                 onChange={(event)=>setTemporaryPassword(event.target.value)}
                 placeholder="Director creates first password"
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
+                className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-950"
                 required
               />
               <p className="mt-1 text-[10px] text-slate-500">At least 10 characters with upper-case, lower-case and a number. The employee can later use Forgot Password.</p>
@@ -378,7 +380,7 @@ export default function SettingsPanel({
           <div className="lg:col-span-2 overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-700 text-slate-400 font-semibold">
+                <tr className="border-b border-slate-200 font-semibold text-slate-600">
                   <th className="pb-3">Name</th>
                   <th className="pb-3">Email Address</th>
                   <th className="pb-3">Access</th>

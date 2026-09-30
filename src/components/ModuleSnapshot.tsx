@@ -6,7 +6,7 @@ import { MetricCard, SectionHeader } from './ManagementUI';
 type Snapshot = { label: string; value: string; note: string; icon: string; tone?: 'blue' | 'green' | 'amber' | 'red' | 'slate' };
 const amount = (value: number) => `NPR ${Math.round(Number.isFinite(value) ? value : 0).toLocaleString()}`;
 
-export default function ModuleSnapshot({ moduleId, projectName, contractAmount, activities, expenses, resourceUsage, employeeVisits, peopleCount, ipcCount, qaqcCount, safetyCount, defectsCount, today, canSeeFinancialSummary }: {
+export default function ModuleSnapshot({ moduleId, projectName, contractAmount, activities, expenses, resourceUsage, employeeVisits, peopleCount, ipcCount, qaqcCount, safetyCount, defectsCount, pendingInspections, failedInspections, safetyIncidents, today, canSeeFinancialSummary }: {
   moduleId: string;
   projectName: string;
   contractAmount: number;
@@ -19,6 +19,9 @@ export default function ModuleSnapshot({ moduleId, projectName, contractAmount, 
   qaqcCount: number;
   safetyCount: number;
   defectsCount: number;
+  pendingInspections: number;
+  failedInspections: number;
+  safetyIncidents: number;
   today: string;
   canSeeFinancialSummary: boolean;
 }) {
@@ -48,10 +51,11 @@ export default function ModuleSnapshot({ moduleId, projectName, contractAmount, 
       { label: 'Expenses logged', value: amount(expensesLogged), note: 'Not certified or paid amount', icon: '↗', tone: 'slate' },
       { label: 'IPC records', value: String(ipcCount), note: 'See valuation for status and amounts', icon: '🧾' },
     ] },
-    'quality-safety': { description: 'Inspection, quality and safety records for the current project.', metrics: [
-      { label: 'Quality records', value: String(qaqcCount), note: 'Inspections and checks', icon: '✓' },
-      { label: 'Safety records', value: String(safetyCount), note: 'Site safety entries', icon: '🦺', tone: 'amber' },
-      { label: 'Defects', value: String(defectsCount), note: 'Recorded defects', icon: '!', tone: 'red' },
+    'quality-safety': { description: `${qaqcCount} inspections and ${safetyCount} safety logs for this project.`, metrics: [
+      { label: 'Waiting inspection', value: String(pendingInspections), note: 'Requests not yet resolved', icon: '◷', tone: 'amber' },
+      { label: 'Failed / NCR', value: String(failedInspections), note: 'Inspection failures recorded', icon: '!', tone: 'red' },
+      { label: 'Safety incidents', value: String(safetyIncidents), note: 'Incidents in logged events', icon: '🦺', tone: 'red' },
+      { label: 'Defects', value: String(defectsCount), note: 'Recorded defects', icon: '!', tone: 'amber' },
     ] },
     'document-vault': { description: 'Find project files, controlled documents and photographic evidence.', metrics: [
       { label: 'Registered documents', value: String(documents.length), note: 'Current project register', icon: '📁' },
@@ -61,5 +65,5 @@ export default function ModuleSnapshot({ moduleId, projectName, contractAmount, 
   };
   const summary = summaries[moduleId];
   if (!summary) return null;
-  return <section aria-label={`${moduleId} summary`} className="mb-6 space-y-3"><SectionHeader title={`${projectName} · at a glance`} description={summary.description} /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{summary.metrics.map(metric => <MetricCard key={metric.label} {...metric} />)}</div></section>;
+  return <section aria-label={`${moduleId} summary`} className="mb-6 space-y-3"><SectionHeader title={`${projectName} · at a glance`} description={summary.description} /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{summary.metrics.map(metric => <MetricCard key={metric.label} {...metric} />)}</div>{moduleId === 'commercial' && <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-sm font-semibold text-slate-900">Commercial path</p><ol className="mt-3 flex flex-wrap gap-2 text-sm text-slate-700">{['BOQ', 'Measured work', 'Valuation', 'Certificate', 'Payment status'].map((stage, index) => <li key={stage} className="flex items-center gap-2"><span className="rounded-full bg-blue-50 px-3 py-1 font-medium text-blue-900">{stage}</span>{index < 4 && <span aria-hidden="true" className="text-slate-400">→</span>}</li>)}</ol><p className="mt-2 text-xs text-slate-500">Each stage follows its existing project record and approval workflow.</p></div>}</section>;
 }

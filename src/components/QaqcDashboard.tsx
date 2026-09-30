@@ -5,6 +5,7 @@ import { formatBsDate } from '../lib/nepaliDate';
 import { storage } from '../lib/storage';
 import UploadProgress from './UploadProgress';
 import { useSubmissionLock } from '../lib/useSubmissionLock';
+import { MetricCard, SectionHeader } from './ManagementUI';
 
 interface QaqcDashboardProps {
   qaqc: any[];
@@ -101,31 +102,11 @@ export default function QaqcDashboard({
   return (
     <div className="space-y-6"><UploadProgress active={uploading} label="Uploading and securing the test or NCR report…"/>
       {/* QA Grid summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-slate-800/50 border border-slate-700/40 p-4 rounded-xl text-center shadow">
-          <div className="text-slate-400 text-xs font-semibold">Total Quality Items</div>
-          <div className="text-2xl font-bold mt-1 text-slate-100">{total}</div>
-        </div>
-        <div className="bg-slate-800/50 border border-emerald-700/20 p-4 rounded-xl text-center shadow">
-          <div className="text-slate-400 text-xs font-semibold">Passed Inspections</div>
-          <div className="text-2xl font-bold mt-1 text-emerald-400">{passed}</div>
-        </div>
-        <div className="bg-slate-800/50 border border-red-700/20 p-4 rounded-xl text-center shadow">
-          <div className="text-slate-400 text-xs font-semibold">Failed / Open NCRs</div>
-          <div className="text-2xl font-bold mt-1 text-rose-400">{failed}</div>
-        </div>
-        <div className="bg-slate-800/50 border border-slate-700/40 p-4 rounded-xl text-center shadow">
-          <div className="text-slate-400 text-xs font-semibold">Pending Request Inspections</div>
-          <div className="text-2xl font-bold mt-1 text-slate-400">{pending}</div>
-        </div>
-      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Inspections" value={String(total)} /><MetricCard label="Passed" value={String(passed)} tone="green" /><MetricCard label="Failed / NCR" value={String(failed)} tone="red" /><MetricCard label="Waiting for inspection" value={String(pending)} tone="amber" /></div>
 
       {/* Action Header */}
-      <div className="flex justify-between items-center bg-slate-800/40 p-4 border border-slate-700/30 rounded-xl shadow">
-        <div>
-          <h2 className="text-slate-200 text-base font-semibold">Request for Inspection (RFI) Register</h2>
-          <p className="text-xs text-slate-400">Add requests, inspect concrete slump, concrete cubes, soil density, and monitor NCR status.</p>
-        </div>
+      <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <SectionHeader title="Inspection requests" description="Request a test, record its result, and track any NCR." />
         {canEdit && (
           <button 
             onClick={() => setShowAddForm(!showAddForm)}
@@ -138,7 +119,7 @@ export default function QaqcDashboard({
 
       {/* Add request form */}
       {showAddForm && (
-        <form onSubmit={handleSubmit} className="bg-slate-800/80 border border-slate-700 p-4 rounded-xl space-y-4 max-w-md shadow-lg text-xs">
+        <form onSubmit={handleSubmit} className="max-w-md space-y-4 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm">
           <h3 className="text-slate-200 font-bold uppercase tracking-wider">Raise Quality Inspection</h3>
           <div className="space-y-3">
             <div>
