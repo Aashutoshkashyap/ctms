@@ -53,8 +53,16 @@ export async function hasOrganizationModuleEntitlement(admin: SupabaseClient, or
   const organization = await admin.from('organizations').select('plan,plan_version').eq('id', organizationId).maybeSingle();
   if (organization.error || !organization.data) return false;
   const plan = await admin.from('subscription_plan_module_entitlements').select('enabled').eq('plan_code', organization.data.plan).eq('plan_version', organization.data.plan_version).eq('module_key', moduleKey).maybeSingle();
-  return !plan.error && plan.data?.enabled === true;
+  if (!plan.error && plan.data) return plan.data.enabled === true;
+  // Existing tenants created before B1 may have a legacy plan with no module
+  // rows. Keep that tenant usable until Platform Admin explicitly configures it.
+  const configured = await admin.from('subscription_plan_module_entitlements').select('module_key', { count: 'exact', head: true }).eq('plan_code', organization.data.plan).eq('plan_version', organization.data.plan_version);
+  return !configured.error && (configured.count || 0) === 0;
 }
+
+export const FEATURE_MODULE: Record<Feature, string> = {
+  executive:'home', schedule:'work', forecast:'work', daily_reports:'work', operations:'fleet', employee_tracking:'people', design:'work', budget:'commercial', ipc:'commercial', claims:'commercial', procurement:'purchases', obligations:'commercial', qaqc:'quality_safety', safety:'quality_safety', finance:'commercial', expenses:'commercial', documents:'document_vault', reports:'reports', handover:'quality_safety', defects:'quality_safety', subscription:'settings', ai:'work', settings:'settings', manage_users:'people', manage_projects:'projects', upload_evidence:'document_vault', view_evidence:'document_vault', approve_expenses:'commercial',
+};
 
 // Server-authoritative reads only. Caller-supplied identity, role and tenant are never trusted.
 export async function authorizeProjectUser(
@@ -72,6 +80,7 @@ export async function authorizeProjectUser(
     admin.from('project_users').select('role,feature_permissions').eq('project_id', projectId).eq('auth_user_id', userId).maybeSingle(),
   ]);
   if ('error' in organization || membership.error || !membership.data) return denied;
+  if (!await hasOrganizationModuleEntitlement(admin, organizationId, FEATURE_MODULE[feature])) return { error: 'This module is not included in the organization subscription.', status: 403 };
   const sourceRole = membership.data.role;
   const role = normalizeRole(sourceRole);
   if (role === 'super_admin' || (role === 'employer_viewer' && sourceRole !== 'employer_viewer')) return denied;
