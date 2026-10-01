@@ -1,5 +1,6 @@
 // Settings Panel Component
 import React, { useEffect, useState } from 'react';
+import Image from 'next/image';
 import { isSupabaseConfigured, storage } from '../lib/storage';
 import { buildDefaultPermissions, defaultPermissionLevel, DIRECTOR_MANAGED_FEATURES } from '../lib/permissions';
 import type { FeaturePermissions, PermissionLevel } from '../lib/permissions';
@@ -35,6 +36,9 @@ export default function SettingsPanel({
   const [creatingUser, setCreatingUser] = useState(false);
   const [userMessage, setUserMessage] = useState('');
   const [googleStatus, setGoogleStatus] = useState<{ configured: boolean; connected: boolean; reconnect_required?: boolean; google_email?: string | null; project_folder_id?: string | null; sheet_id?: string | null; managed_by?: string | null; missing?: string[]; message?: string } | null>(null);
+  const [whatsAppStatus, setWhatsAppStatus] = useState<{ configured: boolean; status: string; phone?: string | null; displayName?: string | null; lastConnectedAt?: string | null; lastDisconnectedAt?: string | null; lastError?: string | null; message?: string } | null>(null);
+  const [whatsAppQr, setWhatsAppQr] = useState<string | null>(null);
+  const [whatsAppBusy, setWhatsAppBusy] = useState(false);
 
   // Project configuration edit state
   const [projName, setProjName] = useState(project.name);
@@ -57,6 +61,19 @@ export default function SettingsPanel({
     })();
     return () => { active = false; };
   }, [project.id]);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const session = await storage.getAuthSession();
+        const response = await fetch('/api/company-admin/whatsapp', { headers: session ? { Authorization: `Bearer ${session.access_token}` } : {}, cache: 'no-store' });
+        const data = await response.json().catch(() => null);
+        if (active && response.ok) setWhatsAppStatus(data);
+      } catch { /* the settings screen remains usable without WhatsApp */ }
+    })();
+    return () => { active = false; };
+  }, [project.id, userRole]);
 
   const handleAddUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -178,6 +195,22 @@ export default function SettingsPanel({
       body: JSON.stringify({ projectId: project.id }),
     });
     setGoogleStatus({ configured: true, connected: false });
+  };
+
+  const manageWhatsApp = async (action: 'pair' | 'disconnect') => {
+    if (!['project_director', 'business_admin'].includes(userRole)) return;
+    if (action === 'disconnect' && !confirm('Disconnect this organization’s WhatsApp number? Incoming WhatsApp alerts will stop until it is paired again.')) return;
+    setWhatsAppBusy(true); setSyncMessage('');
+    try {
+      const session = await storage.getAuthSession();
+      if (!session) throw new Error('Sign in to manage WhatsApp.');
+      const response = await fetch('/api/company-admin/whatsapp', { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error || 'WhatsApp connection could not be updated.');
+      setWhatsAppQr(typeof result.qr === 'string' ? result.qr : null);
+      setWhatsAppStatus(current => ({ configured: true, status: result.status, phone: result.phone || current?.phone || null, displayName: result.displayName || current?.displayName || null, lastConnectedAt: result.status === 'CONNECTED' ? new Date().toISOString() : current?.lastConnectedAt || null }));
+    } catch (error) { setSyncMessage(error instanceof Error ? error.message : 'WhatsApp connection could not be updated.'); }
+    finally { setWhatsAppBusy(false); }
   };
 
   return (
@@ -304,6 +337,16 @@ export default function SettingsPanel({
         <p className="text-[10px] text-slate-500">
           Gmail sending can be enabled later for project notices and report emails using the optional gmail.send scope. It is intentionally disabled by default to keep Google verification simpler.
         </p>
+      </div></details>
+
+      <details className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm text-slate-700"><summary className="cursor-pointer text-base font-semibold text-slate-950">WhatsApp connection</summary><div className="mt-5 space-y-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between"><div><h3 className="text-sm font-bold text-slate-900">Company WhatsApp</h3><p className="mt-1 text-sm text-slate-500">Connect one company number for internal inbound-message alerts. WhatsApp cannot approve, pay, edit, or otherwise change CTMS records.</p></div><span className={`rounded-full px-3 py-1 text-xs font-bold ${whatsAppStatus?.status === 'CONNECTED' ? 'bg-emerald-50 text-emerald-700' : whatsAppStatus?.status === 'WAITING_FOR_PAIRING' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{whatsAppStatus?.status === 'CONNECTED' ? 'Connected' : whatsAppStatus?.status === 'WAITING_FOR_PAIRING' ? 'Waiting for pairing' : whatsAppStatus?.configured === false ? 'Not configured' : 'Not connected'}</span></div>
+        {whatsAppStatus?.configured === false ? <p className="rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs text-amber-800">WhatsApp integration is not configured on the server.</p> : <>
+          {whatsAppStatus?.status === 'CONNECTED' && <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-sm text-emerald-800">Connected{whatsAppStatus.phone ? ` as ${whatsAppStatus.phone}` : ''}{whatsAppStatus.lastConnectedAt ? ` · ${new Date(whatsAppStatus.lastConnectedAt).toLocaleString()}` : ''}</div>}
+          {whatsAppStatus?.lastError && <p className="rounded-lg border border-rose-100 bg-rose-50 p-3 text-xs text-rose-800">{whatsAppStatus.lastError}</p>}
+          {whatsAppQr && <div className="max-w-sm rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="font-bold text-amber-950">Scan this temporary pairing code</p><p className="mt-1 text-xs text-amber-900">Open WhatsApp on the company phone, then Linked devices. This code is not stored by CTMS.</p><Image unoptimized src={whatsAppQr} alt="Temporary WhatsApp pairing QR" width={224} height={224} className="mt-3 h-56 w-56 bg-white object-contain p-2" /></div>}
+          {['project_director', 'business_admin'].includes(userRole) ? <div className="flex flex-wrap gap-2"><button type="button" disabled={whatsAppBusy} onClick={() => void manageWhatsApp('pair')} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{whatsAppBusy ? 'Connecting…' : whatsAppStatus?.status === 'CONNECTED' ? 'Reconnect WhatsApp' : 'Connect WhatsApp'}</button>{whatsAppStatus?.status === 'CONNECTED' && <button type="button" disabled={whatsAppBusy} onClick={() => void manageWhatsApp('disconnect')} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700">Disconnect</button>}</div> : <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">Only the Project Director or Company Admin can manage the company WhatsApp connection.</p>}
+        </>}
       </div></details>
 
       {/* Users and Roles list */}
