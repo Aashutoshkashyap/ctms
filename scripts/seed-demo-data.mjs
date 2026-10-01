@@ -6,6 +6,7 @@ if (!url || !secretKey) throw new Error('NEXT_PUBLIC_SUPABASE_URL and SUPABASE_S
 
 const admin = createClient(url, secretKey, { auth: { autoRefreshToken: false, persistSession: false } });
 const organizationId = 'org-buildtrack-demo';
+const demoAccessUntil = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
 const people = [
   ['admin@buildtrack.com', 'Arjun Adhikari', 'super_admin'],
@@ -53,7 +54,7 @@ await upsert('organizations', [{
   contact_email: 'director@buildtrack.com',
   plan: 'enterprise_trial',
   subscription_status: 'trial',
-  access_until: '2026-08-11',
+  access_until: demoAccessUntil,
   seat_limit: 100,
   project_limit: 20,
   created_by: director.id,
@@ -75,7 +76,7 @@ await upsert('projects', projects.map(project => ({
   jv_status: 'solo',
   other_partners: [],
   status: 'active',
-  access_until: '2026-08-11',
+  access_until: demoAccessUntil,
 })));
 
 const projectMembers = projects.flatMap(project => people
