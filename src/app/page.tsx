@@ -29,6 +29,7 @@ import OperationalControlDashboard from '../components/OperationalControlDashboa
 import EvidenceVault from '../components/EvidenceVault';
 import DirectorPortfolioDashboard from '../components/DirectorPortfolioDashboard';
 import SuperAdminDashboard from '../components/SuperAdminDashboard';
+import CompanyAdminDashboard from '../components/CompanyAdminDashboard';
 import SubscriptionDashboard from '../components/SubscriptionDashboard';
 import BsDatePicker from '../components/BsDatePicker';
 import IpcValuationWorkspace from '../components/IpcValuationWorkspace';
@@ -692,6 +693,8 @@ export default function DashboardShell() {
           {activeTab === 'dashboard' && (
             authUser.role === 'super_admin' ? (
               <SuperAdminDashboard />
+            ) : normalizeRole(authUser.role) === 'business_admin' ? (
+              <CompanyAdminDashboard />
             ) : (
               <ManagementHome
                 projects={projectsList}
