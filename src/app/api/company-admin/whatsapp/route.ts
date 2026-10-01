@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { authorizeCompanyAdmin } from '../../../../lib/server/companyAdmin';
-import { openwaClient, openwaConfigured, OpenwaError } from '../../../../lib/server/openwa/client';
+import { isOpenwaReady, openwaClient, openwaConfigured, OpenwaError } from '../../../../lib/server/openwa/client';
 import { getClientIp, rateLimit, rateLimitResponse } from '../../../../lib/server/security';
 
 export const dynamic = 'force-dynamic';
@@ -16,6 +16,7 @@ export async function GET(request: Request) {
   const auth = await authorizeCompanyAdmin(request);
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
   const configured = openwaConfigured();
+  if (!configured) return NextResponse.json(publicConnection(null, false), { headers: { 'Cache-Control': 'no-store' } });
   const { data, error } = await auth.admin.from('organization_whatsapp_connections').select('status,whatsapp_phone,display_name,last_connected_at,last_disconnected_at,last_status_at,last_error').eq('organization_id', auth.organizationId).maybeSingle();
   if (error) return NextResponse.json({ error: 'WhatsApp connection state could not be loaded.' }, { status: 400 });
   return NextResponse.json(publicConnection(data, configured), { headers: { 'Cache-Control': 'no-store' } });
@@ -51,11 +52,15 @@ export async function POST(request: Request) {
       sessionId = session.id;
     }
     if (!sessionId) throw new Error('OpenWA did not return a session identifier.');
-    if (session.status?.toLowerCase() !== 'connected') session = await openwaClient.startSession(sessionId);
-    const qr = session.status?.toLowerCase() === 'connected' ? null : await openwaClient.pairingQr(sessionId);
+    if (!isOpenwaReady(session.status)) session = await openwaClient.startSession(sessionId);
+    const forwardedHost = request.headers.get('x-forwarded-host') || new URL(request.url).host;
+    const forwardedProto = request.headers.get('x-forwarded-proto') || new URL(request.url).protocol.replace(':', '');
+    const publicBaseUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') || `${forwardedProto}://${forwardedHost}`;
+    await openwaClient.ensureInboundWebhook(sessionId, `${publicBaseUrl}/api/webhooks/openwa`);
+    const qr = isOpenwaReady(session.status) ? null : await openwaClient.pairingQr(sessionId);
     const now = new Date().toISOString();
-    const status = session.status?.toLowerCase() === 'connected' ? 'CONNECTED' : 'WAITING_FOR_PAIRING';
-    const { error } = await auth.admin.from('organization_whatsapp_connections').upsert({ id: existing.data?.id, organization_id: auth.organizationId, openwa_session_id: sessionId, status, whatsapp_phone: session.phoneNumber || null, display_name: session.displayName || null, last_connected_at: status === 'CONNECTED' ? now : null, last_status_at: now, last_error: null, connected_by: auth.userId, updated_at: now }, { onConflict: 'organization_id' });
+    const status = isOpenwaReady(session.status) ? 'CONNECTED' : 'WAITING_FOR_PAIRING';
+    const { error } = await auth.admin.from('organization_whatsapp_connections').upsert({ id: existing.data?.id, organization_id: auth.organizationId, openwa_session_id: sessionId, status, whatsapp_phone: session.phoneNumber || null, display_name: session.displayName || null, last_connected_at: status === 'CONNECTED' ? session.connectedAt || now : null, last_status_at: now, last_error: null, connected_by: auth.userId, updated_at: now }, { onConflict: 'organization_id' });
     if (error) throw new Error('Could not record WhatsApp pairing state.');
     // QR is transient pairing material. It is deliberately neither stored nor logged.
     return NextResponse.json({ ok: true, status, qr, phone: session.phoneNumber || null, displayName: session.displayName || null }, { headers: { 'Cache-Control': 'no-store' } });

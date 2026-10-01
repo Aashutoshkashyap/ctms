@@ -5,6 +5,7 @@ export type OpenwaSession = {
   status?: string;
   phoneNumber?: string | null;
   displayName?: string | null;
+  connectedAt?: string | null;
 };
 
 export class OpenwaError extends Error {
@@ -32,7 +33,8 @@ function asSession(value: unknown): OpenwaSession {
     id: String(data.id || data.sessionId || data.session_id || data.name || ''),
     status: typeof data.status === 'string' ? data.status : undefined,
     phoneNumber: typeof data.phoneNumber === 'string' ? data.phoneNumber : typeof data.phone === 'string' ? data.phone : null,
-    displayName: typeof data.displayName === 'string' ? data.displayName : typeof data.name === 'string' ? data.name : null,
+    displayName: typeof data.displayName === 'string' ? data.displayName : typeof data.pushName === 'string' ? data.pushName : typeof data.name === 'string' ? data.name : null,
+    connectedAt: typeof data.connectedAt === 'string' ? data.connectedAt : null,
   };
 }
 
@@ -77,4 +79,14 @@ export const openwaClient = {
     return qr;
   },
   async logout(sessionId: string) { await request(`/api/sessions/${encodeURIComponent(sessionId)}/logout`, { method: 'POST' }); },
+  async ensureInboundWebhook(sessionId: string, url: string) {
+    const existing = await request(`/api/sessions/${encodeURIComponent(sessionId)}/webhooks`);
+    const rows = Array.isArray(existing) ? existing : existing && typeof existing === 'object' && Array.isArray((existing as Record<string, unknown>).data) ? (existing as Record<string, unknown>).data as Array<Record<string, unknown>> : [];
+    if (rows.some((row) => row.url === url && Array.isArray(row.events) && row.events.includes('message.received'))) return;
+    const settings = config();
+    if (!settings) throw new OpenwaError('WhatsApp integration is not configured.', 503);
+    await request(`/api/sessions/${encodeURIComponent(sessionId)}/webhooks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, events: ['message.received'], secret: settings.webhookSecret, retryCount: 3 }) });
+  },
 };
+
+export function isOpenwaReady(status?: string) { return status?.toLowerCase() === 'ready'; }

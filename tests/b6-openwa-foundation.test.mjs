@@ -17,6 +17,8 @@ test('B6 keeps the OpenWA control plane server-only and company-admin scoped', a
   assert.match(client, /import 'server-only'/);
   assert.match(client, /OPENWA_BASE_URL/);
   assert.match(client, /OPENWA_API_KEY/);
+  assert.match(client, /X-API-Key/);
+  assert.match(client, /\/api\/sessions/);
   assert.doesNotMatch(client, /NEXT_PUBLIC_OPENWA/);
   assert.match(route, /authorizeCompanyAdmin/);
   assert.match(route, /organization_id', auth\.organizationId/);
@@ -29,6 +31,7 @@ test('B6 webhook authenticates raw payloads, resolves session ownership, and nev
   assert.match(webhook, /createHmac\('sha256'/);
   assert.match(webhook, /timingSafeEqual/);
   assert.match(webhook, /x-openwa-signature/);
+  assert.match(webhook, /\.update\(body\)/);
   assert.match(webhook, /openwa_session_id', inbound\.sessionId/);
   assert.match(webhook, /recordInboundMessage/);
   assert.doesNotMatch(webhook, /payment|procurement|task|document.*update/i);

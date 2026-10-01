@@ -6,8 +6,8 @@ import { normalizeInboundEvent, recordInboundMessage } from '../../../../lib/ser
 export const dynamic = 'force-dynamic';
 
 function validSignature(body: string, timestamp: string, provided: string, secret: string) {
-  if (!secret || !timestamp || !provided || Math.abs(Date.now() - Number(timestamp)) > 5 * 60_000) return false;
-  const expected = createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
+  if (!secret || !provided || (timestamp && (!Number.isFinite(Number(timestamp)) || Math.abs(Date.now() - Number(timestamp)) > 5 * 60_000))) return false;
+  const expected = createHmac('sha256', secret).update(body).digest('hex');
   const supplied = provided.replace(/^sha256=/i, '');
   return expected.length === supplied.length && timingSafeEqual(Buffer.from(expected), Buffer.from(supplied));
 }
