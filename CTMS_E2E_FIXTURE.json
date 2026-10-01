@@ -1,0 +1,10 @@
+{
+  "organization": { "id": "ctms-e2e-test-org", "name": "CTMS E2E Test Organization" },
+  "project": { "id": "ctms-e2e-test-project", "name": "CTMS E2E Test Project" },
+  "users": {
+    "companyAdmin": "ctms-e2e-company-admin@testing.invalid",
+    "projectAdmin": "ctms-e2e-project-admin@testing.invalid",
+    "projectUser": "ctms-e2e-project-user@testing.invalid",
+    "restrictedUser": "ctms-e2e-restricted@testing.invalid"
+  }
+}
