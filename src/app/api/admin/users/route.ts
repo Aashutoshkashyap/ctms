@@ -1,24 +1,12 @@
-import { createClient } from '@supabase/supabase-js';
 import { buildDefaultPermissions, DIRECTOR_MANAGED_FEATURES, isProjectDirector, PROJECT_ROLES } from '../../../../lib/permissions';
 import type { Feature, FeaturePermissions, PermissionLevel } from '../../../../lib/permissions';
 import { getClientIp, rateLimit, rateLimitResponse } from '../../../../lib/server/security';
+import { authorizeProjectRequest } from '../../../../lib/server/projectAuthorization';
 
 export async function POST(request: Request) {
   const ip = getClientIp(request);
   const limit = rateLimit({ key: `admin-users:${ip}`, limit: 20, windowMs: 60_000 });
   if (!limit.allowed) return rateLimitResponse(limit.resetAt);
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const secretKey = process.env.SUPABASE_SECRET_KEY;
-  const authorization = request.headers.get('authorization');
-  const accessToken = authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
-
-  if (!url || !secretKey) {
-    return Response.json({ error: 'Server-side Supabase administration is not configured.' }, { status: 503 });
-  }
-  if (!accessToken) {
-    return Response.json({ error: 'Authentication is required.' }, { status: 401 });
-  }
 
   const body = await request.json().catch(() => null) as {
     name?: string;
@@ -41,25 +29,14 @@ export async function POST(request: Request) {
     return Response.json({ error: 'The temporary password must be at least 10 characters and include upper-case, lower-case and a number.' }, { status: 400 });
   }
 
-  const admin = createClient(url, secretKey, {
-    auth: { autoRefreshToken: false, persistSession: false }
-  });
-  const { data: requester, error: requesterError } = await admin.auth.getUser(accessToken);
-  if (requesterError || !requester.user) {
-    return Response.json({ error: 'Your session could not be verified.' }, { status: 401 });
-  }
-
-  const { data: membership, error: membershipError } = await admin
-    .from('project_users')
-    .select('role')
-    .eq('project_id', projectId)
-    .eq('auth_user_id', requester.user.id)
-    .maybeSingle();
-  const requesterIsDirector = Boolean(membership && isProjectDirector(membership.role));
-  if (membershipError || !membership || (!requesterIsDirector && membership.role !== 'business_admin')) {
+  const authorized = await authorizeProjectRequest(request, projectId, 'manage_users', 'write');
+  if ('error' in authorized) return Response.json({ error: authorized.error }, { status: authorized.status });
+  const admin = authorized.admin;
+  const requesterIsDirector = isProjectDirector(authorized.role);
+  if (!requesterIsDirector && authorized.role !== 'business_admin') {
     return Response.json({ error: 'Only the Project Director or Business Admin can provision user accounts.' }, { status: 403 });
   }
-  if (membership.role === 'business_admin' && ['project_director', 'business_admin'].includes(role)) {
+  if (authorized.role === 'business_admin' && ['project_director', 'business_admin'].includes(role)) {
     return Response.json({ error: 'A Business Admin cannot grant Director or administrator access.' }, { status: 403 });
   }
   const featurePermissions = requesterIsDirector
@@ -205,23 +182,16 @@ export async function PATCH(request: Request) {
   const ip = getClientIp(request);
   const limit = rateLimit({ key: `admin-users-update:${ip}`, limit: 30, windowMs: 60_000 });
   if (!limit.allowed) return rateLimitResponse(limit.resetAt);
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const secretKey = process.env.SUPABASE_SECRET_KEY;
-  const authorization = request.headers.get('authorization');
-  const accessToken = authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
-  if (!url || !secretKey) return Response.json({ error: 'Server-side Supabase administration is not configured.' }, { status: 503 });
-  if (!accessToken) return Response.json({ error: 'Authentication is required.' }, { status: 401 });
   const body = await request.json().catch(() => null) as { projectId?: string; membershipId?: string; role?: string; featurePermissions?: FeaturePermissions } | null;
   if (!body?.projectId || !body.membershipId || !body.role || !PROJECT_ROLES.includes(body.role as typeof PROJECT_ROLES[number]) || ['super_admin','project_director','business_admin'].includes(body.role)) {
     return Response.json({ error: 'Project, staff membership and a staff role are required.' }, { status: 400 });
   }
-  const admin = createClient(url, secretKey, { auth: { autoRefreshToken: false, persistSession: false } });
-  const { data: requester, error: requesterError } = await admin.auth.getUser(accessToken);
-  if (requesterError || !requester.user) return Response.json({ error: 'Your session could not be verified.' }, { status: 401 });
-  const { data: director } = await admin.from('project_users').select('role').eq('project_id', body.projectId).eq('auth_user_id', requester.user.id).maybeSingle();
-  if (!director || !isProjectDirector(director.role)) return Response.json({ error: 'Only the Project Director can change staff feature access.' }, { status: 403 });
+  const authorized = await authorizeProjectRequest(request, body.projectId, 'manage_users', 'write');
+  if ('error' in authorized) return Response.json({ error: authorized.error }, { status: authorized.status });
+  if (!isProjectDirector(authorized.role)) return Response.json({ error: 'Only the Project Director can change staff feature access.' }, { status: 403 });
+  const admin = authorized.admin;
   const { data: target } = await admin.from('project_users').select('id,role,auth_user_id').eq('id', body.membershipId).eq('project_id', body.projectId).maybeSingle();
-  if (!target || ['project_director','business_admin','super_admin'].includes(target.role) || target.auth_user_id === requester.user.id) {
+  if (!target || ['project_director','business_admin','super_admin'].includes(target.role) || target.auth_user_id === authorized.userId) {
     return Response.json({ error: 'Director and administrator memberships cannot be changed from the staff access editor.' }, { status: 403 });
   }
   const { data, error } = await admin.from('project_users').update({

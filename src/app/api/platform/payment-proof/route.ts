@@ -15,6 +15,9 @@ export async function POST(request: Request) {
   const organizationId = String(form.get('organizationId') || '').replace(/[^a-zA-Z0-9_-]/g, '');
   if (!(file instanceof File) || !organizationId) return NextResponse.json({ error: 'Business and payment proof are required.' }, { status: 400 });
   if (file.size <= 0 || file.size > 10 * 1024 * 1024 || !allowedTypes.has(file.type)) return NextResponse.json({ error: 'Use a PDF, JPG, PNG or WebP payment proof up to 10 MB.' }, { status: 400 });
+  const { data: organization, error: organizationError } = await authorization.admin
+    .from('organizations').select('id').eq('id', organizationId).maybeSingle();
+  if (organizationError || !organization) return NextResponse.json({ error: 'Business tenant was not found.' }, { status: 404 });
   const extension = file.name.split('.').pop()?.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || 'bin';
   const storagePath = `${organizationId}/${new Date().toISOString().slice(0,10)}/${crypto.randomUUID()}.${extension}`;
   const { error } = await authorization.admin.storage.from('subscription-payments').upload(storagePath, file, { contentType: file.type, upsert: false });

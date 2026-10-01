@@ -1,5 +1,6 @@
 import { authorizePlatformOwner } from '../../../../lib/server/platformAdmin';
 import { deliverSubscriptionEmailQueue, sendQueuedSubscriptionEmail } from '../../../../lib/server/subscriptionEmail';
+import { canTransitionSubscription, isSubscriptionStatus, validPaymentTransition } from '../../../../lib/subscriptionLifecycle';
 import {
   getClientIp,
   rateLimit,
@@ -14,12 +15,16 @@ export async function GET(request: Request) {
   const authorization = await authorizePlatformOwner(request);
   if ('error' in authorization) return Response.json({ error: authorization.error }, { status: authorization.status });
   const { admin } = authorization;
-  const [organizations, inquiries, transactions, emailConnection, emailQueue] = await Promise.all([
+  const [organizations, inquiries, transactions, emailConnection, emailQueue, projects, memberships, integrations, plans] = await Promise.all([
     admin.from('organizations').select('id,name,contact_email,plan,subscription_status,access_until,seat_limit,project_limit,created_at').order('created_at', { ascending: false }),
     admin.from('business_inquiries').select('id,business_name,contact_name,contact_email,phone,message,status,created_at', { count: 'exact' }).order('created_at', { ascending: false }).limit(20),
     admin.from('subscription_transactions').select('id,organization_id,reference,amount,currency,paid_at,period_start,period_end,payment_method,notes,proof_storage_path,proof_name,status,verified_at,created_at,organization:organizations(name)', { count: 'exact' }).order('created_at', { ascending: false }).limit(100),
     admin.from('platform_email_connections').select('google_email,status,last_sent_at').eq('id', 'platform-gmail').maybeSingle(),
     admin.from('subscription_email_deliveries').select('status'),
+    admin.from('projects').select('id,organization_id,status'),
+    admin.from('project_users').select('project_id,auth_user_id'),
+    admin.from('google_connections').select('organization_id,status'),
+    admin.from('subscription_plan_versions').select('plan_code,version,display_name,description,price,currency,billing_period,effective_from,effective_until,active').eq('active', true).order('plan_code').order('version', { ascending: false }),
   ]);
 
   if (organizations.error) {
@@ -32,7 +37,13 @@ export async function GET(request: Request) {
 
   return Response.json({
     schemaReady: true,
-    businesses: organizations.data || [],
+    businesses: (organizations.data || []).map((organization) => {
+      const organizationProjects = (projects.data || []).filter(project => project.organization_id === organization.id);
+      const tenantProjectIds = new Set(organizationProjects.map(project => project.id));
+      const seats = new Set((memberships.data || []).filter(member => tenantProjectIds.has(member.project_id)).map(member => member.auth_user_id).filter(Boolean));
+      const connected = (integrations.data || []).some(connection => connection.organization_id === organization.id && connection.status === 'connected');
+      return { ...organization, project_count: organizationProjects.filter(project => project.status !== 'archived').length, seat_count: seats.size, google_connected: connected, onboarding_state: organizationProjects.length && seats.size ? 'ready' : 'needs_setup', payment_status: (transactions.data || []).some(transaction => transaction.organization_id === organization.id && transaction.status === 'pending') ? 'awaiting_verification' : 'clear' };
+    }),
     inquiries: {
       total: inquiries.count || 0,
       open: (inquiries.data || []).filter(item => item.status === 'new' || item.status === 'open').length,
@@ -50,6 +61,7 @@ export async function GET(request: Request) {
       queued: (emailQueue.data || []).filter(item => item.status === 'queued').length,
       failed: (emailQueue.data || []).filter(item => item.status === 'failed').length,
     },
+    plans: plans.data || [],
   });
 }
 
@@ -86,57 +98,45 @@ export async function PATCH(request: Request) {
     }
     const { data: current, error: currentError } = await authorization.admin
       .from('subscription_transactions')
-      .select('id,organization_id,period_end')
+      .select('id,organization_id,period_end,status')
       .eq('id', body.transactionId)
       .single();
     if (currentError || !current) return Response.json({ error: currentError?.message || 'Transaction was not found.' }, { status: 404 });
     const renewUntil = body.transactionStatus === 'verified' ? (body.renewUntil || current.period_end || null) : null;
     if (renewUntil && !/^\d{4}-\d{2}-\d{2}$/.test(renewUntil)) return Response.json({ error: 'Renewal end date must be valid.' }, { status: 400 });
     if (body.transactionStatus === 'verified' && !renewUntil) return Response.json({ error: 'Choose the tenant access date before verifying payment.' }, { status: 400 });
+    if (body.transactionStatus === 'verified') {
+      const { data: result, error } = await authorization.admin.rpc('verify_subscription_payment', {
+        target_transaction_id: body.transactionId,
+        verifier_user_id: authorization.actorId,
+        requested_access_until: renewUntil,
+      });
+      if (error) return Response.json({ error: error.message }, { status: error.code === 'P0002' ? 404 : 409 });
+      const outcome = result as { result?: string; email_delivery_id?: string | null } | null;
+      const { data: transaction } = await authorization.admin.from('subscription_transactions')
+        .select('id,organization_id,reference,amount,currency,paid_at,period_start,period_end,payment_method,notes,proof_storage_path,proof_name,status,verified_at,created_at,organization:organizations(name)')
+        .eq('id', body.transactionId).single();
+      const { data: business } = await authorization.admin.from('organizations')
+        .select('id,name,contact_email,plan,subscription_status,access_until,seat_limit,project_limit,created_at')
+        .eq('id', current.organization_id).single();
+      let emailDelivery = null;
+      if (outcome?.result === 'verified' && outcome.email_delivery_id) {
+        const { data: delivery } = await authorization.admin.from('subscription_email_deliveries')
+          .select('id,recipient,subject,days_before,attempt_count').eq('id', outcome.email_delivery_id).maybeSingle();
+        if (delivery) emailDelivery = await sendQueuedSubscriptionEmail(authorization.admin, delivery);
+      }
+      return Response.json({ transaction, business, emailDelivery, idempotent: outcome?.result === 'already_verified' });
+    }
+    if (!validPaymentTransition(current.status, body.transactionStatus)) {
+      return Response.json({ error: 'This payment cannot move to the requested status.' }, { status: 409 });
+    }
     const { data, error } = await authorization.admin.from('subscription_transactions').update({
       status: body.transactionStatus,
       verified_by: authorization.actorId,
       verified_at: new Date().toISOString(),
-    }).eq('id', body.transactionId).select('id,organization_id,reference,amount,currency,paid_at,period_start,period_end,payment_method,notes,proof_storage_path,proof_name,status,verified_at,created_at,organization:organizations(name)').single();
-    if (error) return Response.json({ error: error.message }, { status: 400 });
-    let business = null;
-    let emailDelivery = null;
-    if (body.transactionStatus === 'verified' && renewUntil) {
-      const { data: updatedBusiness, error: businessError } = await authorization.admin.from('organizations').update({
-        subscription_status: 'active',
-        access_until: renewUntil,
-        updated_at: new Date().toISOString(),
-      }).eq('id', current.organization_id).select('id,name,contact_email,plan,subscription_status,access_until,seat_limit,project_limit,created_at').single();
-      if (businessError) return Response.json({ error: businessError.message }, { status: 400 });
-      business = updatedBusiness;
-      await authorization.admin.from('projects').update({ access_until: renewUntil }).eq('organization_id', current.organization_id);
-      const noticeId = `payment-verified-${data.id}`;
-      const { data: notice } = await authorization.admin.from('organization_notifications').upsert({
-        id: noticeId,
-        organization_id: current.organization_id,
-        kind: 'payment_verified',
-        title: 'Subscription payment verified',
-        message: `Payment ${data.reference} was verified and business access was extended through ${renewUntil}.`,
-        severity: 'success',
-        alert_for_date: renewUntil,
-        visible_until: renewUntil,
-      }).select('id').single();
-      if (updatedBusiness.contact_email) {
-        const deliveryId = `payment-receipt-${data.id}`;
-        const { data: delivery } = await authorization.admin.from('subscription_email_deliveries').upsert({
-          id: deliveryId,
-          organization_id: current.organization_id,
-          notification_id: notice?.id || noticeId,
-          recipient: updatedBusiness.contact_email,
-          subject: 'BuildTrack subscription payment verified',
-          scheduled_for: new Date().toISOString().slice(0, 10),
-          days_before: null,
-          status: 'queued',
-        }).select('id,recipient,subject,days_before,attempt_count').single();
-        if (delivery) emailDelivery = await sendQueuedSubscriptionEmail(authorization.admin, delivery);
-      }
-    }
-    return Response.json({ transaction: data, business, emailDelivery });
+    }).eq('id', body.transactionId).eq('status', current.status).select('id,organization_id,reference,amount,currency,paid_at,period_start,period_end,payment_method,notes,proof_storage_path,proof_name,status,verified_at,created_at,organization:organizations(name)').single();
+    if (error || !data) return Response.json({ error: error?.message || 'Payment was already processed.' }, { status: 409 });
+    return Response.json({ transaction: data, business: null, emailDelivery: null });
   }
 
   if (body?.action === 'inquiry') {
@@ -152,8 +152,7 @@ export async function PATCH(request: Request) {
   }
 
   if (!body?.organizationId) return Response.json({ error: 'Business tenant is required.' }, { status: 400 });
-  const allowedStatuses = ['trial', 'active', 'past_due', 'suspended', 'cancelled'];
-  if (body.subscriptionStatus && !allowedStatuses.includes(body.subscriptionStatus)) {
+  if (body.subscriptionStatus && !isSubscriptionStatus(body.subscriptionStatus)) {
     return Response.json({ error: 'Invalid subscription status.' }, { status: 400 });
   }
   if (body.seatLimit !== undefined && (!Number.isInteger(body.seatLimit) || body.seatLimit < 1 || body.seatLimit > 1000)) {
@@ -163,6 +162,12 @@ export async function PATCH(request: Request) {
     return Response.json({ error: 'Project limit must be between 1 and 100.' }, { status: 400 });
   }
 
+  const { data: currentOrganization, error: currentOrganizationError } = await authorization.admin
+    .from('organizations').select('id,subscription_status').eq('id', body.organizationId).maybeSingle();
+  if (currentOrganizationError || !currentOrganization) return Response.json({ error: 'Business tenant was not found.' }, { status: 404 });
+  if (body.subscriptionStatus && !canTransitionSubscription(currentOrganization.subscription_status, body.subscriptionStatus)) {
+    return Response.json({ error: 'This subscription cannot move to the requested state.' }, { status: 409 });
+  }
   const changes = {
     ...(body.plan ? { plan: body.plan.trim().slice(0, 60) } : {}),
     ...(body.subscriptionStatus ? { subscription_status: body.subscriptionStatus } : {}),
@@ -217,6 +222,11 @@ export async function POST(request: Request) {
     }
     if (!body.periodEnd || !/^\d{4}-\d{2}-\d{2}$/.test(body.periodEnd)) {
       return Response.json({ error: 'A subscription period end date is required.' }, { status: 400 });
+    }
+    const { data: organization } = await authorization.admin.from('organizations').select('id').eq('id', organizationId).maybeSingle();
+    if (!organization) return Response.json({ error: 'Business tenant was not found.' }, { status: 404 });
+    if (body.proofStoragePath && !body.proofStoragePath.startsWith(`${organizationId}/`)) {
+      return Response.json({ error: 'Payment proof does not belong to the selected business.' }, { status: 400 });
     }
     const { data, error } = await authorization.admin.from('subscription_transactions').insert({
       organization_id: organizationId,
