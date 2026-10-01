@@ -21,9 +21,42 @@ export function bearerToken(request: Request) {
   return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
 }
 
+export type OrganizationAuthorization = {
+  organizationId: string;
+  organizationName: string;
+  role: string;
+};
+
+// This is the tenant boundary used by every server-side authorization path.
+// A project row or an old project_users row never substitutes for an active
+// organization membership.
+export async function authorizeActiveOrganizationMember(
+  admin: SupabaseClient, userId: string, organizationId: string,
+): Promise<OrganizationAuthorization | AuthorizationFailure> {
+  const denied = { error: 'Organization access is not authorized.', status: 403 };
+  const [organization, member] = await Promise.all([
+    admin.from('organizations').select('id,name,subscription_status,access_until').eq('id', organizationId).maybeSingle(),
+    admin.from('organization_members').select('role,status').eq('organization_id', organizationId).eq('auth_user_id', userId).maybeSingle(),
+  ]);
+  if (organization.error || member.error || !organization.data || !member.data || member.data.status !== 'active') return denied;
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kathmandu', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  if (!['trial', 'active', 'past_due'].includes(organization.data.subscription_status) || (organization.data.access_until && organization.data.access_until < today)) return denied;
+  return { organizationId, organizationName: organization.data.name, role: normalizeRole(member.data.role) };
+}
+
+// B3 exposes the existing entitlement data behind one server-only check. It
+// deliberately does not gate modules yet: B4 owns subscription enforcement.
+export async function hasOrganizationModuleEntitlement(admin: SupabaseClient, organizationId: string, moduleKey: string) {
+  const override = await admin.from('organization_module_entitlements').select('enabled').eq('organization_id', organizationId).eq('module_key', moduleKey).maybeSingle();
+  if (override.error) return false;
+  if (override.data) return override.data.enabled === true;
+  const organization = await admin.from('organizations').select('plan,plan_version').eq('id', organizationId).maybeSingle();
+  if (organization.error || !organization.data) return false;
+  const plan = await admin.from('subscription_plan_module_entitlements').select('enabled').eq('plan_code', organization.data.plan).eq('plan_version', organization.data.plan_version).eq('module_key', moduleKey).maybeSingle();
+  return !plan.error && plan.data?.enabled === true;
+}
+
 // Server-authoritative reads only. Caller-supplied identity, role and tenant are never trusted.
-// Existing staff may have no organization_members row: their project membership
-// establishes tenant membership. An explicit inactive organization row always denies.
 export async function authorizeProjectUser(
   admin: SupabaseClient, userId: string, projectId: string,
   feature: Feature, access: 'read' | 'write' = 'read',
@@ -34,27 +67,19 @@ export async function authorizeProjectUser(
   const project = await admin.from('projects').select('id,name,organization_id').eq('id', projectId).maybeSingle();
   if (project.error || !project.data?.organization_id) return denied;
   const organizationId = project.data.organization_id;
-  const [organization, organizationMember, membership] = await Promise.all([
-    admin.from('organizations').select('id,name,subscription_status,access_until').eq('id', organizationId).maybeSingle(),
-    admin.from('organization_members').select('role,status').eq('organization_id', organizationId).eq('auth_user_id', userId).maybeSingle(),
+  const [organization, membership] = await Promise.all([
+    authorizeActiveOrganizationMember(admin, userId, organizationId),
     admin.from('project_users').select('role,feature_permissions').eq('project_id', projectId).eq('auth_user_id', userId).maybeSingle(),
   ]);
-  if (organization.error || organizationMember.error || membership.error || !organization.data) return denied;
-  if (organizationMember.data && organizationMember.data.status !== 'active') return denied;
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kathmandu', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-  if (!['trial', 'active', 'past_due'].includes(organization.data.subscription_status) ||
-      (organization.data.access_until && organization.data.access_until < today)) return denied;
-  // Only the existing organization Business Admin scope can substitute for a
-  // project assignment. Its narrow feature baseline still applies.
-  const sourceRole = membership.data?.role || (organizationMember.data?.role === 'business_admin' ? 'business_admin' : '');
-  if (!sourceRole) return denied;
+  if ('error' in organization || membership.error || !membership.data) return denied;
+  const sourceRole = membership.data.role;
   const role = normalizeRole(sourceRole);
   if (role === 'super_admin' || (role === 'employer_viewer' && sourceRole !== 'employer_viewer')) return denied;
   const permissions = membership.data?.feature_permissions || {};
   if (!can(role, feature, permissions, access)) return denied;
   return { admin, userId, role, permissions, project: {
     id: project.data.id, name: project.data.name,
-    organizationId, organizationName: organization.data.name,
+    organizationId, organizationName: organization.organizationName,
   } };
 }
 
@@ -85,11 +110,9 @@ export async function authorizeProjectMembershipRequest(request: Request, projec
   // A field employee may have no Executive feature but is still entitled to
   // their own notification inbox. Membership never authorizes source data.
   const [organization, projectUser] = await Promise.all([
-    admin.from('organizations').select('name,subscription_status,access_until').eq('id', project.data.organization_id).maybeSingle(),
+    authorizeActiveOrganizationMember(admin, verified.data.user.id, project.data.organization_id),
     admin.from('project_users').select('auth_user_id,role,feature_permissions').eq('project_id', projectId).eq('auth_user_id', verified.data.user.id).maybeSingle(),
   ]);
-  if (organization.error || projectUser.error || !organization.data || !projectUser.data) return { error: 'Project access is not authorized.', status: 403 } as AuthorizationFailure;
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kathmandu', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-  if (!['trial', 'active', 'past_due'].includes(organization.data.subscription_status) || (organization.data.access_until && organization.data.access_until < today)) return { error: 'Project access is not authorized.', status: 403 } as AuthorizationFailure;
-  return { admin, userId: verified.data.user.id, role: normalizeRole(projectUser.data.role), permissions: projectUser.data.feature_permissions || {}, project: { id: project.data.id, name: project.data.name, organizationId: project.data.organization_id, organizationName: organization.data.name } } satisfies ProjectAuthorization;
+  if ('error' in organization || projectUser.error || !projectUser.data) return { error: 'Project access is not authorized.', status: 403 } as AuthorizationFailure;
+  return { admin, userId: verified.data.user.id, role: normalizeRole(projectUser.data.role), permissions: projectUser.data.feature_permissions || {}, project: { id: project.data.id, name: project.data.name, organizationId: project.data.organization_id, organizationName: organization.organizationName } } satisfies ProjectAuthorization;
 }

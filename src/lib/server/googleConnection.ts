@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { normalizeRole } from '../permissions';
+import { can, normalizeRole, type Feature } from '../permissions';
+import { authorizeActiveOrganizationMember } from './projectAuthorization';
 
 export type GoogleProjectAuthorization = {
   admin: SupabaseClient;
@@ -29,35 +30,11 @@ async function loadAuthorization(
   const { data: project } = await admin.from('projects').select('id,name,organization_id').eq('id', projectId).maybeSingle();
   if (!project?.organization_id) return { error: 'Project business tenant was not found.', status: 404 };
 
-  const { data: organization } = await admin
-    .from('organizations')
-    .select('id,name,subscription_status,access_until')
-    .eq('id', project.organization_id)
-    .maybeSingle();
-  if (!organization) return { error: 'Business tenant was not found.', status: 404 };
-  const today = new Date().toISOString().slice(0, 10);
-  if (!['trial', 'active', 'past_due'].includes(organization.subscription_status) || (organization.access_until && organization.access_until < today)) {
-    return { error: 'Business subscription is inactive or expired.', status: 403 };
-  }
-
-  const { data: membership } = await admin
-    .from('project_users')
-    .select('role')
-    .eq('project_id', projectId)
-    .eq('auth_user_id', userId)
-    .maybeSingle();
-  let role = membership?.role || '';
-  if (!role) {
-    const { data: organizationMembership } = await admin
-      .from('organization_members')
-      .select('role,status')
-      .eq('organization_id', organization.id)
-      .eq('auth_user_id', userId)
-      .maybeSingle();
-    if (organizationMembership?.status === 'active') role = organizationMembership.role;
-  }
-  role = normalizeRole(role);
-  if (!role || !allowedRoles.includes(role)) return { error: 'You are not authorized for this Google workspace action.', status: 403 };
+  const organization = await authorizeActiveOrganizationMember(admin, userId, project.organization_id);
+  if ('error' in organization) return organization;
+  const membership = await admin.from('project_users').select('role,feature_permissions').eq('project_id', projectId).eq('auth_user_id', userId).maybeSingle();
+  const role = normalizeRole(membership.data?.role || '');
+  if (membership.error || !membership.data || !allowedRoles.includes(role)) return { error: 'You are not authorized for this Google workspace action.', status: 403 };
 
   return {
     admin,
@@ -66,8 +43,8 @@ async function loadAuthorization(
     project: {
       id: project.id,
       name: project.name,
-      organizationId: organization.id,
-      organizationName: organization.name,
+      organizationId: organization.organizationId,
+      organizationName: organization.organizationName,
     },
   };
 }
@@ -87,6 +64,15 @@ export async function authorizeGoogleCallbackUser(userId: string, projectId: str
   const admin = adminClient();
   if (!admin) return { error: 'Server-side tenant storage is not configured.', status: 503 } as const;
   return loadAuthorization(admin, userId, projectId, allowedRoles);
+}
+
+// Uploads are an evidence mutation, so role eligibility is not enough.
+export async function authorizeGoogleUploadRequest(request: Request, projectId: string, allowedRoles: string[]) {
+  const authorization = await authorizeGoogleRequest(request, projectId, allowedRoles);
+  if ('error' in authorization) return authorization;
+  const membership = await authorization.admin.from('project_users').select('role,feature_permissions').eq('project_id', projectId).eq('auth_user_id', authorization.userId).maybeSingle();
+  if (membership.error || !membership.data || !can(membership.data.role, 'upload_evidence' as Feature, membership.data.feature_permissions, 'write')) return { error: 'Evidence upload access is not authorized.', status: 403 } as const;
+  return authorization;
 }
 
 export async function readGoogleConnection(admin: SupabaseClient, projectId: string) {
