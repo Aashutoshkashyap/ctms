@@ -61,7 +61,7 @@ export async function GET(request: Request) {
     }
   }
 
-  const authorization = await authorizeGoogleCallbackUser(state.userId, state.projectId, ['project_director']);
+  const authorization = await authorizeGoogleCallbackUser(state.userId, state.projectId, ['project_director', 'business_admin']);
   if ('error' in authorization || authorization.project.organizationId !== state.organizationId) {
     return redirectWithStatus(url.origin, 'error', 'Project authorization could not be verified.');
   }
@@ -69,6 +69,15 @@ export async function GET(request: Request) {
   try {
     const token = await exchangeCodeForToken(config, code);
     if (!token.refresh_token) throw new Error('Google did not return an offline refresh token. Revoke the app grant and reconnect.');
+    const encryptedRefreshToken = await encryptGoogleRefreshToken(token.refresh_token);
+    const googleEmail = await getGoogleAccountEmail(token.access_token).catch(() => '');
+    const existing = await authorization.admin.from('google_connections').select('id,organization_id').eq('project_id', authorization.project.id).maybeSingle();
+    if (existing.data) {
+      if (existing.data.organization_id !== authorization.project.organizationId) throw new Error('Google connection tenant scope is invalid.');
+      const { error } = await authorization.admin.from('google_connections').update({ connected_by: authorization.userId, google_email: googleEmail || null, encrypted_refresh_token: encryptedRefreshToken, status: 'connected', updated_at: new Date().toISOString() }).eq('project_id', authorization.project.id).eq('organization_id', authorization.project.organizationId);
+      if (error) throw new Error(error.message);
+      return redirectWithStatus(url.origin, 'connected');
+    }
     const rootFolder = await createDriveFolder(token.access_token, safeDriveName(`BuildTrack - ${authorization.project.organizationName}`));
     const projectsFolder = await createDriveFolder(token.access_token, 'Projects', rootFolder.id);
     const projectFolder = await createDriveFolder(token.access_token, safeDriveName(`${authorization.project.name} - ${authorization.project.id}`), projectsFolder.id);
@@ -81,8 +90,6 @@ export async function GET(request: Request) {
     ]);
     const sheet = await createSpreadsheet(token.access_token, safeDriveName(`BuildTrack Records - ${authorization.project.name}`));
     await moveFileToFolder(token.access_token, sheet.spreadsheetId, projectFolder.id);
-    const encryptedRefreshToken = await encryptGoogleRefreshToken(token.refresh_token);
-    const googleEmail = await getGoogleAccountEmail(token.access_token).catch(() => '');
     const { error } = await authorization.admin.from('google_connections').upsert({
       id: `google-${authorization.project.id}`,
       organization_id: authorization.project.organizationId,

@@ -26,7 +26,7 @@ export async function POST(request: Request) {
   const projectId = body?.projectId?.trim();
   if (!projectId) return NextResponse.json({ ok: false, message: 'Project is required.' }, { status: 400 });
 
-  const authorization = await authorizeGoogleRequest(request, projectId, ['project_director']);
+  const authorization = await authorizeGoogleRequest(request, projectId, ['project_director', 'business_admin']);
   if ('error' in authorization) return NextResponse.json({ ok: false, message: authorization.error }, { status: authorization.status });
   const now = Date.now();
   const state = await signGoogleOAuthState({

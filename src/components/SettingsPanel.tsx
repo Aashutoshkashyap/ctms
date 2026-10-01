@@ -283,15 +283,15 @@ export default function SettingsPanel({
           </div>
         )}
         <div className="flex flex-wrap gap-2">
-          {userRole === 'project_director' ? <button
+          {['project_director', 'business_admin'].includes(userRole) ? <button
             type="button"
             onClick={() => void connectGoogleDrive()}
             disabled={!googleStatus?.configured}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             {googleStatus?.connected || googleStatus?.reconnect_required ? 'Reconnect Business Google Drive' : 'Connect Business Google Drive'}
-          </button> : <div className="rounded-lg bg-slate-50 px-4 py-2 text-sm text-slate-600">Only the Project Director can connect or replace tenant Google storage.</div>}
-          {googleStatus?.connected && userRole === 'project_director' && (
+          </button> : <div className="rounded-lg bg-slate-50 px-4 py-2 text-sm text-slate-600">Only the Project Director or Company Admin can manage tenant Google storage.</div>}
+          {googleStatus?.connected && ['project_director', 'business_admin'].includes(userRole) && (
             <button
               type="button"
               onClick={disconnectGoogleDrive}
