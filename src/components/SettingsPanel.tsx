@@ -1,5 +1,6 @@
 // Settings Panel Component
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import Image from 'next/image';
 import { isSupabaseConfigured, storage } from '../lib/storage';
 import { buildDefaultPermissions, defaultPermissionLevel, DIRECTOR_MANAGED_FEATURES } from '../lib/permissions';
 import type { FeaturePermissions, PermissionLevel } from '../lib/permissions';
@@ -34,6 +35,9 @@ export default function SettingsPanel({
   const [creatingUser, setCreatingUser] = useState(false);
   const [userMessage, setUserMessage] = useState('');
   const [googleStatus, setGoogleStatus] = useState<{ configured: boolean; connected: boolean; reconnect_required?: boolean; google_email?: string | null; project_folder_id?: string | null; sheet_id?: string | null; managed_by?: string | null; missing?: string[]; message?: string } | null>(null);
+  const [whatsAppStatus, setWhatsAppStatus] = useState<{ available: boolean; connected: boolean; sessionName: string | null; phone: string | null; status: string; message?: string; qrDataUrl?: string } | null>(null);
+  const [whatsAppBusy, setWhatsAppBusy] = useState(false);
+  const [whatsAppMessage, setWhatsAppMessage] = useState('');
 
   // Project configuration edit state
   const [projName, setProjName] = useState(project.name);
@@ -56,6 +60,28 @@ export default function SettingsPanel({
     })();
     return () => { active = false; };
   }, [project.id]);
+
+  const loadWhatsAppStatus = useCallback(async () => {
+    if (!['project_director', 'business_admin'].includes(userRole)) return;
+    try {
+      const session = await storage.getAuthSession();
+      const response = await fetch(`/api/admin/openwa/session?projectId=${encodeURIComponent(project.id)}`, {
+        headers: session ? { Authorization: `Bearer ${session.access_token}` } : {}, cache: 'no-store',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'WhatsApp status is unavailable.');
+      setWhatsAppStatus(data.session || null);
+      setWhatsAppMessage('');
+    } catch (error) {
+      setWhatsAppMessage(error instanceof Error ? error.message : 'WhatsApp status is unavailable.');
+    }
+  }, [project.id, userRole]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void loadWhatsAppStatus(); }, 0);
+    // The active project is the authorization context for this status request.
+    return () => window.clearTimeout(timer);
+  }, [loadWhatsAppStatus]);
 
   const handleAddUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -177,6 +203,27 @@ export default function SettingsPanel({
       body: JSON.stringify({ projectId: project.id }),
     });
     setGoogleStatus({ configured: true, connected: false });
+  };
+
+  const startWhatsAppPairing = async () => {
+    setWhatsAppBusy(true);
+    setWhatsAppMessage('');
+    try {
+      const session = await storage.getAuthSession();
+      if (!session) throw new Error('Sign in before pairing a business WhatsApp number.');
+      const response = await fetch('/api/admin/openwa/session', {
+        method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: project.id, action: 'start_pairing' }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || data.session?.message || 'Could not start WhatsApp pairing.');
+      setWhatsAppStatus(data.session || null);
+      setWhatsAppMessage(data.session?.connected ? 'The business WhatsApp number is already connected.' : 'Scan the QR from WhatsApp → Linked devices.');
+    } catch (error) {
+      setWhatsAppMessage(error instanceof Error ? error.message : 'Could not start WhatsApp pairing.');
+    } finally {
+      setWhatsAppBusy(false);
+    }
   };
 
   return (
@@ -302,6 +349,32 @@ export default function SettingsPanel({
         <p className="text-[10px] text-slate-500">
           Gmail sending can be enabled later for project notices and report emails using the optional gmail.send scope. It is intentionally disabled by default to keep Google verification simpler.
         </p>
+      </div>
+
+      <div className="rounded-xl border border-emerald-100 bg-white p-5 text-slate-700 shadow-sm space-y-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Business WhatsApp</h3>
+            <p className="mt-1 text-sm leading-relaxed text-slate-500">Connect the company WhatsApp number from CTMS. OpenWA remains a protected transport service; its dashboard, API key and QR session are never shared with normal users.</p>
+          </div>
+          <span className={`rounded-full px-3 py-1 text-xs font-bold ${whatsAppStatus?.connected ? 'bg-emerald-50 text-emerald-700' : whatsAppStatus?.status === 'PAIRING' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+            {whatsAppStatus?.connected ? 'WhatsApp connected' : whatsAppStatus?.status === 'PAIRING' ? 'Awaiting QR scan' : whatsAppStatus?.available ? 'Ready to pair' : 'Deployment setup needed'}
+          </span>
+        </div>
+        {['project_director', 'business_admin'].includes(userRole) ? <>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg bg-slate-50 p-3"><div className="text-[10px] font-bold uppercase text-slate-500">Connection</div><div className="mt-1 text-sm font-semibold text-slate-800">{whatsAppStatus?.connected ? 'Connected' : whatsAppStatus?.status === 'PAIRING' ? 'Pairing' : 'Not connected'}</div></div>
+            <div className="rounded-lg bg-slate-50 p-3"><div className="text-[10px] font-bold uppercase text-slate-500">Business number</div><div className="mt-1 text-sm font-semibold text-slate-800">{whatsAppStatus?.phone || 'Shown after pairing'}</div></div>
+            <div className="rounded-lg bg-slate-50 p-3"><div className="text-[10px] font-bold uppercase text-slate-500">CTMS session</div><div className="mt-1 text-sm font-semibold text-slate-800">{whatsAppStatus?.sessionName || 'Deployment managed'}</div></div>
+          </div>
+          {whatsAppStatus?.qrDataUrl && !whatsAppStatus.connected && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><div className="flex flex-col gap-4 sm:flex-row sm:items-center"><Image src={whatsAppStatus.qrDataUrl} alt="WhatsApp pairing QR code" width={208} height={208} unoptimized className="h-52 w-52 rounded-lg bg-white p-2 shadow-sm" /><div><p className="font-bold text-amber-900">Scan to pair the business number</p><ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-amber-800"><li>Open WhatsApp on the business phone.</li><li>Choose <b>Linked devices</b>.</li><li>Choose <b>Link a device</b> and scan this code.</li></ol><p className="mt-3 text-xs text-amber-700">This QR is short-lived and is shown only to authorized CTMS leadership.</p></div></div></div>}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => void loadWhatsAppStatus()} disabled={whatsAppBusy} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 disabled:opacity-50">Refresh status</button>
+            {!whatsAppStatus?.connected && <button type="button" onClick={() => void startWhatsAppPairing()} disabled={whatsAppBusy || !whatsAppStatus?.available} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{whatsAppBusy ? 'Preparing secure QR…' : 'Pair business WhatsApp'}</button>}
+          </div>
+          {(whatsAppMessage || whatsAppStatus?.message) && <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">{whatsAppMessage || whatsAppStatus?.message}</p>}
+          <p className="text-[10px] text-slate-500">Inbound messages are accepted only after an employee’s WhatsApp identity is verified and their project access is confirmed by CTMS. Outbound WhatsApp messaging remains disabled until its separate delivery workflow is released.</p>
+        </> : <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">Only the Project Director or Business Administrator can manage the company WhatsApp connection.</div>}
       </div>
 
       {/* Users and Roles list */}

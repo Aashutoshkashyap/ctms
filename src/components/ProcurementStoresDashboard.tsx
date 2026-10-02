@@ -11,7 +11,7 @@ export default function ProcurementStoresDashboard({ projectId, canEdit = false 
   const [showForm, setShowForm] = useState(false);
   const [editingPoId, setEditingPoId] = useState<string | null>(null);
   const [editingStockId, setEditingStockId] = useState<string | null>(null);
-  const [selectedRecord, setSelectedRecord] = useState<Record<string, unknown> | null>(null);
+  const [selectedRecord, setSelectedRecord] = useState<object | null>(null);
 
   const [po, setPo] = useState({
     po_number: '', vendor: '', item: '', quantity: 1, unit: 'No.', unit_rate: 0,

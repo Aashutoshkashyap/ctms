@@ -658,6 +658,36 @@ test('OpenWA provider configuration is leadership-only and public health never e
   assert.equal(Object.hasOwn(health, 'endpointBaseUrl'), false);
   assert.equal(Object.hasOwn(health, 'webhookSecretRef'), false);
 });
+test('CTMS OpenWA gateway keeps provider credentials server-side and returns only an authorized pairing QR', async () => {
+  const calls = [];
+  const gateway = load('src/lib/server/openwaGateway.ts', {}, {
+    WHATSAPP_OPENWA_ENDPOINT: 'https://openwa.example',
+    WHATSAPP_OPENWA_API_KEY: 'server-only-key',
+    WHATSAPP_OPENWA_SESSION_ID: 'tenant-session',
+  }, {
+    fetch: async (url, init = {}) => {
+      calls.push({ url: String(url), method: init.method || 'GET', key: new Headers(init.headers).get('x-api-key') });
+      if (String(url).endsWith('/start')) return new Response('{}', { status: 202 });
+      if (String(url).endsWith('/qr')) return Response.json({ qrCode: 'data:image/png;base64,AA==' });
+      return Response.json({ name: 'tenant-session', status: 'disconnected' });
+    },
+  });
+  const status = await gateway.readManagedOpenWaSession();
+  assert.equal(status.available, true);
+  assert.equal(status.status, 'DISCONNECTED');
+  assert.equal(Object.hasOwn(status, 'apiKey'), false);
+  const pairing = await gateway.startManagedOpenWaPairing();
+  assert.equal(pairing.status, 'PAIRING');
+  assert.match(pairing.qrDataUrl, /^data:image\/png;base64,/);
+  assert.equal(calls.every(call => call.key === 'server-only-key'), true);
+  assert.equal(calls.some(call => call.url.includes('/api/sessions/tenant-session/start') && call.method === 'POST'), true);
+});
+test('CTMS OpenWA gateway fails closed when deployment credentials are incomplete', async () => {
+  const gateway = load('src/lib/server/openwaGateway.ts', {}, { WHATSAPP_OPENWA_ENDPOINT: 'https://openwa.example' });
+  const status = await gateway.readManagedOpenWaSession();
+  assert.equal(status.available, false);
+  assert.equal(status.status, 'UNAVAILABLE');
+});
 test('SQL role lists match the application role lists (not a database execution test)', () => {
   const { ROLE_PERMISSIONS } = load('src/lib/permissions.ts');
   const sql = fs.readFileSync(path.join(root, 'supabase_phase1a_authorization.sql'), 'utf8');

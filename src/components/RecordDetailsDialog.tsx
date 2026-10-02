@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function RecordDetailsDialog({ title, record, onClose }: { title: string; record: Record<string, unknown> | null; onClose: () => void }) {
+export default function RecordDetailsDialog({ title, record, onClose }: { title: string; record: object | null; onClose: () => void }) {
   if (!record) return null;
   return <div role="dialog" aria-modal="true" aria-label={`${title} details`} className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4">
     <section className="max-h-[85vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-5 shadow-2xl">
