@@ -1,6 +1,6 @@
 // BOQ-linked work schedule and critical-path dashboard.
 import React, { useState } from 'react';
-import { Activity, Dependency, diffDays, addDays } from '../lib/cpm';
+import { Activity, Dependency, diffDays, addDays, validateDependency } from '../lib/cpm';
 import BsDatePicker from './BsDatePicker';
 import { formatBsDate } from '../lib/nepaliDate';
 import { generateWbsFromTender } from '../lib/ai';
@@ -91,6 +91,11 @@ export default function CpmTimelineDashboard({
     e.preventDefault();
     if (!predId || !succId || predId === succId) {
       alert('Select two different activities.');
+      return;
+    }
+    const check = validateDependency(dependencies, { predecessor_id: predId, successor_id: succId });
+    if (!check.valid) {
+      alert(check.reason || 'Invalid dependency relationship.');
       return;
     }
     onAddDependency({
@@ -187,76 +192,197 @@ export default function CpmTimelineDashboard({
   return (
     <div className="space-y-6">
       {/* Interactive controls */}
-      <div className="flex justify-between items-center bg-slate-800/40 p-4 border border-slate-700/30 rounded-xl shadow">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 border border-slate-200/90 rounded-2xl shadow-xs">
         <div>
-          <h2 className="text-slate-200 text-base font-semibold">BOQ & Work Schedule</h2>
-          <p className="text-xs text-slate-400">{activities.length} work item(s) · {activities.filter(a => a.is_critical).length} critical item(s). Date and dependency calculations run automatically.</p>
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-600 text-sm">📅</span>
+            <h2 className="text-slate-900 text-base font-bold">BOQ & Work Schedule</h2>
+            <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
+              {activities.length} work items
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">
+            {activities.filter(a => a.is_critical).length} on critical path · Date and dependency calculations run automatically.
+          </p>
         </div>
         
-        {isEditable && <div className="flex flex-wrap gap-2">
-          <button onClick={() => { setShowAddActivity(!showAddActivity); setShowAddDep(false); setShowTenderImport(false); }} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow transition">
-            {showAddActivity ? 'Cancel' : '+ Add BOQ Work Item'}
-          </button>
-          <button onClick={() => { setShowTenderImport(!showTenderImport); setShowAddActivity(false); setShowAddDep(false); }} className="rounded-lg bg-purple-700 px-3 py-2 text-xs font-semibold text-white shadow transition">
-            {showTenderImport ? 'Cancel' : '✨ Build BOQ from Tender'}
-          </button>
-          <button onClick={() => { setShowAddDep(!showAddDep); setShowAddActivity(false); setShowTenderImport(false); }} className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow transition">
-            {showAddDep ? 'Cancel' : '🔗 Add Predecessor Link'}
-          </button>
-        </div>}
+        {isEditable && (
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => { setShowAddActivity(!showAddActivity); setShowAddDep(false); setShowTenderImport(false); }}
+              className={`px-3.5 py-2 text-xs font-semibold rounded-xl shadow-xs transition flex items-center gap-1.5 ${
+                showAddActivity 
+                  ? 'bg-slate-100 text-slate-700 border border-slate-300' 
+                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+              }`}
+            >
+              {showAddActivity ? '✕ Cancel' : '+ Add BOQ Work Item'}
+            </button>
+            <button
+              onClick={() => { setShowTenderImport(!showTenderImport); setShowAddActivity(false); setShowAddDep(false); }}
+              className={`px-3.5 py-2 text-xs font-semibold rounded-xl shadow-xs transition flex items-center gap-1.5 ${
+                showTenderImport 
+                  ? 'bg-slate-100 text-slate-700 border border-slate-300' 
+                  : 'bg-purple-600 hover:bg-purple-700 text-white'
+              }`}
+            >
+              {showTenderImport ? '✕ Cancel' : '✨ Build BOQ from Tender'}
+            </button>
+            <button
+              onClick={() => { setShowAddDep(!showAddDep); setShowAddActivity(false); setShowTenderImport(false); }}
+              className={`px-3.5 py-2 text-xs font-semibold rounded-xl shadow-xs transition flex items-center gap-1.5 ${
+                showAddDep 
+                  ? 'bg-slate-100 text-slate-700 border border-slate-300' 
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
+            >
+              {showAddDep ? '✕ Cancel' : '🔗 Add Predecessor Link'}
+            </button>
+          </div>
+        )}
       </div>
 
       {showTenderImport && isEditable && (
-        <form onSubmit={handleGenerateTender} className="space-y-4 rounded-xl border border-purple-200 bg-white p-4 shadow-lg">
+        <form onSubmit={handleGenerateTender} className="space-y-4 rounded-2xl border border-purple-200 bg-white p-5 shadow-xs">
           <div>
-            <h3 className="text-sm font-bold text-slate-950">Tender / BOQ schedule builder</h3>
-            <p className="text-xs text-slate-600">Paste BOQ descriptions or tender scope. The service uses configured AI when available and a construction-rule fallback when offline. Review the draft before saving.</p>
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <span className="text-purple-600">✨</span> Tender / BOQ Schedule Builder
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Paste BOQ descriptions or tender scope. The service uses configured AI when available and a construction-rule fallback when offline. Review the draft before saving.
+            </p>
           </div>
-          <textarea required rows={7} value={tenderText} onChange={event=>setTenderText(event.target.value)} className="w-full rounded-lg p-3" placeholder="Example: Item 1 site establishment; Item 2 excavation in soil 12,000 m3; Item 3 PCC bedding 450 m3; Item 4 RCC foundation…" />
+          <textarea
+            required
+            rows={6}
+            value={tenderText}
+            onChange={event => setTenderText(event.target.value)}
+            className="w-full rounded-xl border border-slate-300 bg-white p-3 text-xs text-slate-900 placeholder:text-slate-400 focus:border-purple-600 focus:ring-1 focus:ring-purple-600 outline-none"
+            placeholder="Example: Item 1 site establishment; Item 2 excavation in soil 12,000 m3; Item 3 PCC bedding 450 m3; Item 4 RCC foundation…"
+          />
           <div className="flex flex-wrap gap-2">
-            <button disabled={tenderBusy} className="rounded-lg bg-purple-700 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60">{tenderBusy?'Generating…':'Generate BOQ draft'}</button>
-            {tenderResult&&<button type="button" disabled={tenderBusy} onClick={()=>void applyTenderSchedule()} className="rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">Review and safely import BOQ schedule</button>}
+            <button
+              disabled={tenderBusy}
+              className="rounded-xl bg-purple-600 hover:bg-purple-700 px-4 py-2 text-xs font-bold text-white shadow-xs transition disabled:opacity-60"
+            >
+              {tenderBusy ? 'Generating…' : 'Generate BOQ Draft'}
+            </button>
+            {tenderResult && (
+              <button
+                type="button"
+                disabled={tenderBusy}
+                onClick={() => void applyTenderSchedule()}
+                className="rounded-xl bg-emerald-600 hover:bg-emerald-700 px-4 py-2 text-xs font-bold text-white shadow-xs transition disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Review and Safely Import BOQ Schedule
+              </button>
+            )}
           </div>
-          {tenderMessage&&<div className="rounded-lg bg-purple-50 p-3 text-sm text-purple-900">{tenderMessage}</div>}
-          {activities.length>0&&<div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">This project already has BOQ work. Import adds new items and updates only deterministic matches; it never removes existing BOQ items, activities, links, daily records, or finance records. Any ambiguous item is stopped and reported.</div>}
-          {tenderResult&&<div className="max-h-64 overflow-auto rounded-lg border border-slate-200"><table className="w-full text-left text-xs"><thead><tr><th className="p-2">BOQ</th><th className="p-2">Description of work</th><th className="p-2">Duration</th><th className="p-2">Quantity</th></tr></thead><tbody>{tenderResult.activities.map(item=><tr key={item.id}><td className="p-2 font-mono">{item.wbs_code}</td><td className="p-2 font-semibold text-slate-900">{item.name}</td><td className="p-2">{item.planned_duration} days</td><td className="p-2">{item.planned_quantity} {item.unit}</td></tr>)}</tbody></table></div>}
+          {tenderMessage && (
+            <div className="rounded-xl bg-purple-50 border border-purple-200 p-3 text-xs font-medium text-purple-900">
+              {tenderMessage}
+            </div>
+          )}
+          {activities.length > 0 && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+              This project already has BOQ work. Import adds new items and updates only deterministic matches; it never removes existing BOQ items, activities, links, daily records, or finance records.
+            </div>
+          )}
+          {tenderResult && (
+            <div className="max-h-64 overflow-auto rounded-xl border border-slate-200">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                  <tr>
+                    <th className="p-2.5">BOQ</th>
+                    <th className="p-2.5">Description of work</th>
+                    <th className="p-2.5">Duration</th>
+                    <th className="p-2.5">Quantity</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {tenderResult.activities.map(item => (
+                    <tr key={item.id} className="hover:bg-slate-50/70">
+                      <td className="p-2.5 font-mono text-slate-600">{item.wbs_code}</td>
+                      <td className="p-2.5 font-semibold text-slate-900">{item.name}</td>
+                      <td className="p-2.5 text-slate-700">{item.planned_duration} days</td>
+                      <td className="p-2.5 text-slate-700">{item.planned_quantity} {item.unit}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </form>
       )}
 
       {showAddActivity && (
-        <form onSubmit={handleAddActivity} className="bg-white border border-slate-700 p-4 rounded-xl space-y-4 shadow-lg">
+        <form onSubmit={handleAddActivity} className="bg-white border border-slate-200/90 p-5 rounded-2xl space-y-4 shadow-xs">
           <div>
-            <h3 className="text-slate-200 text-sm font-semibold">Manual BOQ Work Entry</h3>
-            <p className="text-slate-400 text-xs">Add the BOQ item number, description, date, duration, quantity and predecessor.</p>
+            <h3 className="text-slate-900 text-sm font-bold">Manual BOQ Work Entry</h3>
+            <p className="text-slate-500 text-xs">Add the BOQ item number, description, date, duration, quantity and predecessor.</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
-            <Control label="BOQ Item No."><input required placeholder="e.g. 03.02" value={manual.wbs_code} onChange={e=>setManual({...manual,wbs_code:e.target.value})}/></Control>
-            <Control label="Description of Work"><input required placeholder="Foundation excavation" value={manual.name} onChange={e=>setManual({...manual,name:e.target.value})}/></Control>
-            <Control label="Baseline Start (BS)"><BsDatePicker required value={manual.baseline_start} onChange={baseline_start=>setManual({...manual,baseline_start})}/></Control>
-            <Control label="Duration (days)"><input type="number" min="1" required value={manual.planned_duration} onChange={e=>setManual({...manual,planned_duration:Number(e.target.value)})}/></Control>
-            <Control label="Planned Quantity"><input type="number" min="0" step="any" value={manual.planned_quantity} onChange={e=>setManual({...manual,planned_quantity:Number(e.target.value)})}/></Control>
-            <Control label="Unit"><input value={manual.unit} onChange={e=>setManual({...manual,unit:e.target.value})}/></Control>
-            <Control label="Weightage %"><input type="number" min="0" max="100" step="0.1" value={manual.weightage} onChange={e=>setManual({...manual,weightage:Number(e.target.value)})}/></Control>
-            <Control label="Resource / Crew"><input value={manual.resource_required} onChange={e=>setManual({...manual,resource_required:e.target.value})}/></Control>
-            <Control label="Predecessor (optional)"><select value={manual.predecessor_id} onChange={e=>setManual({...manual,predecessor_id:e.target.value})}><option value="">No predecessor</option>{activities.map(a=><option key={a.id} value={a.id}>{a.wbs_code} — {a.name}</option>)}</select></Control>
-            <Control label="Relationship"><select value={manual.dependency_type} onChange={e=>setManual({...manual,dependency_type:e.target.value as Dependency['type']})}>{['FS','SS','FF','SF'].map(type=><option key={type}>{type}</option>)}</select></Control>
-            <Control label="Lag / Lead (days)"><input type="number" placeholder="Use -2 for lead" value={manual.lag || ''} onChange={e=>setManual({...manual,lag:Number(e.target.value)})}/></Control>
+            <Control label="BOQ Item No.">
+              <input required placeholder="e.g. 03.02" value={manual.wbs_code} onChange={e => setManual({...manual, wbs_code: e.target.value})} />
+            </Control>
+            <Control label="Description of Work">
+              <input required placeholder="Foundation excavation" value={manual.name} onChange={e => setManual({...manual, name: e.target.value})} />
+            </Control>
+            <Control label="Baseline Start (BS)">
+              <BsDatePicker required value={manual.baseline_start} onChange={baseline_start => setManual({...manual, baseline_start})} />
+            </Control>
+            <Control label="Duration (days)">
+              <input type="number" min="1" required value={manual.planned_duration} onChange={e => setManual({...manual, planned_duration: Number(e.target.value)})} />
+            </Control>
+            <Control label="Planned Quantity">
+              <input type="number" min="0" step="any" value={manual.planned_quantity} onChange={e => setManual({...manual, planned_quantity: Number(e.target.value)})} />
+            </Control>
+            <Control label="Unit">
+              <input value={manual.unit} onChange={e => setManual({...manual, unit: e.target.value})} />
+            </Control>
+            <Control label="Weightage %">
+              <input type="number" min="0" max="100" step="0.1" value={manual.weightage} onChange={e => setManual({...manual, weightage: Number(e.target.value)})} />
+            </Control>
+            <Control label="Resource / Crew">
+              <input value={manual.resource_required} onChange={e => setManual({...manual, resource_required: e.target.value})} />
+            </Control>
+            <Control label="Predecessor (optional)">
+              <select value={manual.predecessor_id} onChange={e => setManual({...manual, predecessor_id: e.target.value})}>
+                <option value="">No predecessor</option>
+                {activities.map(a => <option key={a.id} value={a.id}>{a.wbs_code} — {a.name}</option>)}
+              </select>
+            </Control>
+            <Control label="Relationship">
+              <select value={manual.dependency_type} onChange={e => setManual({...manual, dependency_type: e.target.value as Dependency['type']})}>
+                {['FS','SS','FF','SF'].map(type => <option key={type}>{type}</option>)}
+              </select>
+            </Control>
+            <Control label="Lag / Lead (days)">
+              <input type="number" placeholder="Use -2 for lead" value={manual.lag || ''} onChange={e => setManual({...manual, lag: Number(e.target.value)})} />
+            </Control>
           </div>
-          <button className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg">Save Work Item & Recalculate Schedule</button>
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={() => setShowAddActivity(false)} className="px-4 py-2 border border-slate-200 text-slate-700 font-semibold rounded-xl hover:bg-slate-50 transition">
+              Cancel
+            </button>
+            <button type="submit" className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl shadow-xs transition">
+              Save Work Item & Recalculate
+            </button>
+          </div>
         </form>
       )}
 
       {/* Add Dependency Panel */}
       {showAddDep && (
-        <form onSubmit={handleSubmitDep} className="bg-slate-800/80 border border-slate-700 p-4 rounded-xl space-y-4 max-w-xl shadow-lg">
-          <h3 className="text-slate-200 text-xs font-bold uppercase tracking-wider">Create Activity Predecessor Link</h3>
+        <form onSubmit={handleSubmitDep} className="bg-white border border-slate-200/90 p-5 rounded-2xl space-y-4 max-w-xl shadow-xs">
+          <h3 className="text-slate-900 text-xs font-bold uppercase tracking-wider">Create Activity Predecessor Link</h3>
           <div className="grid grid-cols-2 gap-3 text-xs">
             <div>
-              <label className="block text-slate-400 mb-1">Predecessor (First)</label>
+              <label className="block text-slate-600 mb-1 font-semibold">Predecessor (First)</label>
               <select 
                 value={predId} 
                 onChange={(e) => setPredId(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
+                className="w-full bg-white border border-slate-300 p-2 rounded-xl text-slate-900"
                 required
               >
                 <option value="">Select Predecessor...</option>
@@ -264,11 +390,11 @@ export default function CpmTimelineDashboard({
               </select>
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Successor (Next)</label>
+              <label className="block text-slate-600 mb-1 font-semibold">Successor (Next)</label>
               <select 
                 value={succId} 
                 onChange={(e) => setSuccId(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
+                className="w-full bg-white border border-slate-300 p-2 rounded-xl text-slate-900"
                 required
               >
                 <option value="">Select Successor...</option>
@@ -276,11 +402,11 @@ export default function CpmTimelineDashboard({
               </select>
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Dependency Type</label>
+              <label className="block text-slate-600 mb-1 font-semibold">Dependency Type</label>
               <select 
                 value={depType} 
                 onChange={(e) => setDepType(e.target.value as any)}
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
+                className="w-full bg-white border border-slate-300 p-2 rounded-xl text-slate-900"
               >
                 <option value="FS">Finish to Start (FS)</option>
                 <option value="SS">Start to Start (SS)</option>
@@ -289,26 +415,38 @@ export default function CpmTimelineDashboard({
               </select>
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Lag / Lead Days (Negative for Lead)</label>
+              <label className="block text-slate-600 mb-1 font-semibold">Lag / Lead Days</label>
               <input 
                 type="number" 
                 value={lagDays} 
                 onChange={(e) => setLagDays(Number(e.target.value))}
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
+                placeholder="0 or negative for lead"
+                className="w-full bg-white border border-slate-300 p-2 rounded-xl text-slate-900"
               />
             </div>
           </div>
-          <button type="submit" className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded shadow transition">
-            Save Dependency Link
-          </button>
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={() => setShowAddDep(false)} className="px-3 py-1.5 border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl hover:bg-slate-50 transition">
+              Cancel
+            </button>
+            <button type="submit" className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl shadow-xs transition">
+              Save Dependency Link
+            </button>
+          </div>
         </form>
       )}
 
       {/* Gantt Timeline Rendering */}
-      <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-lg overflow-x-auto">
+      <div className="bg-white border border-slate-200/90 p-5 rounded-2xl shadow-xs overflow-x-auto">
         <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <h3 className="text-slate-800 text-sm font-bold uppercase tracking-wider">Gantt Chart (Baseline vs Forecast Timeline)</h3>
-          <span className={`rounded-full px-3 py-1 text-xs font-bold ${delayedActivities.length ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+          <div className="flex items-center gap-2">
+            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-blue-50 text-blue-600 text-xs">📊</span>
+            <h3 className="text-slate-900 text-sm font-bold uppercase tracking-wider">Gantt Chart (Baseline vs Forecast Timeline)</h3>
+          </div>
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
+            delayedActivities.length ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+          }`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${delayedActivities.length ? 'bg-rose-500' : 'bg-emerald-500'}`} />
             {delayedActivities.length ? `${delayedActivities.length} delayed activities require remarks` : 'Programme currently within baseline'}
           </span>
         </div>
@@ -316,7 +454,7 @@ export default function CpmTimelineDashboard({
         {/* Gantt Area */}
         <div className="min-w-[800px] select-none text-xs">
           {/* Timeline Dates Header */}
-          <div className="flex border-b border-slate-200 pb-2 mb-2 font-semibold text-slate-600">
+          <div className="flex border-b border-slate-200 pb-2 mb-2 font-semibold text-slate-500">
             <div className="w-1/3">BOQ Item / Description of Work</div>
             <div className="w-2/3 relative h-6">
               <span className="absolute left-[0%]">2025</span>
@@ -327,7 +465,7 @@ export default function CpmTimelineDashboard({
           </div>
 
           {/* Activity Timeline Rows */}
-          <div className="space-y-4">
+          <div className="space-y-3">
             {activities.map(act => {
               const delay = delayDetails(act);
               const startOffset = getPercentOffset(act.early_start || act.baseline_start);
@@ -340,45 +478,45 @@ export default function CpmTimelineDashboard({
               const baseWidth = getPercentWidth(act.baseline_start, act.baseline_finish);
 
               // Determine bar colors based on criticality and completion
-              let barColor = 'bg-sky-500'; // Default planned
+              let barColor = 'bg-blue-500';
               if (act.status === 'completed') barColor = 'bg-emerald-500';
-              else if (act.is_critical) barColor = 'bg-red-500';
+              else if (act.is_critical) barColor = 'bg-rose-500';
               else if (act.is_near_critical) barColor = 'bg-amber-500';
 
               return (
-                <div key={act.id} className={`flex items-center py-2 rounded transition ${delay.delayDays > 0 ? 'bg-rose-50 hover:bg-rose-100' : 'hover:bg-blue-50'}`}>
+                <div key={act.id} className={`flex items-center py-2 px-2 rounded-xl transition ${delay.delayDays > 0 ? 'bg-rose-50/60 hover:bg-rose-100/50' : 'hover:bg-slate-50'}`}>
                   {/* WBS info column */}
                   <div className="w-1/3 pr-4 flex flex-col">
-                    <span className="font-semibold text-slate-200 truncate">{act.wbs_code} - {act.name}</span>
+                    <span className="font-semibold text-slate-900 truncate">{act.wbs_code} - {act.name}</span>
                     <div className="flex justify-between text-[10px] text-slate-500">
                       <span>Float: {act.total_float}d</span>
-                      <span>{act.status.replace('_', ' ')}</span>
+                      <span className="capitalize">{act.status.replace('_', ' ')}</span>
                       <span>{act.planned_quantity} {act.unit}</span>
                     </div>
-                    <span className={`mt-1 text-[10px] font-semibold ${delay.delayDays > 0 ? 'text-rose-700' : 'text-slate-500'}`}>{delay.remark}</span>
+                    <span className={`mt-0.5 text-[10px] font-medium ${delay.delayDays > 0 ? 'text-rose-700' : 'text-slate-500'}`}>{delay.remark}</span>
                   </div>
 
                   {/* SVG Bar Visualizations */}
-                  <div className="w-2/3 relative h-8 bg-slate-50 rounded border border-slate-200 overflow-hidden">
+                  <div className="w-2/3 relative h-7 bg-slate-100 rounded-lg border border-slate-200 overflow-hidden">
                     {/* Baseline Bar (Gray Outline/Stripe) */}
                     <div 
-                      className="absolute h-1.5 bg-slate-700/60 rounded top-[4px]"
+                      className="absolute h-1.5 bg-slate-400 rounded-full top-[3px]"
                       style={{ left: `${baseStartOffset}%`, width: `${baseWidth}%` }}
                       title={`Baseline: ${formatBsDate(act.baseline_start)} to ${formatBsDate(act.baseline_finish)}`}
-                    ></div>
+                    />
                     
                     {/* Actual/Forecast Bar (Main colored bar) */}
                     <div 
-                      className={`absolute h-3 rounded bottom-[4px] opacity-90 ${barColor}`}
+                      className={`absolute h-2.5 rounded-full bottom-[3px] shadow-xs ${barColor}`}
                       style={{ left: `${startOffset}%`, width: `${durationWidth}%` }}
                       title={`Forecast: ${formatBsDate(act.early_start)} to ${formatBsDate(act.early_finish)}`}
                     >
                       {/* Show completion shading inside bar */}
                       {act.status === 'in_progress' && (
                         <div 
-                          className="bg-emerald-400/30 h-full"
+                          className="bg-emerald-400/40 h-full rounded-full"
                           style={{ width: `${activityActualProgress(act)}%` }}
-                        ></div>
+                        />
                       )}
                     </div>
                   </div>
@@ -387,91 +525,140 @@ export default function CpmTimelineDashboard({
             })}
           </div>
         </div>
-        <div className="flex flex-wrap gap-4 text-[10px] text-slate-600 mt-4 justify-end border-t border-slate-200 pt-2">
-          <span className="flex items-center gap-1"><span className="w-3 h-1.5 bg-slate-700 rounded inline-block"></span> Baseline Target</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 bg-sky-500 rounded inline-block"></span> Planned / Future</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 bg-red-500 rounded inline-block"></span> Critical Path</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 bg-amber-500 rounded inline-block"></span> Near Critical (Float &lt;= 7 days)</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 bg-emerald-500 rounded inline-block"></span> Completed Work</span>
+        <div className="flex flex-wrap gap-4 text-[10px] text-slate-600 mt-4 justify-end border-t border-slate-100 pt-3">
+          <span className="flex items-center gap-1.5"><span className="w-3 h-1.5 bg-slate-400 rounded-full inline-block"></span> Baseline Target</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 bg-blue-500 rounded-full inline-block"></span> Planned / Future</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 bg-rose-500 rounded-full inline-block"></span> Critical Path</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 bg-amber-500 rounded-full inline-block"></span> Near Critical (Float &le; 7 days)</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 bg-emerald-500 rounded-full inline-block"></span> Completed Work</span>
         </div>
       </div>
 
       {/* CPM Grid Tables */}
-      <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-5 shadow-lg">
-        <h3 className="text-slate-200 text-sm font-semibold mb-4">BOQ Work Schedule Register</h3>
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-slate-900 text-base font-bold">BOQ Work Schedule Register</h3>
+            <p className="text-xs text-slate-500">Authorized programme with critical-path calculation, floats, and delay remarks.</p>
+          </div>
+          <span className="text-xs font-semibold text-slate-500">
+            Total items: {activities.length}
+          </span>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
-              <tr className="border-b border-slate-700 text-slate-400 font-semibold">
-                <th className="pb-3">BOQ Item No.</th>
-                <th className="pb-3">Description of Work</th>
-                <th className="pb-3 text-right">Planned Dur</th>
-                <th className="pb-3 text-right">Qty / Unit</th>
-                <th className="pb-3 text-right">Early Start (BS)</th>
-                <th className="pb-3 text-right">Early Finish (BS)</th>
-                <th className="pb-3 text-right">Late Start (BS)</th>
-                <th className="pb-3 text-right">Late Finish (BS)</th>
-                <th className="pb-3 text-right">Float</th>
-                <th className="pb-3 text-center">Status</th>
-                <th className="pb-3">Delay / Management Remark</th>
-                {isEditable && <th className="pb-3 text-right pr-2">Action</th>}
+              <tr className="border-b border-slate-200 bg-slate-50/80 text-slate-600 font-semibold">
+                <th className="py-2.5 px-3">BOQ Item</th>
+                <th className="py-2.5 px-3">Description of Work</th>
+                <th className="py-2.5 px-3 text-right">Duration</th>
+                <th className="py-2.5 px-3 text-right">Qty / Unit</th>
+                <th className="py-2.5 px-3 text-right">Early Start (BS)</th>
+                <th className="py-2.5 px-3 text-right">Early Finish (BS)</th>
+                <th className="py-2.5 px-3 text-right">Late Start (BS)</th>
+                <th className="py-2.5 px-3 text-right">Late Finish (BS)</th>
+                <th className="py-2.5 px-3 text-right">Float</th>
+                <th className="py-2.5 px-3 text-center">Status</th>
+                <th className="py-2.5 px-3">Delay / Management Remark</th>
+                {isEditable && <th className="py-2.5 px-3 text-right">Action</th>}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800 text-slate-300">
+            <tbody className="divide-y divide-slate-100 text-slate-700">
               {activities.map(act => {
                 const isEditing = editingActId === act.id;
                 const delay = delayDetails(act);
+                
+                let statusPillClass = 'status-pill-neutral';
+                let statusLabel = 'NOT STARTED';
+                if (act.status === 'completed') {
+                  statusPillClass = 'status-pill-completed';
+                  statusLabel = 'COMPLETED';
+                } else if (act.status === 'in_progress') {
+                  statusPillClass = 'status-pill-progress';
+                  statusLabel = 'IN PROGRESS';
+                }
+                if (delay.delayDays > 0 && act.status !== 'completed') {
+                  statusPillClass = 'status-pill-delayed';
+                  statusLabel = 'DELAYED';
+                }
+
                 return (
-                  <tr key={act.id} className="hover:bg-slate-800/10">
-                    <td className="py-2.5 font-mono text-slate-400">{isEditing ? <input value={editAct.wbs_code || ''} onChange={e=>setEditAct({...editAct,wbs_code:e.target.value})} className="w-24 rounded border px-1" /> : act.wbs_code}</td>
-                    <td className="py-2.5 font-semibold text-slate-100">{isEditing ? <input value={editAct.name || ''} onChange={e=>setEditAct({...editAct,name:e.target.value})} className="w-56 rounded border px-1" /> : act.name}</td>
-                    <td className="py-2.5 text-right">
+                  <tr key={act.id} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="py-2.5 px-3 font-mono font-medium text-slate-600">
+                      {isEditing ? (
+                        <input value={editAct.wbs_code || ''} onChange={e => setEditAct({...editAct, wbs_code: e.target.value})} className="w-20 rounded-lg border border-slate-300 px-2 py-1 text-xs" />
+                      ) : act.wbs_code}
+                    </td>
+                    <td className="py-2.5 px-3 font-semibold text-slate-900">
+                      {isEditing ? (
+                        <input value={editAct.name || ''} onChange={e => setEditAct({...editAct, name: e.target.value})} className="w-52 rounded-lg border border-slate-300 px-2 py-1 text-xs" />
+                      ) : act.name}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-medium text-slate-700">
                       {isEditing ? (
                         <input 
                           type="number" 
                           value={editAct.planned_duration || ''}
-                          onChange={(e) => setEditAct({...editAct, planned_duration:Number(e.target.value)})}
-                          className="w-16 bg-slate-900 border border-slate-700 rounded text-right px-1"
+                          onChange={(e) => setEditAct({...editAct, planned_duration: Number(e.target.value)})}
+                          className="w-16 rounded-lg border border-slate-300 text-right px-2 py-1 text-xs"
                         />
                       ) : (
                         `${act.planned_duration}d`
                       )}
                     </td>
-                    <td className="py-2.5 text-right">
+                    <td className="py-2.5 px-3 text-right text-slate-700">
                       {isEditing ? (
-                        <div className="flex justify-end gap-1"><input type="number" value={editAct.planned_quantity || ''} onChange={(e) => setEditAct({...editAct, planned_quantity:Number(e.target.value)})} className="w-20 bg-slate-900 border border-slate-700 rounded text-right px-1" /><input value={editAct.unit || ''} onChange={(e) => setEditAct({...editAct, unit:e.target.value})} className="w-14 bg-slate-900 border border-slate-700 rounded px-1" /></div>
+                        <div className="flex justify-end gap-1">
+                          <input type="number" value={editAct.planned_quantity || ''} onChange={(e) => setEditAct({...editAct, planned_quantity: Number(e.target.value)})} className="w-20 rounded-lg border border-slate-300 text-right px-2 py-1 text-xs" />
+                          <input value={editAct.unit || ''} onChange={(e) => setEditAct({...editAct, unit: e.target.value})} className="w-14 rounded-lg border border-slate-300 px-2 py-1 text-xs" />
+                        </div>
                       ) : (
                         `${act.planned_quantity} ${act.unit}`
                       )}
                     </td>
-                    <td className="py-2.5 text-right font-mono">{isEditing ? <BsDatePicker value={String(editAct.baseline_start || act.baseline_start)} onChange={baseline_start=>setEditAct({...editAct,baseline_start})} className="min-w-40" /> : formatBsDate(act.early_start)}</td>
-                    <td className="py-2.5 text-right font-mono">{isEditing ? <BsDatePicker value={String(editAct.baseline_finish || act.baseline_finish)} onChange={baseline_finish=>setEditAct({...editAct,baseline_finish})} className="min-w-40" /> : formatBsDate(act.early_finish)}</td>
-                    <td className="py-2.5 text-right font-mono">{formatBsDate(act.late_start)}</td>
-                    <td className="py-2.5 text-right font-mono">{formatBsDate(act.late_finish)}</td>
-                    <td className="py-2.5 text-right font-mono">
-                      <span className={`px-1 py-0.5 rounded font-bold ${act.total_float! <= 0 ? 'bg-red-500/10 text-red-400' : 'text-slate-400'}`}>
+                    <td className="py-2.5 px-3 text-right font-mono text-slate-600">
+                      {isEditing ? <BsDatePicker value={String(editAct.baseline_start || act.baseline_start)} onChange={baseline_start => setEditAct({...editAct, baseline_start})} className="min-w-36" /> : formatBsDate(act.early_start)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono text-slate-600">
+                      {isEditing ? <BsDatePicker value={String(editAct.baseline_finish || act.baseline_finish)} onChange={baseline_finish => setEditAct({...editAct, baseline_finish})} className="min-w-36" /> : formatBsDate(act.early_finish)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono text-slate-500">{formatBsDate(act.late_start)}</td>
+                    <td className="py-2.5 px-3 text-right font-mono text-slate-500">{formatBsDate(act.late_finish)}</td>
+                    <td className="py-2.5 px-3 text-right font-mono">
+                      <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                        (act.total_float ?? 0) <= 0 
+                          ? 'bg-rose-50 text-rose-700 border border-rose-200' 
+                          : 'text-slate-600 bg-slate-100'
+                      }`}>
                         {act.total_float}d
                       </span>
                     </td>
-                    <td className="py-2.5 text-center">
-                      {isEditing ? <select value={editAct.status || act.status} onChange={e=>setEditAct({...editAct,status:e.target.value as Activity['status']})} className="rounded border px-1"><option value="not_started">not started</option><option value="in_progress">in progress</option><option value="completed">completed</option></select> : <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase font-bold ${
-                        act.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400' :
-                        act.status === 'in_progress' ? 'bg-sky-500/10 text-sky-400' :
-                        'bg-slate-700/30 text-slate-400'
-                      }`}>
-                        {act.status.replace('_', ' ')}
-                      </span>}
+                    <td className="py-2.5 px-3 text-center">
+                      {isEditing ? (
+                        <select value={editAct.status || act.status} onChange={e => setEditAct({...editAct, status: e.target.value as Activity['status']})} className="rounded-lg border border-slate-300 px-2 py-1 text-xs">
+                          <option value="not_started">not started</option>
+                          <option value="in_progress">in progress</option>
+                          <option value="completed">completed</option>
+                        </select>
+                      ) : (
+                        <span className={`status-pill ${statusPillClass}`}>
+                          <span className="status-pill-dot" />
+                          {statusLabel}
+                        </span>
+                      )}
                     </td>
-                    <td className={`py-2.5 max-w-[260px] ${delay.delayDays > 0 ? 'font-semibold text-rose-700' : 'text-slate-500'}`}>{delay.remark}</td>
+                    <td className={`py-2.5 px-3 max-w-[240px] text-xs ${delay.delayDays > 0 ? 'font-semibold text-rose-700' : 'text-slate-500'}`}>
+                      {delay.remark}
+                    </td>
                     {isEditable && (
-                      <td className="py-2.5 text-right pr-2">
+                      <td className="py-2.5 px-3 text-right pr-2">
                         {isEditing ? (
-                          <div className="flex gap-1 justify-end">
-                            <button onClick={() => handleSaveEdit(act)} className="text-emerald-400 hover:text-emerald-300 font-bold">Save</button>
-                            <button onClick={() => setEditingActId(null)} className="text-slate-400 hover:text-slate-300">Cancel</button>
+                          <div className="flex gap-2 justify-end">
+                            <button onClick={() => handleSaveEdit(act)} className="text-emerald-700 hover:text-emerald-800 font-bold">Save</button>
+                            <button onClick={() => setEditingActId(null)} className="text-slate-500 hover:text-slate-700 font-medium">Cancel</button>
                           </div>
                         ) : (
-                          <button onClick={() => handleStartEdit(act)} className="text-blue-400 hover:text-blue-300 font-semibold">Edit</button>
+                          <button onClick={() => handleStartEdit(act)} className="text-blue-600 hover:text-blue-700 font-semibold">Edit</button>
                         )}
                       </td>
                     )}
@@ -484,30 +671,42 @@ export default function CpmTimelineDashboard({
       </div>
 
       {/* Dependencies list */}
-      <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-5 shadow-lg">
-        <h3 className="text-slate-200 text-sm font-semibold mb-3">Work Dependencies</h3>
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-slate-900 text-base font-bold">Work Dependencies & Predecessor Links</h3>
+            <p className="text-xs text-slate-500">Predecessor logic driving CPM critical path calculations and early/late date float.</p>
+          </div>
+          <span className="text-xs font-semibold text-slate-500">
+            {dependencies.length} active links
+          </span>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {dependencies.map(d => {
             const pred = activities.find(a => a.id === d.predecessor_id);
             const succ = activities.find(a => a.id === d.successor_id);
             if (!pred || !succ) return null;
             return (
-              <div key={d.id} className="border border-slate-700/40 bg-slate-900/20 p-2.5 rounded-lg flex items-center justify-between text-xs">
+              <div key={d.id} className="border border-slate-200 bg-slate-50/70 p-3.5 rounded-xl flex items-center justify-between text-xs hover:border-blue-200 hover:bg-blue-50/30 transition">
                 <div className="flex flex-col">
-                  <div className="flex items-center gap-1.5 text-slate-300 font-semibold">
-                    <span>{pred.wbs_code}</span>
-                    <span className="text-[10px] px-1 bg-slate-800 text-slate-400 rounded">{d.type}</span>
-                    <span>{succ.wbs_code}</span>
+                  <div className="flex items-center gap-2 text-slate-900 font-semibold">
+                    <span className="font-mono text-slate-700">{pred.wbs_code}</span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-md">{d.type}</span>
+                    <span className="font-mono text-slate-700">{succ.wbs_code}</span>
                   </div>
-                  <span className="text-[10px] text-slate-500 truncate max-w-[200px] mt-0.5">
-                    {pred.name.substring(0,18)}... → {succ.name.substring(0,18)}...
+                  <span className="text-[11px] text-slate-500 truncate max-w-[200px] mt-1">
+                    {pred.name.substring(0, 20)}... → {succ.name.substring(0, 20)}...
                   </span>
-                  {d.lag !== 0 && <span className="text-[9px] text-amber-500 mt-0.5">Lag: {d.lag}d</span>}
+                  {d.lag !== 0 && (
+                    <span className="text-[10px] font-semibold text-amber-700 mt-0.5">
+                      Lag: {d.lag} day{d.lag === 1 ? '' : 's'}
+                    </span>
+                  )}
                 </div>
                 {isEditable && (
                   <button 
                     onClick={() => onDeleteDependency(d.id)}
-                    className="text-rose-500 hover:text-rose-400 text-xs px-2 py-1 bg-rose-500/5 hover:bg-rose-500/10 rounded transition"
+                    className="text-rose-600 hover:text-rose-700 text-xs px-2.5 py-1 rounded-lg border border-rose-200 bg-white hover:bg-rose-50 transition font-medium"
                   >
                     Delete
                   </button>
@@ -522,5 +721,12 @@ export default function CpmTimelineDashboard({
 }
 
 function Control({label,children}:{label:string;children:React.ReactNode}) {
-  return <label className="space-y-1 text-slate-500"><span className="block font-medium">{label}</span><span className="[&_input]:w-full [&_select]:w-full [&_input]:p-2.5 [&_select]:p-2.5 [&_input]:rounded-lg [&_select]:rounded-lg [&_input]:border [&_select]:border [&_input]:border-slate-700 [&_select]:border-slate-700">{children}</span></label>;
+  return (
+    <label className="space-y-1 text-slate-600">
+      <span className="block font-medium text-xs">{label}</span>
+      <span className="[&_input]:w-full [&_select]:w-full [&_input]:p-2 [&_select]:p-2 [&_input]:rounded-xl [&_select]:rounded-xl [&_input]:border [&_select]:border [&_input]:border-slate-300 [&_select]:border-slate-300 [&_input]:bg-white [&_select]:bg-white [&_input]:text-slate-900 [&_select]:text-slate-900 [&_input]:text-xs [&_select]:text-xs">
+        {children}
+      </span>
+    </label>
+  );
 }

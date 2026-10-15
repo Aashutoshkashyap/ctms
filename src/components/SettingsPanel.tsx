@@ -227,33 +227,39 @@ export default function SettingsPanel({
   };
 
   return (
-    <div className="space-y-6 text-xs text-slate-300">
+    <div className="space-y-6 text-xs text-slate-700">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Project Details */}
-        <div className="bg-slate-800/50 border border-slate-700/40 p-5 rounded-xl shadow space-y-4">
-          <h3 className="text-slate-200 text-sm font-semibold">Project & Contract Details</h3>
+        <div className="bg-white border border-slate-200/90 p-5 rounded-2xl shadow-xs space-y-4">
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-600 text-sm">🏗️</span>
+            <div>
+              <h3 className="text-slate-900 text-sm font-bold">Project & Contract Details</h3>
+              <p className="text-[11px] text-slate-500">Authorized project naming and contract sum.</p>
+            </div>
+          </div>
           <form onSubmit={handleProjectUpdateSubmit} className="space-y-3">
             <div>
-              <label className="block text-slate-400 mb-1">Project Name</label>
+              <label className="block text-slate-700 font-semibold mb-1">Project Name</label>
               <input
                 type="text"
                 value={projName}
                 onChange={(e) => setProjName(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
+                className="w-full bg-white border border-slate-300 p-2.5 rounded-xl text-slate-900 text-xs outline-none focus:border-blue-600"
                 required
               />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Contract Amount (NPR)</label>
+              <label className="block text-slate-700 font-semibold mb-1">Contract Amount (NPR)</label>
               <input
                 type="number"
                 value={contractAmt}
                 onChange={(e) => setContractAmt(Number(e.target.value))}
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
+                className="w-full bg-white border border-slate-300 p-2.5 rounded-xl text-slate-900 text-xs outline-none focus:border-blue-600"
                 required
               />
             </div>
-            <button type="submit" className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded shadow transition">
+            <button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-xs shadow-xs transition">
               Save Project Changes
             </button>
           </form>
@@ -378,37 +384,57 @@ export default function SettingsPanel({
       </div>
 
       {/* Users and Roles list */}
-      <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-5 shadow space-y-4">
-        <h3 className="text-slate-200 text-sm font-semibold">JV / Project Personnel Directory</h3>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <form onSubmit={handleAddUserSubmit} className="lg:col-span-1 border border-slate-750 p-4 rounded-lg bg-slate-900/20 space-y-3">
-            <h4 className="text-slate-200 font-semibold mb-1">Add Personnel</h4>
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-xs space-y-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-600 text-sm">👥</span>
             <div>
-              <label className="block text-slate-400 mb-1">Name</label>
+              <h3 className="text-slate-900 text-sm font-bold">JV / Project Personnel Directory</h3>
+              <p className="text-[11px] text-slate-500">Manage team members, roles, and granular feature authorizations.</p>
+            </div>
+          </div>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+            {users.length} {users.length === 1 ? 'Member' : 'Members'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <form onSubmit={handleAddUserSubmit} className="lg:col-span-1 border border-slate-200 p-5 rounded-xl bg-slate-50/60 space-y-3.5">
+            <div className="flex items-center justify-between mb-1">
+              <h4 className="text-slate-900 font-bold text-xs flex items-center gap-1.5">
+                <span>➕</span> Add Personnel
+              </h4>
+              <span className="text-[10px] text-slate-400">Project Scope</span>
+            </div>
+
+            <div>
+              <label className="block text-slate-700 font-semibold mb-1 text-xs">Full Name</label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
+                placeholder="e.g. Er. Rajesh Sharma"
+                className="w-full bg-white border border-slate-300 p-2.5 rounded-xl text-slate-900 text-xs outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
                 required
               />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Email</label>
+              <label className="block text-slate-700 font-semibold mb-1 text-xs">Email Address</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
+                placeholder="name@company.com"
+                className="w-full bg-white border border-slate-300 p-2.5 rounded-xl text-slate-900 text-xs outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
                 required
               />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Role Permission</label>
+              <label className="block text-slate-700 font-semibold mb-1 text-xs">Role Permission</label>
               <select
                 value={role}
                 onChange={(e) => { setRole(e.target.value); setPermissions(buildDefaultPermissions(e.target.value)); }}
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
+                className="w-full bg-white border border-slate-300 p-2.5 rounded-xl text-slate-900 text-xs outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
               >
                 <option value="business_admin">Business Administrator</option>
                 <option value="project_director">Project Director</option>
@@ -428,47 +454,47 @@ export default function SettingsPanel({
               </select>
             </div>
             {isSupabaseConfigured() && <div>
-              <label className="block text-slate-400 mb-1">Temporary Password</label>
+              <label className="block text-slate-700 font-semibold mb-1 text-xs">Temporary Password</label>
               <input
                 type="text"
                 minLength={10}
                 autoComplete="new-password"
                 value={temporaryPassword}
                 onChange={(event)=>setTemporaryPassword(event.target.value)}
-                placeholder="Director creates first password"
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
+                placeholder="Director creates initial password"
+                className="w-full bg-white border border-slate-300 p-2.5 rounded-xl text-slate-900 text-xs outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
                 required
               />
-              <p className="mt-1 text-[10px] text-slate-500">At least 10 characters with upper-case, lower-case and a number. The employee can later use Forgot Password.</p>
+              <p className="mt-1 text-[10px] text-slate-500">Min 10 chars with uppercase, lowercase & a number.</p>
             </div>}
             {userRole === 'project_director' && !['project_director','business_admin'].includes(role) && <PermissionGrid role={role} permissions={permissions} onChange={setPermissions} compact />}
-            <button disabled={creatingUser} type="submit" className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold rounded shadow transition w-full">
+            <button disabled={creatingUser} type="submit" className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold rounded-xl text-xs shadow-xs transition">
               {creatingUser ? 'Creating Login…' : 'Create Project Login'}
             </button>
-            {userMessage && <p className="rounded bg-blue-50 p-2 text-blue-700">{userMessage}</p>}
+            {userMessage && <p className="rounded-xl border border-blue-200 bg-blue-50 p-2.5 text-xs text-blue-700 font-medium">{userMessage}</p>}
           </form>
 
-          <div className="lg:col-span-2 overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-700 text-slate-400 font-semibold">
-                  <th className="pb-3">Name</th>
-                  <th className="pb-3">Email Address</th>
-                  <th className="pb-3">Access</th>
-                  <th className="pb-3 text-right">Role / Action</th>
+          <div className="lg:col-span-2 overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead className="bg-slate-50/80 text-slate-600 font-semibold border-b border-slate-200">
+                <tr>
+                  <th className="py-3 px-4">Name</th>
+                  <th className="py-3 px-4">Email Address</th>
+                  <th className="py-3 px-4">Access Authority</th>
+                  <th className="py-3 px-4 text-right">Role / Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-slate-700">
+              <tbody className="divide-y divide-slate-100 text-slate-700">
                 {users.map((u, index) => (
-                  <tr key={`${u.email}-${u.role}-${index}`} className="hover:bg-slate-50">
-                    <td className="py-2.5 font-semibold text-slate-950">{u.name}</td>
-                    <td className="py-2.5 font-mono text-slate-600">{u.email}</td>
-                    <td className="py-2.5 text-slate-600">{permissionSummary(u.feature_permissions, u.role)}</td>
-                    <td className="py-2.5 text-right">
-                      <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-700">
+                  <tr key={`${u.email}-${u.role}-${index}`} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="py-3 px-4 font-semibold text-slate-900">{u.name}</td>
+                    <td className="py-3 px-4 font-mono text-slate-600 text-[11px]">{u.email}</td>
+                    <td className="py-3 px-4 text-slate-500">{permissionSummary(u.feature_permissions, u.role)}</td>
+                    <td className="py-3 px-4 text-right">
+                      <span className="inline-block rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-[10px] font-bold uppercase text-blue-700">
                         {u.role.replace(/_/g, ' ')}
                       </span>
-                      {userRole==='project_director'&&!['project_director','business_admin','super_admin'].includes(u.role)&&u.id&&<button type="button" onClick={()=>setEditingUser({...u,feature_permissions:{...buildDefaultPermissions(u.role),...(u.feature_permissions||{})}})} className="ml-2 font-bold text-blue-800">Edit access</button>}
+                      {userRole==='project_director'&&!['project_director','business_admin','super_admin'].includes(u.role)&&u.id&&<button type="button" onClick={()=>setEditingUser({...u,feature_permissions:{...buildDefaultPermissions(u.role),...(u.feature_permissions||{})}})} className="ml-2 font-bold text-blue-600 hover:text-blue-800 transition">Edit access</button>}
                     </td>
                   </tr>
                 ))}

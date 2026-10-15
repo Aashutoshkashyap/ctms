@@ -44,52 +44,73 @@ export default function BudgetDashboard({
   return (
     <div className="space-y-6">
       {/* Financial Health Indicators */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-slate-800/50 border border-slate-700/40 p-4 rounded-xl shadow-lg">
-          <div className="text-slate-400 text-xs font-semibold uppercase">Earned Value (EV)</div>
-          <div className="text-xl font-bold mt-1 text-slate-100">NPR {(evm.earnedValue / 1000000).toFixed(2)}M</div>
-          <div className="text-[9px] text-slate-500 mt-2">Work completed value at contract rates</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white border border-slate-200/90 p-5 rounded-2xl shadow-xs space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Earned Value (EV)</span>
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-600 text-sm">📈</span>
+          </div>
+          <div className="text-2xl font-extrabold text-slate-900 font-mono">NPR {(evm.earnedValue / 1000000).toFixed(2)}M</div>
+          <div className="text-[11px] text-slate-500">Work completed value at contract rates</div>
         </div>
 
-        <div className="bg-slate-800/50 border border-slate-700/40 p-4 rounded-xl shadow-lg">
-          <div className="text-slate-400 text-xs font-semibold uppercase">Actual Cost (AC)</div>
-          <div className="text-xl font-bold mt-1 text-rose-400">NPR {(totalActual / 1000000).toFixed(2)}M</div>
-          <div className="text-[9px] text-slate-500 mt-2">Budget-head actual cost; separate from the daily expense register</div>
+        <div className="bg-white border border-slate-200/90 p-5 rounded-2xl shadow-xs space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Actual Cost (AC)</span>
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-rose-50 text-rose-600 text-sm">💸</span>
+          </div>
+          <div className="text-2xl font-extrabold text-rose-600 font-mono">NPR {(totalActual / 1000000).toFixed(2)}M</div>
+          <div className="text-[11px] text-slate-500">Incurred costs across all project heads</div>
         </div>
 
-        <div className="bg-slate-800/50 border border-slate-700/40 p-4 rounded-xl shadow-lg">
-          <div className="text-slate-400 text-xs font-semibold uppercase">EAC (Forecast Final Cost)</div>
-          <div className="text-xl font-bold mt-1 text-amber-400">NPR {(evm.forecastFinalCost / 1000000).toFixed(2)}M</div>
-          <div className="text-[9px] text-slate-500 mt-2">Projected total cost based on current CPI</div>
+        <div className="bg-white border border-slate-200/90 p-5 rounded-2xl shadow-xs space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">EAC (Forecast Cost)</span>
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-600 text-sm">🔮</span>
+          </div>
+          <div className="text-2xl font-extrabold text-amber-600 font-mono">NPR {(evm.forecastFinalCost / 1000000).toFixed(2)}M</div>
+          <div className="text-[11px] text-slate-500">Projected total cost based on current CPI</div>
         </div>
 
-        <div className="bg-slate-800/50 border border-slate-700/40 p-4 rounded-xl shadow-lg">
-          <div className="text-slate-400 text-xs font-semibold uppercase">Expected Net Profit</div>
-          <div className="text-xl font-bold mt-1 text-emerald-400">NPR {((totalContract - evm.forecastFinalCost) / 1000000).toFixed(2)}M</div>
-          <div className="text-[9px] text-slate-500 mt-2">Contract Value minus Forecast Final Cost</div>
+        <div className="bg-white border border-slate-200/90 p-5 rounded-2xl shadow-xs space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Expected Net Margin</span>
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 text-sm">💰</span>
+          </div>
+          <div className="text-2xl font-extrabold text-emerald-600 font-mono">NPR {((totalContract - evm.forecastFinalCost) / 1000000).toFixed(2)}M</div>
+          <div className="text-[11px] text-slate-500">Contract Value minus Forecast Final Cost</div>
         </div>
       </div>
 
       {/* Budget Heads list */}
-      <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-5 shadow-lg space-y-4">
-        <div><h3 className="text-slate-200 text-sm font-semibold">Project Cost & Budget Breakdown</h3><p className="mt-1 text-xs text-slate-500">Amounts are in NPR. On smaller screens, scroll horizontally; BOQ item and budget head remain visible.</p></div>
-        <div className="overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200">
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-xs space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-slate-900 text-sm font-bold">Project Cost & Budget Breakdown</h3>
+            <p className="mt-1 text-xs text-slate-500">Amounts are in NPR. Compare contractual baseline, internal budget, committed funds, and actual costs.</p>
+          </div>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+            {budgetHeads.length} Heads
+          </span>
+        </div>
+
+        <div className="overflow-x-auto overscroll-x-contain rounded-xl border border-slate-200">
           <table className="budget-table w-full min-w-[1180px] table-fixed text-left border-collapse text-xs">
             <colgroup><col className="w-24"/><col className="w-64"/><col className="w-36"/><col className="w-36"/><col className="w-36"/><col className="w-36"/><col className="w-36"/><col className="w-36"/>{isEditable&&<col className="w-24"/>}</colgroup>
             <thead>
-              <tr className="border-b border-slate-700 text-slate-400 font-semibold">
-                <th className="pb-3">BOQ Item</th>
-                <th className="pb-3">Budget Head Name</th>
-                <th className="pb-3 text-right">Contract Value (NPR)</th>
-                <th className="pb-3 text-right">Internal Budget (NPR)</th>
-                <th className="pb-3 text-right">Actual Cost (NPR)</th>
-                <th className="pb-3 text-right">Committed (NPR)</th>
-                <th className="pb-3 text-right">Forecast (NPR)</th>
-                <th className="pb-3 text-right">Margin (NPR)</th>
-                {isEditable && <th className="pb-3 text-right pr-2">Action</th>}
+              <tr className="border-b border-slate-200 bg-slate-50/80 text-slate-600 font-semibold">
+                <th className="py-3 px-3">BOQ Item</th>
+                <th className="py-3 px-3">Budget Head Name</th>
+                <th className="py-3 px-3 text-right">Contract Value</th>
+                <th className="py-3 px-3 text-right">Internal Budget</th>
+                <th className="py-3 px-3 text-right">Actual Cost</th>
+                <th className="py-3 px-3 text-right">Committed</th>
+                <th className="py-3 px-3 text-right">Forecast</th>
+                <th className="py-3 px-3 text-right">Margin</th>
+                {isEditable && <th className="py-3 px-3 text-right pr-4">Action</th>}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800 text-slate-300">
+            <tbody className="divide-y divide-slate-100 text-slate-700">
               {budgetHeads.map(bh => {
                 const cpi = bh.actual_cost > 0 ? (bh.contract_value * 0.35) / bh.actual_cost : 1; // Simplified item CPI
                 const forecast = cpi > 0 ? bh.internal_budget / cpi : bh.internal_budget;
@@ -98,37 +119,37 @@ export default function BudgetDashboard({
                 const isEditing = selectedBdgId === bh.id;
 
                 return (
-                  <tr key={bh.id} className="hover:bg-slate-800/10">
-                    <td className="py-3 font-mono text-slate-400">{bh.wbs_code}</td>
-                    <td className="py-3 font-semibold text-slate-100">{bh.name}</td>
-                    <td className="py-3 text-right font-mono">{(bh.contract_value).toLocaleString()}</td>
-                    <td className="py-3 text-right font-mono">{(bh.internal_budget).toLocaleString()}</td>
-                    <td className="py-3 text-right font-mono">
+                  <tr key={bh.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="py-3 px-3 font-mono font-medium text-slate-500">{bh.wbs_code}</td>
+                    <td className="py-3 px-3 font-semibold text-slate-900">{bh.name}</td>
+                    <td className="py-3 px-3 text-right font-mono text-slate-800">{(bh.contract_value).toLocaleString()}</td>
+                    <td className="py-3 px-3 text-right font-mono text-slate-800">{(bh.internal_budget).toLocaleString()}</td>
+                    <td className="py-3 px-3 text-right font-mono">
                       {isEditing ? (
                         <input
                           type="number"
                           value={editActualCost}
                           onChange={(e) => setEditActualCost(Number(e.target.value))}
-                          className="w-24 bg-slate-900 border border-slate-700 rounded text-right px-1"
+                          className="w-24 bg-white border border-blue-500 rounded-lg text-right px-2 py-1 text-slate-900 outline-none"
                         />
                       ) : (
-                        (bh.actual_cost).toLocaleString()
+                        <span className="text-rose-600 font-semibold">{(bh.actual_cost).toLocaleString()}</span>
                       )}
                     </td>
-                    <td className="py-3 text-right font-mono">{(bh.committed_cost).toLocaleString()}</td>
-                    <td className="py-3 text-right font-mono">{(forecast).toLocaleString()}</td>
-                    <td className={`py-3 text-right font-mono font-bold ${margin >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    <td className="py-3 px-3 text-right font-mono text-slate-700">{(bh.committed_cost).toLocaleString()}</td>
+                    <td className="py-3 px-3 text-right font-mono text-slate-800">{(forecast).toLocaleString()}</td>
+                    <td className={`py-3 px-3 text-right font-mono font-bold ${margin >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                       {(margin).toLocaleString()}
                     </td>
                     {isEditable && (
-                      <td className="py-3 text-right pr-2">
+                      <td className="py-3 px-3 text-right pr-4">
                         {isEditing ? (
-                          <div className="flex justify-end gap-1 font-bold">
-                            <button onClick={() => handleSaveEdit(bh)} className="text-emerald-400 hover:text-emerald-300">Save</button>
-                            <button onClick={() => setSelectedBdgId(null)} className="text-slate-400 hover:text-slate-300">Cancel</button>
+                          <div className="flex justify-end gap-1.5 font-bold">
+                            <button onClick={() => handleSaveEdit(bh)} className="text-emerald-700 hover:text-emerald-800">Save</button>
+                            <button onClick={() => setSelectedBdgId(null)} className="text-slate-500 hover:text-slate-700">Cancel</button>
                           </div>
                         ) : (
-                          <button onClick={() => handleStartEdit(bh)} className="text-blue-400 hover:text-blue-300 font-semibold">Log Exp</button>
+                          <button onClick={() => handleStartEdit(bh)} className="text-blue-600 hover:text-blue-800 font-semibold">Log Exp</button>
                         )}
                       </td>
                     )}
@@ -136,18 +157,18 @@ export default function BudgetDashboard({
                 );
               })}
               {/* Totals Row */}
-              <tr className="border-t border-slate-700 bg-slate-900/35 font-bold">
-                <td className="py-3"></td>
-                <td className="py-3 text-slate-200">TOTAL</td>
-                <td className="py-3 text-right font-mono text-slate-200">{(totalContract).toLocaleString()}</td>
-                <td className="py-3 text-right font-mono text-slate-200">{(totalBudget).toLocaleString()}</td>
-                <td className="py-3 text-right font-mono text-rose-400">{(totalActual).toLocaleString()}</td>
-                <td className="py-3 text-right font-mono text-slate-200">{(totalCommitted).toLocaleString()}</td>
-                <td className="py-3 text-right font-mono text-amber-400">{(evm.forecastFinalCost).toLocaleString()}</td>
-                <td className={`py-3 text-right font-mono ${totalContract - evm.forecastFinalCost >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              <tr className="border-t-2 border-slate-200 bg-slate-50 font-bold">
+                <td className="py-3 px-3"></td>
+                <td className="py-3 px-3 text-slate-900 uppercase tracking-wider text-[11px]">Total Portfolio</td>
+                <td className="py-3 px-3 text-right font-mono text-slate-900">{(totalContract).toLocaleString()}</td>
+                <td className="py-3 px-3 text-right font-mono text-slate-900">{(totalBudget).toLocaleString()}</td>
+                <td className="py-3 px-3 text-right font-mono text-rose-600">{(totalActual).toLocaleString()}</td>
+                <td className="py-3 px-3 text-right font-mono text-slate-900">{(totalCommitted).toLocaleString()}</td>
+                <td className="py-3 px-3 text-right font-mono text-amber-600">{(evm.forecastFinalCost).toLocaleString()}</td>
+                <td className={`py-3 px-3 text-right font-mono ${totalContract - evm.forecastFinalCost >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                   {(totalContract - evm.forecastFinalCost).toLocaleString()}
                 </td>
-                {isEditable && <td></td>}
+                {isEditable && <td className="px-3"></td>}
               </tr>
             </tbody>
           </table>
@@ -155,34 +176,46 @@ export default function BudgetDashboard({
       </div>
 
       {/* Subcontractor tracking */}
-      <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-5 shadow-lg space-y-3">
-        <h3 className="text-slate-200 text-sm font-semibold">Subcontractor Packages Execution</h3>
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-xs space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-600 text-sm">🤝</span>
+            <div>
+              <h3 className="text-slate-900 text-sm font-bold">Subcontractor Packages Execution</h3>
+              <p className="text-xs text-slate-500">Contract milestones, disbursements and contractor profit margins.</p>
+            </div>
+          </div>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+            {subcontractors.length} Subcontractors
+          </span>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {subcontractors.map(sub => {
             const margin = sub.contract_value - sub.actual_cost;
             return (
-              <div key={sub.id} className="border border-slate-700 bg-slate-900/10 p-4 rounded-xl flex flex-col space-y-2">
+              <div key={sub.id} className="border border-slate-200 bg-slate-50/60 p-4 rounded-xl flex flex-col space-y-2.5">
                 <div className="flex justify-between items-start">
                   <div>
-                    <h4 className="text-slate-200 font-semibold text-xs">{sub.subcontractor_name}</h4>
-                    <span className="text-[10px] text-slate-500">{sub.package_name}</span>
+                    <h4 className="text-slate-900 font-bold text-xs">{sub.subcontractor_name}</h4>
+                    <span className="text-[11px] text-slate-500">{sub.package_name}</span>
                   </div>
-                  <span className="text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1.5 py-0.5 rounded">
+                  <span className="text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full">
                     Progress: {sub.progress_percentage}%
                   </span>
                 </div>
-                <div className="grid grid-cols-3 gap-2 border-t border-slate-800/50 pt-2 text-[10px]">
+                <div className="grid grid-cols-3 gap-2 border-t border-slate-200/80 pt-2 text-[11px]">
                   <div>
-                    <span className="text-slate-500 block uppercase">Contract</span>
-                    <span className="font-semibold text-slate-300 font-mono">NPR {sub.contract_value.toLocaleString()}</span>
+                    <span className="text-slate-500 block text-[10px] uppercase font-semibold">Contract</span>
+                    <span className="font-semibold text-slate-800 font-mono">NPR {sub.contract_value.toLocaleString()}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block uppercase">Paid / Cost</span>
-                    <span className="font-semibold text-slate-300 font-mono">NPR {sub.actual_cost.toLocaleString()}</span>
+                    <span className="text-slate-500 block text-[10px] uppercase font-semibold">Paid / Cost</span>
+                    <span className="font-semibold text-rose-600 font-mono">NPR {sub.actual_cost.toLocaleString()}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block uppercase">Sub Margin</span>
-                    <span className="font-semibold text-emerald-400 font-mono">NPR {margin.toLocaleString()}</span>
+                    <span className="text-slate-500 block text-[10px] uppercase font-semibold">Sub Margin</span>
+                    <span className="font-semibold text-emerald-600 font-mono">NPR {margin.toLocaleString()}</span>
                   </div>
                 </div>
               </div>

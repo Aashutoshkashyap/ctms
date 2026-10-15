@@ -28,59 +28,83 @@ export default function ExpectedActualDashboard({
 
   return (
     <div className="space-y-6">
-      {/* Use Case Tabs Selection */}
-      <div className="flex bg-slate-900/60 p-1 rounded-lg border border-slate-800/80 max-w-2xl text-xs">
-        <button 
-          onClick={() => setActiveCase('progress')}
-          className={`flex-1 py-2 text-center rounded-md font-semibold transition ${activeCase === 'progress' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
-        >
-          📈 Activity Progress
-        </button>
-        <button 
-          onClick={() => setActiveCase('cost')}
-          className={`flex-1 py-2 text-center rounded-md font-semibold transition ${activeCase === 'cost' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
-        >
-          💰 Cost Variance
-        </button>
-        <button 
-          onClick={() => setActiveCase('design')}
-          className={`flex-1 py-2 text-center rounded-md font-semibold transition ${activeCase === 'design' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
-        >
-          📐 Design Approvals
-        </button>
-        <button 
-          onClick={() => setActiveCase('ipc')}
-          className={`flex-1 py-2 text-center rounded-md font-semibold transition ${activeCase === 'ipc' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
-        >
-          📄 IPC Billing
-        </button>
+      {/* Header and Use Case Tabs Selection */}
+      <div className="bg-white p-5 border border-slate-200/90 rounded-2xl shadow-xs space-y-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-600 text-sm">📊</span>
+            <h2 className="text-slate-900 text-base font-bold">Expected vs Actual Performance</h2>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">
+            Compare physical activity progress, cost variances, design approvals, and IPC certifications against project baselines.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap bg-slate-100 p-1 rounded-xl border border-slate-200/80 w-fit text-xs gap-1">
+          <button 
+            onClick={() => setActiveCase('progress')}
+            className={`px-3.5 py-2 text-center rounded-lg font-semibold transition flex items-center gap-1.5 ${
+              activeCase === 'progress' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+            }`}
+          >
+            <span>📈</span> Activity Progress
+          </button>
+          <button 
+            onClick={() => setActiveCase('cost')}
+            className={`px-3.5 py-2 text-center rounded-lg font-semibold transition flex items-center gap-1.5 ${
+              activeCase === 'cost' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+            }`}
+          >
+            <span>💰</span> Cost Variance
+          </button>
+          <button 
+            onClick={() => setActiveCase('design')}
+            className={`px-3.5 py-2 text-center rounded-lg font-semibold transition flex items-center gap-1.5 ${
+              activeCase === 'design' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+            }`}
+          >
+            <span>📐</span> Design Approvals
+          </button>
+          <button 
+            onClick={() => setActiveCase('ipc')}
+            className={`px-3.5 py-2 text-center rounded-lg font-semibold transition flex items-center gap-1.5 ${
+              activeCase === 'ipc' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+            }`}
+          >
+            <span>📄</span> IPC Billing
+          </button>
+        </div>
       </div>
 
       {/* Grid Content based on Selection */}
-      <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-5 shadow-lg">
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs">
         {activeCase === 'progress' && (
           <div className="space-y-4">
-            <h3 className="text-slate-200 text-sm font-semibold mb-2">Use Case 1: Physical Activity Progress Deviations</h3>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-slate-900 text-base font-bold">Physical Activity Progress Deviations</h3>
+                <p className="text-xs text-slate-500">Planned vs actual progress as of {formatBsDate(currentDate)} with root-cause remarks and active mitigations.</p>
+              </div>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="border-b border-slate-700 text-slate-400 font-semibold">
-                    <th className="pb-3">BOQ Item</th>
-                    <th className="pb-3">Description of Work</th>
-                    <th className="pb-3 text-right">Planned %</th>
-                    <th className="pb-3 text-right">Actual %</th>
-                    <th className="pb-3 text-right">Variance</th>
-                    <th className="pb-3 pl-4">Primary Delay Reason</th>
-                    <th className="pb-3">Mitigation / Corrective Action</th>
+                  <tr className="border-b border-slate-200 bg-slate-50/80 text-slate-600 font-semibold">
+                    <th className="py-2.5 px-3">BOQ Item</th>
+                    <th className="py-2.5 px-3">Description of Work</th>
+                    <th className="py-2.5 px-3 text-right">Planned %</th>
+                    <th className="py-2.5 px-3 text-right">Actual %</th>
+                    <th className="py-2.5 px-3 text-right">Variance</th>
+                    <th className="py-2.5 px-3">Primary Delay Reason</th>
+                    <th className="py-2.5 px-3">Mitigation / Corrective Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800 text-slate-300">
+                <tbody className="divide-y divide-slate-100 text-slate-700">
                   {activities.map(act => {
                     const planned = activityPlannedProgress(act, currentDate);
                     const actual = activityActualProgress(act);
                     const variance = actual - planned;
                     
-                    // Root causes and mitigations
                     let reason = '-';
                     let action = '-';
                     if (variance < -5) {
@@ -106,18 +130,22 @@ export default function ExpectedActualDashboard({
                     }
 
                     return (
-                      <tr key={act.id} className="hover:bg-slate-800/10">
-                        <td className="py-2.5 font-mono text-slate-400">{act.wbs_code}</td>
-                        <td className="py-2.5 font-semibold text-slate-100">{act.name}</td>
-                        <td className="py-2.5 text-right">{planned.toFixed(0)}%</td>
-                        <td className="py-2.5 text-right">{actual.toFixed(0)}%</td>
-                        <td className="py-2.5 text-right">
-                          <span className={`px-1 py-0.5 rounded font-bold ${variance >= 0 ? 'text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                      <tr key={act.id} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="py-2.5 px-3 font-mono font-medium text-slate-600">{act.wbs_code}</td>
+                        <td className="py-2.5 px-3 font-semibold text-slate-900">{act.name}</td>
+                        <td className="py-2.5 px-3 text-right font-medium text-slate-600">{planned.toFixed(0)}%</td>
+                        <td className="py-2.5 px-3 text-right font-bold text-slate-900">{actual.toFixed(0)}%</td>
+                        <td className="py-2.5 px-3 text-right">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                            variance >= 0 
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                              : 'bg-rose-50 text-rose-700 border border-rose-200'
+                          }`}>
                             {variance >= 0 ? '+' : ''}{variance.toFixed(0)}%
                           </span>
                         </td>
-                        <td className="py-2.5 pl-4 text-slate-400">{reason}</td>
-                        <td className="py-2.5 text-blue-300 font-semibold">{action}</td>
+                        <td className="py-2.5 px-3 text-slate-600 max-w-[200px]">{reason}</td>
+                        <td className="py-2.5 px-3 font-medium text-blue-700 max-w-[240px]">{action}</td>
                       </tr>
                     );
                   })}
@@ -129,21 +157,24 @@ export default function ExpectedActualDashboard({
 
         {activeCase === 'cost' && (
           <div className="space-y-4">
-            <h3 className="text-slate-200 text-sm font-semibold mb-2">Use Case 2: Budget vs Actual Cost Variances</h3>
+            <div>
+              <h3 className="text-slate-900 text-base font-bold">Budget vs Actual Cost Variances</h3>
+              <p className="text-xs text-slate-500">Commercial comparison of contract value, approved internal budget, and posted costs.</p>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="border-b border-slate-700 text-slate-400 font-semibold">
-                    <th className="pb-3">BOQ Item</th>
-                    <th className="pb-3">Budget Head Name</th>
-                    <th className="pb-3 text-right">Contract Value (NPR)</th>
-                    <th className="pb-3 text-right">Internal Budget (NPR)</th>
-                    <th className="pb-3 text-right">Actual Cost (NPR)</th>
-                    <th className="pb-3 text-right">Cost Variance</th>
-                    <th className="pb-3 pl-4">Cost Overrun Reason</th>
+                  <tr className="border-b border-slate-200 bg-slate-50/80 text-slate-600 font-semibold">
+                    <th className="py-2.5 px-3">BOQ Item</th>
+                    <th className="py-2.5 px-3">Budget Head Name</th>
+                    <th className="py-2.5 px-3 text-right">Contract Value (NPR)</th>
+                    <th className="py-2.5 px-3 text-right">Internal Budget (NPR)</th>
+                    <th className="py-2.5 px-3 text-right">Actual Cost (NPR)</th>
+                    <th className="py-2.5 px-3 text-right">Cost Variance</th>
+                    <th className="py-2.5 px-3">Cost Overrun Reason</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800 text-slate-300">
+                <tbody className="divide-y divide-slate-100 text-slate-700">
                   {budgetHeads.map(bh => {
                     const variance = bh.internal_budget - bh.actual_cost;
                     let reason = 'Under budget / On Track';
@@ -154,16 +185,22 @@ export default function ExpectedActualDashboard({
                     }
 
                     return (
-                      <tr key={bh.id} className="hover:bg-slate-800/10">
-                        <td className="py-2.5 font-mono text-slate-400">{bh.wbs_code}</td>
-                        <td className="py-2.5 font-semibold text-slate-100">{bh.name}</td>
-                        <td className="py-2.5 text-right font-mono">{(bh.contract_value).toLocaleString()}</td>
-                        <td className="py-2.5 text-right font-mono">{(bh.internal_budget).toLocaleString()}</td>
-                        <td className="py-2.5 text-right font-mono">{(bh.actual_cost).toLocaleString()}</td>
-                        <td className={`py-2.5 text-right font-mono font-bold ${variance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {variance >= 0 ? 'Savings: +' : 'Deficit: '}{(variance).toLocaleString()}
+                      <tr key={bh.id} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="py-2.5 px-3 font-mono font-medium text-slate-600">{bh.wbs_code}</td>
+                        <td className="py-2.5 px-3 font-semibold text-slate-900">{bh.name}</td>
+                        <td className="py-2.5 px-3 text-right font-mono text-slate-600">{(bh.contract_value).toLocaleString()}</td>
+                        <td className="py-2.5 px-3 text-right font-mono text-slate-600">{(bh.internal_budget).toLocaleString()}</td>
+                        <td className="py-2.5 px-3 text-right font-mono font-medium text-slate-900">{(bh.actual_cost).toLocaleString()}</td>
+                        <td className="py-2.5 px-3 text-right">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                            variance >= 0 
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                              : 'bg-rose-50 text-rose-700 border border-rose-200'
+                          }`}>
+                            {variance >= 0 ? 'Savings: +' : 'Deficit: '}{(variance).toLocaleString()}
+                          </span>
                         </td>
-                        <td className="py-2.5 pl-4 text-slate-400">{reason}</td>
+                        <td className="py-2.5 px-3 text-slate-600 max-w-[240px]">{reason}</td>
                       </tr>
                     );
                   })}
@@ -175,39 +212,55 @@ export default function ExpectedActualDashboard({
 
         {activeCase === 'design' && (
           <div className="space-y-4">
-            <h3 className="text-slate-200 text-sm font-semibold mb-2">Use Case 3: Design Approvals vs Construction Impact</h3>
+            <div>
+              <h3 className="text-slate-900 text-base font-bold">Design Approvals vs Construction Impact</h3>
+              <p className="text-xs text-slate-500">Tracking design submissions, review SLAs with Employer/Consultant, and schedule impact.</p>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="border-b border-slate-700 text-slate-400 font-semibold">
-                    <th className="pb-3">Design Package</th>
-                    <th className="pb-3 text-right">Submitted Date (BS)</th>
-                    <th className="pb-3 text-right">Review Due (BS)</th>
-                    <th className="pb-3 text-center">Status</th>
-                    <th className="pb-3 text-right">Approval Delay</th>
-                    <th className="pb-3 pl-4">Construction Critical Path Impact</th>
+                  <tr className="border-b border-slate-200 bg-slate-50/80 text-slate-600 font-semibold">
+                    <th className="py-2.5 px-3">Design Package</th>
+                    <th className="py-2.5 px-3 text-right">Submitted Date (BS)</th>
+                    <th className="py-2.5 px-3 text-right">Review Due (BS)</th>
+                    <th className="py-2.5 px-3 text-center">Status</th>
+                    <th className="py-2.5 px-3 text-right">Approval Delay</th>
+                    <th className="py-2.5 px-3">Construction Critical Path Impact</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800 text-slate-300">
+                <tbody className="divide-y divide-slate-100 text-slate-700">
                   {designPackages.map(dp => {
+                    let statusClass = 'status-pill-neutral';
+                    let statusText = 'PENDING';
+                    if (dp.status === 'approved') {
+                      statusClass = 'status-pill-completed';
+                      statusText = 'APPROVED';
+                    } else if (dp.status === 'under_review') {
+                      statusClass = 'status-pill-progress';
+                      statusText = 'UNDER REVIEW';
+                    }
+
                     return (
-                      <tr key={dp.id} className="hover:bg-slate-800/10">
-                        <td className="py-2.5 font-semibold text-slate-100">{dp.name}</td>
-                        <td className="py-2.5 text-right font-mono">{formatBsDate(dp.submitted_date)}</td>
-                        <td className="py-2.5 text-right font-mono">{formatBsDate(dp.review_due_date)}</td>
-                        <td className="py-2.5 text-center">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            dp.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' :
-                            dp.status === 'under_review' ? 'bg-purple-500/10 text-purple-400' :
-                            'bg-slate-700/30 text-slate-400'
-                          }`}>
-                            {dp.status.replace('_', ' ')}
+                      <tr key={dp.id} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="py-2.5 px-3 font-semibold text-slate-900">{dp.name}</td>
+                        <td className="py-2.5 px-3 text-right font-mono text-slate-600">{formatBsDate(dp.submitted_date)}</td>
+                        <td className="py-2.5 px-3 text-right font-mono text-slate-600">{formatBsDate(dp.review_due_date)}</td>
+                        <td className="py-2.5 px-3 text-center">
+                          <span className={`status-pill ${statusClass}`}>
+                            <span className="status-pill-dot" />
+                            {statusText}
                           </span>
                         </td>
-                        <td className={`py-2.5 text-right font-mono font-bold ${dp.delay_days > 0 ? 'text-red-400' : 'text-slate-400'}`}>
-                          {dp.delay_days > 0 ? `+${dp.delay_days} days` : 'On Time'}
+                        <td className="py-2.5 px-3 text-right font-mono">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                            dp.delay_days > 0 
+                              ? 'bg-rose-50 text-rose-700 border border-rose-200' 
+                              : 'text-slate-600 bg-slate-100'
+                          }`}>
+                            {dp.delay_days > 0 ? `+${dp.delay_days} days` : 'On Time'}
+                          </span>
                         </td>
-                        <td className="py-2.5 pl-4 text-slate-400">{dp.construction_impact || 'No impact recorded'}</td>
+                        <td className="py-2.5 px-3 text-slate-600 max-w-[260px]">{dp.construction_impact || 'No impact recorded'}</td>
                       </tr>
                     );
                   })}
@@ -218,56 +271,71 @@ export default function ExpectedActualDashboard({
         )}
 
         {activeCase === 'ipc' && (
-          <div className="space-y-4">
-            <h3 className="text-slate-200 text-sm font-semibold mb-2">Use Case 4: Earned Work done Value vs Certified IPC payments</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-b border-slate-700/30 pb-4 mb-4">
-              <div className="bg-slate-900/40 p-4 border border-slate-800 rounded-lg space-y-2">
-                <div className="text-[10px] uppercase font-bold text-slate-500">Physical Work Done Value (Earned)</div>
-                <div className="text-2xl font-bold text-slate-100">NPR {(evm.earnedValue).toLocaleString()}</div>
-                <div className="text-[9px] text-slate-400">Total contractual value of all quantities completed on-site.</div>
+          <div className="space-y-5">
+            <div>
+              <h3 className="text-slate-900 text-base font-bold">Earned Work done Value vs Certified IPC payments</h3>
+              <p className="text-xs text-slate-500">Reconciliation between earned physical quantities, certified valuation, and joint-venture bank clearances.</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-slate-50/80 p-4 border border-slate-200/90 rounded-xl space-y-1">
+                <div className="text-[11px] uppercase font-bold text-slate-500">Physical Work Done Value (Earned)</div>
+                <div className="text-2xl font-extrabold text-slate-900">NPR {(evm.earnedValue).toLocaleString()}</div>
+                <div className="text-xs text-slate-500">Total contractual value of all physical quantities completed on-site.</div>
               </div>
-              <div className="bg-slate-900/40 p-4 border border-slate-800 rounded-lg space-y-2">
-                <div className="text-[10px] uppercase font-bold text-slate-500">Net Payment Received</div>
-                <div className="text-2xl font-bold text-emerald-400">
+              <div className="bg-emerald-50/60 p-4 border border-emerald-200 rounded-xl space-y-1">
+                <div className="text-[11px] uppercase font-bold text-emerald-700">Net Payment Received</div>
+                <div className="text-2xl font-extrabold text-emerald-800">
                   NPR {ipcFinancials.paidAmount.toLocaleString()}
                 </div>
-                <div className="text-[9px] text-slate-400">Total cash cleared in joint venture bank accounts.</div>
+                <div className="text-xs text-emerald-700">Total cash cleared in joint venture bank accounts.</div>
               </div>
             </div>
             
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="border-b border-slate-700 text-slate-400 font-semibold">
-                    <th className="pb-3">IPC No.</th>
-                    <th className="pb-3 text-right">Claimed (NPR)</th>
-                    <th className="pb-3 text-right">Certified (NPR)</th>
-                    <th className="pb-3 text-right">Paid (NPR)</th>
-                    <th className="pb-3 text-right">Retention (NPR)</th>
-                    <th className="pb-3 text-right">Advance Recovery</th>
-                    <th className="pb-3 text-center">Status</th>
+                  <tr className="border-b border-slate-200 bg-slate-50/80 text-slate-600 font-semibold">
+                    <th className="py-2.5 px-3">IPC No.</th>
+                    <th className="py-2.5 px-3 text-right">Claimed (NPR)</th>
+                    <th className="py-2.5 px-3 text-right">Certified (NPR)</th>
+                    <th className="py-2.5 px-3 text-right">Paid (NPR)</th>
+                    <th className="py-2.5 px-3 text-right">Retention (NPR)</th>
+                    <th className="py-2.5 px-3 text-right">Advance Recovery</th>
+                    <th className="py-2.5 px-3 text-center">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800 text-slate-300">
-                  {ipcSubmissions.map(ipc => (
-                    <tr key={ipc.id} className="hover:bg-slate-800/10">
-                      <td className="py-2.5 font-bold">IPC #{ipc.ipc_number}</td>
-                      <td className="py-2.5 text-right font-mono">{(ipc.claimed_amount).toLocaleString()}</td>
-                      <td className="py-2.5 text-right font-mono">{(ipc.certified_amount).toLocaleString()}</td>
-                      <td className="py-2.5 text-right font-mono">{(ipc.paid_amount).toLocaleString()}</td>
-                      <td className="py-2.5 text-right font-mono">{(ipc.retention_deducted).toLocaleString()}</td>
-                      <td className="py-2.5 text-right font-mono">{(ipc.advance_recovered).toLocaleString()}</td>
-                      <td className="py-2.5 text-center">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          ipc.status === 'paid' ? 'bg-emerald-500/10 text-emerald-400' :
-                          ipc.status === 'certified' ? 'bg-amber-500/10 text-amber-400 animate-pulse' :
-                          'bg-red-500/10 text-red-400'
-                        }`}>
-                          {ipc.status.toUpperCase()}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {ipcSubmissions.map(ipc => {
+                    let statusClass = 'status-pill-neutral';
+                    let statusText = ipc.status?.toUpperCase() || 'PENDING';
+                    if (ipc.status === 'paid') {
+                      statusClass = 'status-pill-completed';
+                      statusText = 'PAID';
+                    } else if (ipc.status === 'certified') {
+                      statusClass = 'status-pill-progress';
+                      statusText = 'CERTIFIED';
+                    } else if (ipc.status === 'pending') {
+                      statusClass = 'status-pill-pending';
+                      statusText = 'PENDING';
+                    }
+
+                    return (
+                      <tr key={ipc.id} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="py-2.5 px-3 font-bold text-slate-900">IPC #{ipc.ipc_number}</td>
+                        <td className="py-2.5 px-3 text-right font-mono text-slate-700">{(ipc.claimed_amount).toLocaleString()}</td>
+                        <td className="py-2.5 px-3 text-right font-mono font-medium text-slate-900">{(ipc.certified_amount).toLocaleString()}</td>
+                        <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">{(ipc.paid_amount).toLocaleString()}</td>
+                        <td className="py-2.5 px-3 text-right font-mono text-slate-600">{(ipc.retention_deducted).toLocaleString()}</td>
+                        <td className="py-2.5 px-3 text-right font-mono text-slate-600">{(ipc.advance_recovered).toLocaleString()}</td>
+                        <td className="py-2.5 px-3 text-center">
+                          <span className={`status-pill ${statusClass}`}>
+                            <span className="status-pill-dot" />
+                            {statusText}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

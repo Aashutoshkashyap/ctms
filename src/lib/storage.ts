@@ -1,5 +1,4 @@
-// Storage and Database Adapter Layer - Multi-Project and Supabase Connect wizard
-import { calculateCPM, Activity, Dependency, ProjectInfo, diffDays, addDays } from './cpm';
+import { calculateCPM, Activity, Dependency, ProjectInfo, diffDays, addDays, validateDependency } from './cpm';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { can, type FeaturePermissions } from './permissions';
 import { prepareSafeBoqImport, type BoqImportResult } from './boqImport';
@@ -110,6 +109,22 @@ export interface StoreItem {
   location: string;
   vendor?: string;
   status?: 'available' | 'low_stock' | 'ordered' | 'inactive';
+}
+
+export interface Vendor {
+  id: string;
+  project_id?: string;
+  name: string;
+  contact_person?: string;
+  phone?: string;
+  email?: string;
+  pan_vat?: string;
+  address?: string;
+  category: string;
+  status: 'active' | 'pending_verification' | 'blacklisted' | 'inactive';
+  rating?: number;
+  notes?: string;
+  created_at?: string;
 }
 
 export interface ContractObligation {
@@ -1110,6 +1125,21 @@ const DEMO_DOCUMENTS: DocumentItem[] = DEMO_PROJECTS.flatMap((project, index) =>
 
 const DEMO_PROCUREMENT: ProcurementOrder[] = [
   {
+    id: 'po-101-001', project_id: 'proj-101', po_number: 'PO-KTFT-101', vendor: 'Himalayan Cement Industries',
+    item: 'OPC 53 Grade Cement', quantity: 2500, unit: 'Bag', unit_rate: 850,
+    required_date: '2026-05-10', expected_date: '2026-05-18', order_date: '2026-05-01', delivery_date: '2026-05-18', delivered_quantity: 2500, status: 'delivered', remarks: 'Batch test certificate approved'
+  },
+  {
+    id: 'po-101-002', project_id: 'proj-101', po_number: 'PO-KTFT-102', vendor: 'Jagdamba Steels Pvt. Ltd.',
+    item: 'Fe500D TMT Rebar (32mm & 25mm)', quantity: 180, unit: 'Ton', unit_rate: 115000,
+    required_date: '2026-06-01', expected_date: '2026-06-15', order_date: '2026-05-20', delivered_quantity: 120, status: 'partially_delivered', remarks: 'Second lot delivery scheduled'
+  },
+  {
+    id: 'po-101-003', project_id: 'proj-101', po_number: 'PO-KTFT-103', vendor: 'Terai Aggregates & Crushers',
+    item: 'Graded Coarse Aggregate 20mm', quantity: 450, unit: 'm3', unit_rate: 3200,
+    required_date: '2026-06-25', expected_date: '2026-07-05', order_date: '2026-06-10', delivered_quantity: 0, status: 'ordered', remarks: 'Quarry source approval confirmed'
+  },
+  {
     id: 'po-air-001', project_id: 'proj-demo-airport', po_number: 'PO-AIR-024', vendor: 'Airport Systems Asia',
     item: 'Baggage handling conveyor package', quantity: 1, unit: 'Pkg', unit_rate: 24500000,
     required_date: '2026-10-15', expected_date: '2026-11-05', delivered_quantity: 0, status: 'ordered'
@@ -1124,6 +1154,14 @@ const DEMO_PROCUREMENT: ProcurementOrder[] = [
     item: 'Fe500 reinforcement steel', quantity: 620, unit: 'Ton', unit_rate: 112000,
     required_date: '2026-06-15', expected_date: '2026-06-20', delivered_quantity: 510, status: 'partially_delivered'
   }
+];
+
+const DEMO_VENDORS: Vendor[] = [
+  { id: 'ven-1', project_id: 'proj-101', name: 'Himalayan Cement Industries', contact_person: 'Suman Shrestha', phone: '+977-9851012345', email: 'sales@himalayancement.np', pan_vat: '302482910', address: 'Hetauda Industrial Estate, Makwanpur', category: 'Cement & Steel', status: 'active', rating: 5, notes: 'Direct manufacturer rate, 14-day payment cycle' },
+  { id: 'ven-2', project_id: 'proj-101', name: 'Jagdamba Steels Pvt. Ltd.', contact_person: 'Anil Gupta', phone: '+977-9801234567', email: 'corporate@jagdambasteel.com', pan_vat: '301294821', address: 'Simara, Bara', category: 'Cement & Steel', status: 'active', rating: 4, notes: 'TMT rebar supplier, delivery to site yard' },
+  { id: 'ven-3', project_id: 'proj-101', name: 'Terai Aggregates & Crushers', contact_person: 'Ram Kumar Tharu', phone: '+977-9845098765', email: 'terai.crushers@gmail.com', pan_vat: '601928374', address: 'Nijgadh, Bara', category: 'Aggregates & Sand', status: 'active', rating: 4, notes: 'Coarse aggregate 20mm & 40mm, river sand' },
+  { id: 'ven-4', project_id: 'proj-101', name: 'Nepal Petroleum Suppliers', contact_person: 'Dipak Acharya', phone: '+977-9851122334', email: 'orders@nepalpetroleum.np', pan_vat: '300182746', address: 'Pathlaiya, Bara', category: 'Fuel & Lubricants', status: 'active', rating: 5, notes: 'On-site tanker delivery for excavators & generators' },
+  { id: 'ven-5', project_id: 'proj-101', name: 'Sagarmatha Heavy Plant Rentals', contact_person: 'Khem Raj KC', phone: '+977-9851234890', email: 'plant@sagarmatha.np', pan_vat: '304918239', address: 'Birgunj, Parsa', category: 'Heavy Equipment', status: 'active', rating: 4, notes: 'Excavators, batching plant spares, mobile cranes' }
 ];
 
 const DEMO_STORE_ITEMS: StoreItem[] = DEMO_PROJECTS.flatMap((project, index) => [
@@ -1255,7 +1293,7 @@ const CLOUD_SYNC_KEYS = new Set([
   'bt_daily_reports', 'bt_daily_work_items', 'bt_material_logs', 'bt_budget_heads',
   'bt_subcontractors', 'bt_ipc', 'bt_ipc_payments', 'bt_qaqc', 'bt_safety', 'bt_variations_claims',
   'bt_risks', 'bt_handover', 'bt_defects', 'bt_finance_rows', 'bt_documents',
-  'bt_procurement_orders', 'bt_store_items', 'bt_contract_obligations',
+  'bt_procurement_orders', 'bt_store_items', 'bt_vendors', 'bt_contract_obligations',
   'bt_daily_expenses', 'bt_daily_resource_usage', 'bt_employee_visits', 'bt_employees',
   'bt_uploaded_documents', 'bt_inventory_events', 'bt_notifications'
 ]);
@@ -1268,7 +1306,7 @@ const CLOUD_SYNC_ORDER = [
   'bt_design_comments', 'bt_daily_reports', 'bt_daily_work_items', 'bt_material_logs',
   'bt_budget_heads', 'bt_subcontractors', 'bt_ipc', 'bt_ipc_payments', 'bt_qaqc', 'bt_safety',
   'bt_variations_claims', 'bt_risks', 'bt_handover', 'bt_defects', 'bt_finance_rows',
-  'bt_documents', 'bt_procurement_orders', 'bt_store_items', 'bt_contract_obligations',
+  'bt_documents', 'bt_procurement_orders', 'bt_store_items', 'bt_vendors', 'bt_contract_obligations',
   'bt_daily_expenses', 'bt_daily_resource_usage', 'bt_employee_visits', 'bt_employees',
   'bt_uploaded_documents', 'bt_inventory_events', 'bt_notifications'
 ];
@@ -1289,6 +1327,7 @@ const SYNC_LABELS: Record<string, { module: string; action: string }> = {
   bt_employees: { module: 'Employees', action: 'Employee record updated' },
   bt_procurement_orders: { module: 'Procurement', action: 'Procurement record updated' },
   bt_store_items: { module: 'Inventory', action: 'Store inventory updated' },
+  bt_vendors: { module: 'Procurement', action: 'Vendor register updated' },
   bt_inventory_events: { module: 'Inventory', action: 'Inventory log updated' },
   bt_contract_obligations: { module: 'Contracts', action: 'Contract obligation updated' },
   bt_uploaded_documents: { module: 'Documents', action: 'Document uploaded' },
@@ -1404,6 +1443,7 @@ async function syncLocalKeyToCloud(key: string): Promise<CloudSyncResult> {
     bt_documents: ['document_register', 'bt_documents'],
     bt_procurement_orders: ['procurement_orders', 'bt_procurement_orders'],
     bt_store_items: ['store_items', 'bt_store_items'],
+    bt_vendors: ['vendors', 'bt_vendors'],
     bt_contract_obligations: ['contract_obligations', 'bt_contract_obligations'],
     bt_daily_expenses: ['daily_expenses', 'bt_daily_expenses'],
     bt_daily_resource_usage: ['daily_resource_usage', 'bt_daily_resource_usage'],
@@ -1471,6 +1511,7 @@ function cloudPullMappings(): Array<[string, string]> {
     ['document_register', 'bt_documents'],
     ['procurement_orders', 'bt_procurement_orders'],
     ['store_items', 'bt_store_items'],
+    ['vendors', 'bt_vendors'],
     ['contract_obligations', 'bt_contract_obligations'],
     ['daily_expenses', 'bt_daily_expenses'],
     ['daily_resource_usage', 'bt_daily_resource_usage'],
@@ -2291,6 +2332,11 @@ export const storage = {
   addDependency: (dep: any) => {
     const projId = getActiveProjectId();
     const deps = getLocalItem('bt_dependencies', MOCK_DEPENDENCIES);
+    const existingForProject = deps.filter((d: Dependency) => d.project_id === projId);
+    const check = validateDependency(existingForProject, dep);
+    if (!check.valid) {
+      throw new Error(check.reason || 'Invalid dependency relationship.');
+    }
     const newDep = { id: `dep-${Date.now()}`, project_id: projId, ...dep };
     deps.push(newDep);
     setLocalItem('bt_dependencies', deps);
@@ -2873,12 +2919,12 @@ export const storage = {
 
   getProcurementOrders: (): ProcurementOrder[] => {
     const projectId = getActiveProjectId();
-    return getLocalItem<ProcurementOrder[]>('bt_procurement_orders', []).filter(item => item.project_id === projectId);
+    return getLocalItem<ProcurementOrder[]>('bt_procurement_orders', DEMO_PROCUREMENT).filter(item => item.project_id === projectId);
   },
 
   saveProcurementOrder: (order: Omit<ProcurementOrder, 'id' | 'project_id'> & { id?: string }) => {
     const projectId = getActiveProjectId();
-    const orders = getLocalItem<ProcurementOrder[]>('bt_procurement_orders', []);
+    const orders = getLocalItem<ProcurementOrder[]>('bt_procurement_orders', DEMO_PROCUREMENT);
     const record = { ...order, id: order.id || `po-${Date.now()}`, project_id: projectId } as ProcurementOrder;
     const index = orders.findIndex(item => item.id === record.id);
     if (index >= 0) orders[index] = record;
@@ -2887,20 +2933,54 @@ export const storage = {
     return record;
   },
 
+  deleteProcurementOrder: (id: string) => {
+    const orders = getLocalItem<ProcurementOrder[]>('bt_procurement_orders', DEMO_PROCUREMENT);
+    const next = orders.filter(item => item.id !== id);
+    setLocalItem('bt_procurement_orders', next);
+  },
+
   getStoreItems: (): StoreItem[] => {
     const projectId = getActiveProjectId();
-    return getLocalItem<StoreItem[]>('bt_store_items', []).filter(item => item.project_id === projectId);
+    return getLocalItem<StoreItem[]>('bt_store_items', DEMO_STORE_ITEMS).filter(item => item.project_id === projectId);
   },
 
   saveStoreItem: (item: Omit<StoreItem, 'id' | 'project_id'> & { id?: string }) => {
     const projectId = getActiveProjectId();
-    const items = getLocalItem<StoreItem[]>('bt_store_items', []);
+    const items = getLocalItem<StoreItem[]>('bt_store_items', DEMO_STORE_ITEMS);
     const record = { ...item, id: item.id || `store-${Date.now()}`, project_id: projectId } as StoreItem;
     const index = items.findIndex(existing => existing.id === record.id);
     if (index >= 0) items[index] = record;
     else items.push(record);
     setLocalItem('bt_store_items', items);
     return record;
+  },
+
+  deleteStoreItem: (id: string) => {
+    const items = getLocalItem<StoreItem[]>('bt_store_items', DEMO_STORE_ITEMS);
+    const next = items.filter(item => item.id !== id);
+    setLocalItem('bt_store_items', next);
+  },
+
+  getVendors: (): Vendor[] => {
+    const projectId = getActiveProjectId();
+    return getLocalItem<Vendor[]>('bt_vendors', DEMO_VENDORS).filter(item => !item.project_id || item.project_id === projectId);
+  },
+
+  saveVendor: (vendor: Omit<Vendor, 'id' | 'project_id'> & { id?: string }) => {
+    const projectId = getActiveProjectId();
+    const vendors = getLocalItem<Vendor[]>('bt_vendors', DEMO_VENDORS);
+    const record = { ...vendor, id: vendor.id || `ven-${Date.now()}`, project_id: projectId } as Vendor;
+    const index = vendors.findIndex(existing => existing.id === record.id);
+    if (index >= 0) vendors[index] = record;
+    else vendors.push(record);
+    setLocalItem('bt_vendors', vendors);
+    return record;
+  },
+
+  deleteVendor: (id: string) => {
+    const vendors = getLocalItem<Vendor[]>('bt_vendors', DEMO_VENDORS);
+    const next = vendors.filter(item => item.id !== id);
+    setLocalItem('bt_vendors', next);
   },
 
   getContractObligations: (): ContractObligation[] => {

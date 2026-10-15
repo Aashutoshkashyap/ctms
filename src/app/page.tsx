@@ -202,38 +202,53 @@ function CreateProjectModal({
 // ---------------------------------------------------------------------------
 // Sidebar Nav Button helper
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Sidebar Nav Button helper (Consistent vibrant blue pill on deep navy)
+// ---------------------------------------------------------------------------
 function NavBtn({
   tab,
   activeTab,
   setActiveTab,
   icon,
   label,
+  badge,
   accent,
 }: {
   tab: ActiveTab;
   activeTab: ActiveTab;
   setActiveTab: (t: ActiveTab) => void;
-  icon: string;
+  icon: string | React.ReactNode;
   label: string;
+  badge?: number | string;
   accent?: 'purple' | 'emerald';
 }) {
   const isActive = activeTab === tab;
-  const base = 'w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg transition';
+  const base = 'w-full flex items-center justify-between px-3 py-2 text-xs font-semibold rounded-xl transition-all duration-150 group';
   const styles = isActive
     ? accent === 'purple'
-      ? `${base} bg-purple-700 text-white shadow-lg`
+      ? `${base} bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-900/40 font-bold ring-1 ring-purple-400/40`
       : accent === 'emerald'
-      ? `${base} bg-emerald-700 text-white shadow-lg`
-      : `${base} bg-blue-600 text-white shadow-lg`
-    : accent === 'purple'
-    ? `${base} text-purple-700 hover:bg-purple-50`
-    : accent === 'emerald'
-    ? `${base} text-emerald-700 hover:bg-emerald-50`
-    : `${base} text-slate-600 hover:bg-blue-50 hover:text-blue-700`;
+      ? `${base} bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-900/40 font-bold ring-1 ring-emerald-400/40`
+      : `${base} bg-blue-600 text-white shadow-md shadow-blue-900/50 font-bold ring-1 ring-blue-400/30`
+    : 'w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/80 rounded-xl transition-all duration-150';
 
   return (
-    <button onClick={() => setActiveTab(tab)} className={styles} aria-current={isActive ? 'page' : undefined}>
-      {icon} {label}
+    <button
+      onClick={() => setActiveTab(tab)}
+      className={styles}
+      aria-current={isActive ? 'page' : undefined}
+    >
+      <div className="flex items-center gap-2.5 truncate">
+        <span className={`w-5 h-5 flex items-center justify-center text-sm shrink-0 transition-transform ${isActive ? 'scale-110' : 'group-hover:scale-105 opacity-80 group-hover:opacity-100'}`}>
+          {icon}
+        </span>
+        <span className="truncate">{label}</span>
+      </div>
+      {badge !== undefined && (
+        <span className={`px-1.5 py-0.5 text-[10px] font-bold rounded-full ${isActive ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-300'}`}>
+          {badge}
+        </span>
+      )}
     </button>
   );
 }
@@ -245,6 +260,10 @@ export default function DashboardShell() {
   const { language, setLanguage, t } = useLanguage();
   const [activeTab, setActiveTab] = useState<ActiveTab>(tabFromUrl);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
   const [currentDate] = useState<string>(
     () => new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().split('T')[0]
   );
@@ -295,11 +314,26 @@ export default function DashboardShell() {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen(prev => !prev);
+      } else if (e.key === 'Escape') {
+        setSearchOpen(false);
+        setShowNotifications(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   // ---- Database loader ----
   const loadData = (role = authUser?.role, expectedProjectId = storage.getActiveProjectId()) => {
     // A late cloud pull for Project A must never repopulate the UI after the
     // user selected Project B.
     if (!isCurrentProject(expectedProjectId, storage.getActiveProjectId())) return;
+    setNotifications(storage.getAllNotifications(20));
     setProject(storage.getProject());
     setProjectsList(storage.getProjectsList());
     setActivities(storage.getActivities());
@@ -666,8 +700,23 @@ export default function DashboardShell() {
         ? 'Project oversight'
         : 'My workspace';
 
+  const unreadAlertsCount = alerts.filter(a => a.severity === 'critical' || a.severity === 'warning').length;
+  const unreadNotesCount = notifications.filter(n => !n.read).length;
+  const totalNotificationBadge = unreadAlertsCount + unreadNotesCount;
+
+  // Filtered search list for Ctrl+K modal
+  const searchableModules = ACTIVE_TABS.filter(tab => isAllowedTab(tab)).map(tab => ({
+    tab,
+    title: TAB_TITLES[tab]?.title || tab,
+    description: TAB_TITLES[tab]?.description || '',
+  })).filter(item => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return item.title.toLowerCase().includes(q) || item.description.toLowerCase().includes(q) || item.tab.toLowerCase().includes(q);
+  });
+
   return (
-    <div className="app-shell min-h-screen flex flex-col md:flex-row font-sans">
+    <div className="app-shell min-h-screen flex flex-col md:flex-row font-sans bg-slate-50 text-slate-800">
       {/* Create Project Modal */}
       {showCreateProject && (
         <CreateProjectModal
@@ -676,133 +725,388 @@ export default function DashboardShell() {
         />
       )}
 
-      {/* ------------------------------------------------------------------ */}
-      {/* SIDEBAR NAVIGATION                                                   */}
-      {/* ------------------------------------------------------------------ */}
-      {mobileMenuOpen && <button aria-label="Close menu overlay" className="app-menu-overlay fixed inset-0 z-30 bg-black/45 md:hidden" onClick={() => setMobileMenuOpen(false)} />}
-      <aside className={`app-sidebar fixed inset-y-0 left-0 z-40 w-[86vw] max-w-80 border-r flex flex-col shrink-0 transition-transform duration-200 md:static md:z-auto md:w-72 md:max-w-none md:translate-x-0 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        {/* Brand header */}
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-200">B</span>
-            <div>
-              <span className="font-extrabold text-slate-100 text-sm tracking-tight">BuildTrack D&amp;B</span>
-              <span className="block text-[9px] font-bold text-slate-500 uppercase tracking-widest">Project Control System</span>
+      {/* Quick Search Palette (Ctrl+K / Cmd+K) */}
+      {searchOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-start justify-center pt-20 px-4" onClick={() => setSearchOpen(false)}>
+          <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-200 bg-slate-50/50">
+              <span className="text-slate-400 text-lg">🔍</span>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search modules, activities, settings... (Esc to close)"
+                className="flex-1 bg-transparent border-none text-sm text-slate-800 placeholder-slate-400 focus:outline-none min-h-0"
+                autoFocus
+              />
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600">ESC</span>
+            </div>
+            <div className="max-h-80 overflow-y-auto p-2 space-y-1">
+              {searchableModules.length === 0 ? (
+                <div className="p-6 text-center text-xs text-slate-500">No matching modules found</div>
+              ) : (
+                searchableModules.map(item => (
+                  <button
+                    key={item.tab}
+                    onClick={() => {
+                      goToTab(item.tab);
+                      setSearchOpen(false);
+                      setSearchQuery('');
+                    }}
+                    className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-blue-50 text-left transition group"
+                  >
+                    <div>
+                      <div className="text-xs font-bold text-slate-900 group-hover:text-blue-700">{item.title}</div>
+                      <div className="text-[11px] text-slate-500">{item.description}</div>
+                    </div>
+                    <span className="text-xs text-blue-600 font-bold opacity-0 group-hover:opacity-100 transition">Jump →</span>
+                  </button>
+                ))
+              )}
+            </div>
+            <div className="px-4 py-2 border-t border-slate-100 bg-slate-50 text-[11px] text-slate-500 flex justify-between items-center">
+              <span>Quick navigation across CTMS</span>
+              <span className="text-slate-400">Ctrl + K / ⌘K</span>
             </div>
           </div>
-          <span className="text-xs bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-mono">v1.3</span>
         </div>
+      )}
 
-        {/* Signed-in user badge */}
-        <div className="px-3 py-2 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-[10px] font-bold text-white">
-              {authUser.name.charAt(0).toUpperCase()}
+      {/* ------------------------------------------------------------------ */}
+      {/* PERSISTENT LEFT SIDEBAR (Deep Navy inspired by reference designs)   */}
+      {/* ------------------------------------------------------------------ */}
+      {mobileMenuOpen && (
+        <button
+          aria-label="Close menu overlay"
+          className="app-menu-overlay fixed inset-0 z-30 bg-black/60 backdrop-blur-xs md:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+      <aside
+        className={`app-sidebar fixed inset-y-0 left-0 z-40 w-[84vw] max-w-72 border-r flex flex-col shrink-0 transition-transform duration-200 md:static md:z-auto md:w-72 md:max-w-none md:translate-x-0 bg-slate-900 border-slate-800 text-slate-200 ${
+          mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        {/* Brand header */}
+        <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-700 to-blue-500 text-white flex items-center justify-center font-black text-sm shadow-md shadow-blue-500/30 ring-1 ring-blue-400/40">
+              🏗️
             </div>
             <div>
-              <p className="text-[10px] font-semibold text-slate-200 truncate max-w-[110px]">{authUser.name}</p>
-              <p className="text-[9px] text-slate-500 capitalize">{authUser.role.replace(/_/g, ' ')}</p>
+              <div className="font-extrabold text-white text-sm tracking-tight leading-tight">BUILDTRACK <span className="text-blue-400">CTMS</span></div>
+              <div className="text-[10px] font-semibold text-slate-400 tracking-wider uppercase">Project Control</div>
+            </div>
+          </div>
+          <span className="text-[10px] bg-slate-800 text-blue-400 px-2 py-0.5 rounded-full font-bold border border-slate-700">v2.0</span>
+        </div>
+
+        {/* User Profile Chip */}
+        <div className="px-3.5 py-3 border-b border-slate-800/80 bg-slate-900/60 flex items-center justify-between">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="relative">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center text-xs font-black shadow-sm ring-2 ring-slate-700">
+                {authUser.name.charAt(0).toUpperCase()}
+              </div>
+              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-slate-900 rounded-full" title="Online" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-white truncate max-w-[130px]">{authUser.name}</div>
+              <div className="text-[10px] text-blue-300 font-semibold truncate capitalize">
+                {ROLE_LABELS[normalizeRole(authUser.role)]}
+              </div>
             </div>
           </div>
           <button
             onClick={handleSignOut}
-            className="text-[9px] text-slate-500 hover:text-rose-400 font-semibold transition"
+            title="Sign out of CTMS"
+            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition"
           >
-            Sign Out
+            <span className="text-xs font-bold">⎋</span>
           </button>
         </div>
 
-        {/* Tab Links */}
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-180px)]">
-          <div className="text-[9px] font-bold text-slate-500 uppercase px-2 mb-1.5 tracking-wider">{navHeading === 'My site work' ? t('shell.mySiteWork') : navHeading === 'Project delivery' ? t('shell.projectDelivery') : navHeading === 'Project oversight' ? t('shell.projectOversight') : t('shell.myWorkspace')}</div>
-          <NavBtn tab="dashboard" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📊" label={t('nav.dashboard')} />
-          {canAccess('schedule') && <NavBtn tab="cpm" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📅" label={t('nav.schedule')} />}
-          {canAccess('schedule') && <NavBtn tab="measurements" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📐" label="BOQ Measurement" />}
-          {canAccess('schedule') && <NavBtn tab="expected_actual" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📈" label="Expected vs Actual" />}
-          {canAccess('daily_reports') && <NavBtn tab="daily" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📝" label={t('nav.daily')} />}
-          {canAccess('operations') && <NavBtn tab="operations" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🚜" label={t('nav.operations')} />}
-          {canAccess('manage_users') && <NavBtn tab="workforce" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="👥" label="Employee & Workforce" />}
-          {canAccess('view_evidence') && <NavBtn tab="evidence" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🖼️" label="Director Evidence Vault" />}
+        {/* Tab Links - 12 Categorized Modules matching prompt requirements */}
+        <nav className="flex-1 p-3 space-y-3 overflow-y-auto max-h-[calc(100vh-220px)]">
+          {/* Group 1: CORE WORKSPACE */}
+          <div className="space-y-1">
+            <div className="text-[10px] font-bold text-slate-400 uppercase px-2 mb-1 tracking-wider">
+              1. Core Workspace
+            </div>
+            <NavBtn tab="dashboard" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📊" label={t('nav.dashboard')} />
+            {canAccess('schedule') && <NavBtn tab="cpm" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📅" label="Work Schedule & BOQ" />}
+            {canAccess('manage_users') && <NavBtn tab="workforce" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="👥" label="People & Workforce" />}
+          </div>
 
-          <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">{t('shell.additionalTools')}</div>
-          {canAccess('budget') && <NavBtn tab="budget" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="💰" label="Budget & Costs" />}
-          {canAccess('ipc') && <NavBtn tab="ipc" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label="IPC Billing / Valuation" />}
-          {canAccess('claims') && <NavBtn tab="claims" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⚖️" label="Variations & Claims" />}
-          {canAccess('procurement') && <NavBtn tab="procurement" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🚚" label="Procurement & Stores" />}
-          {canAccess('obligations') && <NavBtn tab="obligations" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⏰" label="Contract Obligations" />}
+          {/* Group 2: SITE OPERATIONS & FIELD */}
+          <div className="space-y-1 pt-1">
+            <div className="text-[10px] font-bold text-slate-400 uppercase px-2 mb-1 tracking-wider">
+              2. Field & Resources
+            </div>
+            {canAccess('daily_reports') && <NavBtn tab="daily" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📝" label={t('nav.daily')} />}
+            {canAccess('operations') && <NavBtn tab="operations" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🚜" label="Fleet, Plant & Ops" />}
+            {canAccess('procurement') && <NavBtn tab="procurement" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📦" label="Inventory & Stores" />}
+            {canAccess('expenses') && <NavBtn tab="expenses" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="💳" label="Purchases & Expenses" accent="emerald" />}
+          </div>
 
-          <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Site Quality & Safety</div>
-          {canAccess('qaqc') && <NavBtn tab="qaqc" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧪" label="QA / QC Inspections" />}
-          {canAccess('safety') && <NavBtn tab="safety" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🦺" label="Safety / EHS Logs" />}
+          {/* Group 3: COMMERCIAL & CONTROLS */}
+          <div className="space-y-1 pt-1">
+            <div className="text-[10px] font-bold text-slate-400 uppercase px-2 mb-1 tracking-wider">
+              3. Commercial & Controls
+            </div>
+            {canAccess('schedule') && <NavBtn tab="measurements" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📐" label="BOQ Measurement" />}
+            {canAccess('schedule') && <NavBtn tab="expected_actual" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📈" label="Expected vs Actual" />}
+            {canAccess('budget') && <NavBtn tab="budget" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="💰" label="Budget & Costs" />}
+            {canAccess('ipc') && <NavBtn tab="ipc" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label="IPC Billing / Valuations" />}
+            {canAccess('claims') && <NavBtn tab="claims" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⚖️" label="Variations & Claims" />}
+            {canAccess('obligations') && <NavBtn tab="obligations" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⏰" label="Contract Obligations" />}
+          </div>
 
-          <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Finance & Documents</div>
-          {canAccess('expenses') && <NavBtn tab="expenses" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label={t('nav.expenses')} accent="emerald" />}
-          {canAccess('documents') && <NavBtn tab="documents" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📁" label={t('nav.documents')} accent="emerald" />}
-          {canAccess('reports') && <NavBtn tab="reports" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📤" label={t('nav.reports')} accent="emerald" />}
+          {/* Group 4: QUALITY, SAFETY & VAULT */}
+          <div className="space-y-1 pt-1">
+            <div className="text-[10px] font-bold text-slate-400 uppercase px-2 mb-1 tracking-wider">
+              4. Quality & Compliance
+            </div>
+            {canAccess('qaqc') && <NavBtn tab="qaqc" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧪" label="QA / QC Inspections" />}
+            {canAccess('safety') && <NavBtn tab="safety" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🦺" label="Safety & EHS Logs" />}
+            {canAccess('documents') && <NavBtn tab="documents" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📁" label="Document Vault" accent="emerald" />}
+            {canAccess('view_evidence') && <NavBtn tab="evidence" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🖼️" label="Director Evidence Vault" />}
+          </div>
 
-          <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Completion Dossier</div>
-          {canAccess('handover') && <NavBtn tab="handover" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🔑" label="Handover Checklist" />}
-          {canAccess('defects') && <NavBtn tab="defects" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🔧" label="Defects Maintenance" />}
-
-          <div className="text-[9px] font-bold text-slate-500 uppercase px-2 pt-3 mb-1.5 tracking-wider">Account & Setup</div>
-          {canAccess('subscription') && <NavBtn tab="subscription" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🧾" label="Service & Billing" accent="purple" />}
-          {canAccess('settings') && <NavBtn tab="settings" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⚙️" label={t('nav.settings')} />}
+          {/* Group 5: REPORTS & SETTINGS */}
+          <div className="space-y-1 pt-1">
+            <div className="text-[10px] font-bold text-slate-400 uppercase px-2 mb-1 tracking-wider">
+              5. Reports & Governance
+            </div>
+            {canAccess('reports') && <NavBtn tab="reports" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="📤" label="Reports & Analytics" accent="emerald" />}
+            {canAccess('handover') && <NavBtn tab="handover" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🔑" label="Handover Checklist" />}
+            {canAccess('defects') && <NavBtn tab="defects" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="🔧" label="Defects Maintenance" />}
+            {canAccess('subscription') && <NavBtn tab="subscription" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="👑" label="Subscription & Billing" accent="purple" />}
+            {canAccess('settings') && <NavBtn tab="settings" activeTab={activeTab} setActiveTab={setActiveTabFromMenu} icon="⚙️" label="System Settings" />}
+          </div>
         </nav>
+
+        {/* Sidebar Footer Widget: Field Sync Status (SilverLogix style) */}
+        <div className="p-3 border-t border-slate-800 bg-slate-950/60">
+          <div className="rounded-xl bg-slate-900 border border-slate-800/90 p-2.5 space-y-1.5 text-xs">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 font-bold text-white text-[11px]">
+                <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                <span>{isOnline ? 'Field Cloud Connected' : 'Offline Mode'}</span>
+              </div>
+              <span className="text-[10px] text-slate-400">{syncSummary.pending} pending</span>
+            </div>
+            <p className="text-[10px] text-slate-400 leading-tight">
+              {syncSummary.pending > 0
+                ? `${syncSummary.pending} local updates pending sync.`
+                : 'All project data is backed up and synced.'}
+            </p>
+            {syncSummary.pending > 0 && (
+              <button
+                type="button"
+                onClick={() => void retryPendingChanges()}
+                className="w-full py-1 px-2 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold rounded-lg transition"
+              >
+                Sync Now →
+              </button>
+            )}
+          </div>
+        </div>
       </aside>
 
       {/* ------------------------------------------------------------------ */}
       {/* MAIN CONTENT AREA                                                    */}
       {/* ------------------------------------------------------------------ */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Header toolbar */}
-        <header className="app-header h-14 border-b flex items-center justify-between px-4 shrink-0 text-xs gap-2">
-          {/* Left: Project switcher */}
-          <div className="flex items-center gap-2 min-w-0">
-            <button onClick={() => setMobileMenuOpen(true)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-lg font-bold text-slate-700 shadow-sm md:hidden" aria-label="Open menu">
+      <div className="flex-1 flex flex-col min-w-0 bg-slate-50">
+        {/* Consistent Top Navigation Bar */}
+        <header className="app-header h-14 border-b border-slate-200 bg-white/95 backdrop-blur-md flex items-center justify-between px-4 md:px-6 shrink-0 text-xs gap-3 shadow-xs sticky top-0 z-20">
+          {/* Left: Mobile trigger + Project Context Switcher */}
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              className="rounded-lg border border-slate-200 bg-white p-2 text-slate-700 hover:bg-slate-100 shadow-xs md:hidden"
+              aria-label="Open navigation menu"
+            >
               ☰
             </button>
+
             {authUser.role === 'super_admin' ? (
-              <span className="rounded-lg bg-purple-50 px-3 py-2 text-xs font-bold text-purple-700">Platform Subscription Console</span>
-            ) : <>
-              <select
-                value={activeProjectId}
-                onChange={(e) => { void handleSwitchProject(e.target.value); }}
-                disabled={projectSwitching}
-                className="bg-slate-950 border border-slate-800 px-3 py-2 rounded-lg text-xs text-slate-200 font-semibold focus:outline-none max-w-[180px] md:max-w-[300px] truncate"
-              >
-                {projectsList.map((p: any) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-              {canAccess('manage_projects', 'write') && <button
-                onClick={() => setShowCreateProject(true)}
-                className="px-2 py-1 bg-blue-600/80 hover:bg-blue-600 text-white text-[10px] font-bold rounded transition whitespace-nowrap"
-              >
-                + New Project
-              </button>}
-            </>}
+              <span className="rounded-lg bg-purple-50 border border-purple-200 px-3 py-1.5 text-xs font-bold text-purple-700">
+                Platform Subscription Console
+              </span>
+            ) : (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 bg-slate-100/80 border border-slate-200/90 rounded-xl px-2.5 py-1 text-slate-800">
+                  <span className="text-slate-500 text-xs">🏢</span>
+                  <select
+                    value={activeProjectId}
+                    onChange={(e) => { void handleSwitchProject(e.target.value); }}
+                    disabled={projectSwitching}
+                    className="bg-transparent border-none text-xs text-slate-900 font-bold focus:outline-none max-w-[160px] md:max-w-[260px] truncate cursor-pointer p-0 min-h-0"
+                  >
+                    {projectsList.map((p: any) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                {canAccess('manage_projects', 'write') && (
+                  <button
+                    onClick={() => setShowCreateProject(true)}
+                    className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold rounded-lg transition shadow-xs whitespace-nowrap hidden sm:inline-flex items-center gap-1"
+                  >
+                    <span>+</span> Project
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Breadcrumb Context */}
+            <div className="hidden xl:flex items-center gap-1.5 text-slate-500 text-[11px] font-medium border-l border-slate-200 pl-3">
+              <span className="text-slate-400">CTMS</span>
+              <span>/</span>
+              <span className="text-slate-700 font-bold truncate max-w-[160px]">{project.name}</span>
+              <span>/</span>
+              <span className="text-blue-600 font-semibold">{TAB_TITLES[activeTab]?.title}</span>
+            </div>
           </div>
 
-          {/* Right: DB status + date + role switcher */}
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="flex items-center gap-1 text-slate-500 hidden lg:flex">
+          {/* Right: Quick Search + Calendar Date + Notifications + Role Badge */}
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            {/* Quick Search Shortcut */}
+            <button
+              onClick={() => setSearchOpen(true)}
+              className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50/80 hover:bg-slate-100 text-slate-500 text-xs transition"
+              title="Global search (Ctrl+K)"
+            >
+              <span>🔍</span>
+              <span className="hidden md:inline text-slate-600">Search...</span>
+              <span className="text-[10px] font-bold bg-white border border-slate-200 px-1 py-0.2 rounded text-slate-400">⌘K</span>
+            </button>
+
+            {/* Date Pill (Nepali BS + AD) */}
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 text-xs hidden lg:flex" title="Nepali Bikram Sambat Date">
               <span>📅</span>
-              <span className="font-mono">{formatBsDate(currentDate, { long: true, language })}</span>
+              <span className="font-semibold">{formatBsDate(currentDate, { long: true, language })}</span>
             </div>
 
-            {/* Role indicator */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-slate-500 hidden sm:inline">{t('shell.role')}:</span>
-              <span className="bg-slate-800 border border-slate-700 px-2 py-0.5 rounded text-[10px] text-blue-400 font-bold capitalize">
+            {/* Notifications Bell with Popover */}
+            <div className="relative">
+              <button
+                onClick={() => setShowNotifications(prev => !prev)}
+                className={`relative p-2 rounded-xl border transition ${
+                  showNotifications
+                    ? 'bg-blue-50 border-blue-300 text-blue-700'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+                aria-label="View notifications and alerts"
+              >
+                <span className="text-sm">🔔</span>
+                {totalNotificationBadge > 0 && (
+                  <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-600 px-1 text-[9px] font-black text-white ring-2 ring-white">
+                    {totalNotificationBadge > 9 ? '9+' : totalNotificationBadge}
+                  </span>
+                )}
+              </button>
+
+              {/* Notification Dropdown Drawer */}
+              {showNotifications && (
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl bg-white border border-slate-200 shadow-2xl z-50 overflow-hidden animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-slate-50">
+                    <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                      <span>Notifications &amp; Alerts</span>
+                      {totalNotificationBadge > 0 && (
+                        <span className="px-1.5 py-0.2 rounded-full bg-rose-100 text-rose-700 text-[10px] font-bold">
+                          {totalNotificationBadge}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => {
+                        storage.markAllNotificationsRead();
+                        setNotifications(storage.getAllNotifications(20));
+                      }}
+                      className="text-[11px] font-bold text-blue-600 hover:text-blue-800"
+                    >
+                      Mark all read
+                    </button>
+                  </div>
+                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                    {alerts.length > 0 && (
+                      <div className="p-2 bg-rose-50/50">
+                        <div className="text-[10px] font-bold uppercase text-rose-700 px-2 py-1 tracking-wider">Priority Attention</div>
+                        {alerts.slice(0, 3).map((alert, i) => (
+                          <div key={i} className="p-2 rounded-xl bg-white border border-rose-200 mb-1.5 shadow-2xs text-xs">
+                            <div className="font-bold text-rose-900 flex items-center justify-between">
+                              <span>{alert.type}</span>
+                              <span className="text-[10px] text-rose-600 font-semibold uppercase">{alert.severity}</span>
+                            </div>
+                            <p className="text-[11px] text-slate-600 mt-0.5">{alert.message}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="p-2 space-y-1">
+                      {notifications.length === 0 ? (
+                        <div className="p-4 text-center text-xs text-slate-400">No new notifications</div>
+                      ) : (
+                        notifications.slice(0, 6).map(n => (
+                          <div key={n.id} className={`p-2.5 rounded-xl text-xs transition ${n.read ? 'bg-white' : 'bg-blue-50/60 font-medium'}`}>
+                            <div className="font-bold text-slate-900">{n.action}</div>
+                            <div className="text-[10px] text-slate-500 mt-0.5 flex justify-between">
+                              <span>{n.module} · {n.actor || 'Staff'}</span>
+                              <span>{formatBsDate(n.created_at?.slice(0, 10) || currentDate)}</span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Language Switcher */}
+            <select
+              id="language"
+              value={language}
+              onChange={event => setLanguage(event.target.value as typeof language)}
+              className="rounded-xl border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 focus:outline-none min-h-0 cursor-pointer"
+            >
+              <option value="ne">नेपाली</option>
+              <option value="en">English</option>
+            </select>
+
+            {/* Role indicator pill */}
+            <div className="hidden sm:flex items-center gap-1.5 bg-blue-50 border border-blue-200 rounded-xl px-2.5 py-1 text-blue-700">
+              <span className="text-[11px] font-bold capitalize">
                 {ROLE_LABELS[normalizeRole(authUser.role)]}
               </span>
             </div>
-            <label className="sr-only" htmlFor="language">Language</label><select id="language" value={language} onChange={event => setLanguage(event.target.value as typeof language)} className="min-h-9 rounded-lg border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700"><option value="ne">नेपाली</option><option value="en">English</option></select>
           </div>
         </header>
-        {!isOnline && <div role="status" className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-950">{t('common.noConnection')} Changes are preserved on this device and will retry when you reconnect.</div>}
-        {isOnline && syncSummary.conflicts > 0 && <div role="alert" className="flex flex-wrap items-center justify-between gap-2 border-b border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-950"><span>{syncSummary.conflicts} saved-on-device change{syncSummary.conflicts === 1 ? '' : 's'} need review before they can be synchronized. {syncSummary.lastError || ''}</span><button type="button" onClick={() => void retryPendingChanges()} className="min-h-9 rounded-md bg-rose-700 px-3 py-1.5 font-bold text-white">Retry connection</button></div>}
-        {isOnline && syncSummary.conflicts === 0 && syncSummary.pending > 0 && <div role="status" className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-950"><span>{syncSummary.pending} change{syncSummary.pending === 1 ? '' : 's'} saved on this device and awaiting cloud confirmation. {syncSummary.lastError || ''}</span><button type="button" onClick={() => void retryPendingChanges()} className="min-h-9 rounded-md bg-amber-700 px-3 py-1.5 font-bold text-white">Retry now</button></div>}
+
+        {/* System & Connection Banners */}
+        {!isOnline && (
+          <div role="status" className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-950 flex items-center justify-between">
+            <span>⚠️ {t('common.noConnection')} Changes are preserved securely on this device and will sync automatically when back online.</span>
+          </div>
+        )}
+        {isOnline && syncSummary.conflicts > 0 && (
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-2 border-b border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-950">
+            <span>{syncSummary.conflicts} saved-on-device change{syncSummary.conflicts === 1 ? '' : 's'} need review before synchronization. {syncSummary.lastError || ''}</span>
+            <button type="button" onClick={() => void retryPendingChanges()} className="rounded-lg bg-rose-700 px-3 py-1 font-bold text-white hover:bg-rose-800 transition">
+              Retry connection
+            </button>
+          </div>
+        )}
+        {isOnline && syncSummary.conflicts === 0 && syncSummary.pending > 0 && (
+          <div role="status" className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-950">
+            <span>{syncSummary.pending} local change{syncSummary.pending === 1 ? '' : 's'} saved on this device and awaiting cloud confirmation.</span>
+            <button type="button" onClick={() => void retryPendingChanges()} className="rounded-lg bg-amber-700 px-3 py-1 font-bold text-white hover:bg-amber-800 transition">
+              Sync now
+            </button>
+          </div>
+        )}
 
         {/* ---- Active Dashboard Panel ---- */}
         <main id="main-content" className="app-main flex-1 p-4 md:p-6 overflow-y-auto max-h-[calc(100vh-56px)]" tabIndex={-1}>

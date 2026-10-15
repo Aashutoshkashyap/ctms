@@ -18,12 +18,48 @@ export default function ReportCenter(props:Props){
     if(format==='csv'){const rows=generated.rows||[];body=csvSafeRows(rows);mime='text/csv';}
     const url=URL.createObjectURL(new Blob([body],{type:mime}));const a=document.createElement('a');a.href=url;a.download=`${props.project.name.replace(/[^a-z0-9]+/gi,'-').toLowerCase()}-${type}.${ext}`;a.click();URL.revokeObjectURL(url);
   };
-  return <div className="space-y-5 text-xs">
-    <div><h2 className="text-base font-semibold">Reports & Contract Output Center</h2><p className="text-slate-400">Generate printable and machine-readable project control packs from the live register.</p></div>
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">{(['daily','weekly','monthly','ipc','claims','quality','safety','handover'] as ReportType[]).map(value=><button key={value} onClick={()=>setType(value)} className={`p-3 rounded-lg border capitalize ${type===value?'bg-blue-600 border-blue-500':'bg-slate-800/50 border-slate-700 text-slate-400'}`}>{value} {value==='ipc'?'Support Pack':'Report'}</button>)}</div>
-    <div className="flex gap-2"><button onClick={()=>download('html')} className="bg-emerald-600 px-3 py-2 rounded font-semibold">Download Printable HTML</button><button onClick={()=>download('csv')} className="bg-slate-700 px-3 py-2 rounded">Export CSV</button><button onClick={()=>download('json')} className="bg-slate-700 px-3 py-2 rounded">Export JSON</button></div>
-    <div className="bg-white text-slate-800 rounded-xl p-6 shadow-xl min-h-[480px]" dangerouslySetInnerHTML={{__html:generated.html}}/>
-  </div>;
+  return (
+    <div className="space-y-6 text-xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 border border-slate-200/90 rounded-2xl shadow-xs">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-600 text-sm">📑</span>
+            <h2 className="text-slate-900 text-base font-bold">Reports & Contract Output Center</h2>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">Generate printable and machine-readable project control packs from the live register.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => download('html')} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl font-bold shadow-xs transition">
+            Printable HTML
+          </button>
+          <button onClick={() => download('csv')} className="border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 px-3.5 py-2 rounded-xl font-semibold shadow-xs transition">
+            Export CSV
+          </button>
+          <button onClick={() => download('json')} className="border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 px-3.5 py-2 rounded-xl font-semibold shadow-xs transition">
+            Export JSON
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        {(['daily', 'weekly', 'monthly', 'ipc', 'claims', 'quality', 'safety', 'handover'] as ReportType[]).map(value => (
+          <button
+            key={value}
+            onClick={() => setType(value)}
+            className={`p-3.5 rounded-xl border text-xs capitalize transition ${
+              type === value
+                ? 'bg-blue-600 border-blue-600 text-white font-bold shadow-xs'
+                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 font-medium'
+            }`}
+          >
+            {value} {value === 'ipc' ? 'Support Pack' : 'Report'}
+          </button>
+        ))}
+      </div>
+
+      <div className="bg-white text-slate-800 rounded-2xl p-8 border border-slate-200/90 shadow-xs min-h-[480px]" dangerouslySetInnerHTML={{ __html: generated.html }} />
+    </div>
+  );
 }
 
 function buildReport(type:ReportType,p:Props){

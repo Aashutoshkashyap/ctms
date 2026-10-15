@@ -214,8 +214,8 @@ export default function AiAssistant({
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Input area */}
-        <div className="lg:col-span-1 bg-slate-800/50 border border-slate-700/40 p-5 rounded-xl shadow-lg space-y-4">
-          <h3 className="text-slate-200 text-sm font-semibold capitalize">
+        <div className="lg:col-span-1 bg-white border border-slate-200/90 p-5 rounded-2xl shadow-xs space-y-4">
+          <h3 className="text-slate-900 text-sm font-bold capitalize">
             {activeTask === 'parser' && 'Parse Daily Progress Note'}
             {activeTask === 'delay' && 'Analyze Claims Eligibility'}
             {activeTask === 'recovery' && 'Analyze Schedule Compressions'}
@@ -318,8 +318,8 @@ export default function AiAssistant({
         </div>
 
         {/* Results Output area */}
-        <div className="lg:col-span-2 bg-slate-800/50 border border-slate-700/40 p-5 rounded-xl shadow-lg flex flex-col min-h-[350px]">
-          <h3 className="text-slate-200 text-sm font-semibold mb-3">AI Intelligence Output</h3>
+        <div className="lg:col-span-2 bg-white border border-slate-200/90 p-5 rounded-2xl shadow-xs flex flex-col min-h-[350px]">
+          <h3 className="text-slate-900 text-sm font-bold mb-3">AI Intelligence Output</h3>
           
           {loading && (
             <div className="flex-1 flex flex-col items-center justify-center py-12">
