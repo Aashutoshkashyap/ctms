@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { DocumentItem, storage, UploadedDocument } from '../lib/storage';
+import { DocumentItem, isSupabaseConfigured, storage, UploadedDocument } from '../lib/storage';
 import BsDatePicker from './BsDatePicker';
 import { formatBsDate, todayAdDate } from '../lib/nepaliDate';
 import UploadProgress from './UploadProgress';
@@ -100,9 +100,36 @@ export default function DocumentTracker({ userRole, projectId, userName, userEma
 
   const canApprove = ['business_admin', 'project_director', 'project_manager'].includes(userRole);
 
+  const [history, setHistory] = useState<Record<string, Array<Record<string, unknown>>>>({});
+  const [, setEditingDocument] = useState<DocumentItem | null>(null);
+
   useEffect(() => {
     storage.saveDocuments(documents);
   }, [documents, projectId]);
+
+  const headers = async () => ({ Authorization: `Bearer ${(await storage.getAuthSession())?.access_token || ''}`, 'Content-Type': 'application/json' });
+  const loadAuthoritative = async () => {
+    if (!isSupabaseConfigured()) return;
+    const response = await fetch(`/api/documents?projectId=${encodeURIComponent(projectId)}`, { headers: await headers(), cache: 'no-store' });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) { if (response.status !== 401) setMessage(payload.error || 'Cloud document register is unavailable; this device copy remains available.'); return; }
+    setDocuments(payload.documents || []);
+    setHistory((payload.history || []).reduce((grouped: Record<string, Array<Record<string, unknown>>>, row: Record<string, unknown>) => ({ ...grouped, [String(row.document_id)]: [...(grouped[String(row.document_id)] || []), row] }), {}));
+  };
+  useEffect(() => { void loadAuthoritative(); }, [projectId]);
+  const command = async (body: Record<string, unknown>, method: 'POST' | 'PATCH') => {
+    if (!isSupabaseConfigured()) return null;
+    const response = await fetch('/api/documents', { method, headers: await headers(), body: JSON.stringify({ projectId, ...body }) });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || 'Controlled document could not be saved.');
+    return payload.document as DocumentItem;
+  };
+  const editDocument = (doc: DocumentItem) => {
+    setEditingDocument(doc);
+    setForm({ ref_number: doc.ref_number, title: doc.title, category: doc.category, version: doc.version, submitted_date: doc.submitted_date, period_start: doc.period_start || '', period_end: doc.period_end || '', due_date: doc.due_date || '', expiry_date: doc.expiry_date || '', issued_by: doc.issued_by || '', responsible_person: doc.responsible_person || '', linked_record_id: doc.linked_record_id || '', remarks: doc.remarks || '' });
+    setShowForm(true);
+    setMessage('Editing a draft/rejected document. Approved records remain immutable.');
+  };
 
   const linkOptions = useMemo(
     () => [
@@ -739,13 +766,21 @@ export default function DocumentTracker({ userRole, projectId, userName, userEma
                         <DocumentStatusBadge value={doc.status} />
                       </td>
                       <td className="py-3 px-3 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
+                          <div className="flex flex-wrap gap-1 justify-end">
                           <button
                             onClick={() => setSelectedDocument(doc)}
                             className="px-2 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
                           >
-                            Details
+                            View details
                           </button>
+                          {canModify && ['draft', 'rejected'].includes(doc.status) && (
+                            <button
+                              onClick={() => editDocument(doc)}
+                              className="px-2 py-1 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition"
+                            >
+                              Edit details
+                            </button>
+                          )}
                           {doc.status === 'draft' && canModify && (
                             <button
                               onClick={() => updateStatus(doc.id, 'under_review')}
