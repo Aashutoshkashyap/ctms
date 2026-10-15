@@ -48,16 +48,23 @@ export default function AiAssistant({
     }
   };
 
-  const handleApplyWbs = () => {
+  const handleApplyWbs = async () => {
     if (!wbsResult) return;
-    if (confirm('This will safely merge the generated BOQ draft. Existing work, quantities and historical references will not be deleted. Proceed?')) {
-      const imported = storage.applyGeneratedSchedule(wbsResult.wbsItems, wbsResult.activities, wbsResult.dependencies);
-      if (!imported.ok) return alert(imported.issues.join(' ') || 'The BOQ draft could not be safely applied.');
-      if (onReloadData) onReloadData();
-      alert('WBS and network dependencies applied successfully! Project CPM has been re-scheduled.');
-      setWbsResult(null);
-      setInputText('');
-    }
+    if (!confirm('Review complete? This safe import adds or deterministically updates BOQ work. It never deletes existing project work.')) return;
+    const project = storage.getProject();
+    const prefix = `${project.id}-${Date.now()}`;
+    const activityIds = new Map(wbsResult.activities.map(item => [item.id, `${prefix}-${item.id}`]));
+    const imported = await storage.importBoqSchedule({
+      projectId: project.id,
+      wbs: wbsResult.wbsItems.map((item, index) => ({ ...item, id: `${prefix}-wbs-${index + 1}` })),
+      activities: wbsResult.activities.map(item => ({ ...item, id: activityIds.get(item.id)! })),
+      dependencies: wbsResult.dependencies.map((item, index) => ({ ...item, id: `${prefix}-dep-${index + 1}`, predecessor_id: activityIds.get(item.predecessor_id) || item.predecessor_id, successor_id: activityIds.get(item.successor_id) || item.successor_id })),
+    });
+    if (!imported.ok) return alert(imported.issues.map(issue => issue.message).join('\n') || 'The BOQ import could not be completed.');
+    if (onReloadData) onReloadData();
+    alert(`BOQ import complete: ${imported.counts.created} created, ${imported.counts.updated} updated, ${imported.counts.unchanged} unchanged.`);
+    setWbsResult(null);
+    setInputText('');
   };
 
   const handleParseSubmit = async (e: React.FormEvent) => {
@@ -207,8 +214,8 @@ export default function AiAssistant({
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Input area */}
-        <div className="lg:col-span-1 bg-slate-800/50 border border-slate-700/40 p-5 rounded-xl shadow-lg space-y-4">
-          <h3 className="text-slate-200 text-sm font-semibold capitalize">
+        <div className="lg:col-span-1 bg-white border border-slate-200/90 p-5 rounded-2xl shadow-xs space-y-4">
+          <h3 className="text-slate-900 text-sm font-bold capitalize">
             {activeTask === 'parser' && 'Parse Daily Progress Note'}
             {activeTask === 'delay' && 'Analyze Claims Eligibility'}
             {activeTask === 'recovery' && 'Analyze Schedule Compressions'}
@@ -311,8 +318,8 @@ export default function AiAssistant({
         </div>
 
         {/* Results Output area */}
-        <div className="lg:col-span-2 bg-slate-800/50 border border-slate-700/40 p-5 rounded-xl shadow-lg flex flex-col min-h-[350px]">
-          <h3 className="text-slate-200 text-sm font-semibold mb-3">AI Intelligence Output</h3>
+        <div className="lg:col-span-2 bg-white border border-slate-200/90 p-5 rounded-2xl shadow-xs flex flex-col min-h-[350px]">
+          <h3 className="text-slate-900 text-sm font-bold mb-3">AI Intelligence Output</h3>
           
           {loading && (
             <div className="flex-1 flex flex-col items-center justify-center py-12">
@@ -453,7 +460,7 @@ export default function AiAssistant({
               
               <div className="flex justify-end gap-2">
                 <button
-                  onClick={handleApplyWbs}
+                  onClick={() => void handleApplyWbs()}
                   className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded shadow transition"
                 >
                   📥 Apply WBS to Project Database & CPM

@@ -1,15 +1,13 @@
-// Storage and Database Adapter Layer - Multi-Project and Supabase Connect wizard
-import { calculateCPM, Activity, Dependency, ProjectInfo, diffDays, addDays } from './cpm';
+import { calculateCPM, Activity, Dependency, ProjectInfo, diffDays, addDays, validateDependency } from './cpm';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { can, normalizeRole, type FeaturePermissions } from './permissions';
+import { can, type FeaturePermissions } from './permissions';
+import { prepareSafeBoqImport, type BoqImportResult } from './boqImport';
 
 // Environment variables fallback
 const defaultUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const defaultAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-import { DurableMutationOutbox, createMutationId, type DurableMutation } from './durableMutationOutbox';
-import { mergeBoqSchedule } from './boqSafety';
-import { calculateIpcNetPayable, calculateIpcOutstanding, roundMoney, sumAmounts } from './financialMetrics';
+import { DurableMutationOutbox, createMutationId } from './durableMutationOutbox';
 let cachedSupabaseClient: SupabaseClient | null = null;
 let cachedSupabaseConfig = '';
 
@@ -94,7 +92,6 @@ export interface ProcurementOrder {
   order_date?: string;
   delivery_date?: string;
   delivered_quantity: number;
-  responsible_person_id?: string | null;
   status: 'draft' | 'approved' | 'ordered' | 'partially_delivered' | 'delivered' | 'cancelled';
   remarks?: string;
 }
@@ -112,8 +109,22 @@ export interface StoreItem {
   location: string;
   vendor?: string;
   status?: 'available' | 'low_stock' | 'ordered' | 'inactive';
-  inventory_opening_balance?: number;
-  current_stock?: number;
+}
+
+export interface Vendor {
+  id: string;
+  project_id?: string;
+  name: string;
+  contact_person?: string;
+  phone?: string;
+  email?: string;
+  pan_vat?: string;
+  address?: string;
+  category: string;
+  status: 'active' | 'pending_verification' | 'blacklisted' | 'inactive';
+  rating?: number;
+  notes?: string;
+  created_at?: string;
 }
 
 export interface ContractObligation {
@@ -244,6 +255,17 @@ export interface UploadedDocument {
   remarks?: string;
 }
 
+export interface AppNotification {
+  id: string;
+  project_id?: string;
+  actor?: string;
+  action: string;
+  module: string;
+  detail: string;
+  created_at: string;
+  read: boolean;
+}
+
 export interface InventoryEvent {
   id: string;
   project_id?: string;
@@ -255,13 +277,6 @@ export interface InventoryEvent {
   location?: string;
   remarks?: string;
   recorded_by?: string;
-  movement_type?: 'RECEIPT' | 'ISSUE' | 'ADJUSTMENT_IN' | 'ADJUSTMENT_OUT' | 'TRANSFER_IN' | 'TRANSFER_OUT';
-  occurred_at?: string;
-  actor_user_id?: string;
-  reference?: string;
-  reason?: string;
-  client_operation_id?: string;
-  posted_at?: string;
 }
 
 export interface HandoverItem {
@@ -459,7 +474,6 @@ const MOCK_USERS = [
   { id: 'usr-14', email: 'store@buildtrack.com', name: 'Raju Gurung', role: 'store_officer' }
 ];
 
-const LOCAL_DEMO_EMAILS = new Set(MOCK_USERS.map(user => user.email.toLowerCase()));
 
 function resolveLoginIdentifier(identifier: string) {
   const normalized = identifier.trim().toLowerCase();
@@ -1111,6 +1125,21 @@ const DEMO_DOCUMENTS: DocumentItem[] = DEMO_PROJECTS.flatMap((project, index) =>
 
 const DEMO_PROCUREMENT: ProcurementOrder[] = [
   {
+    id: 'po-101-001', project_id: 'proj-101', po_number: 'PO-KTFT-101', vendor: 'Himalayan Cement Industries',
+    item: 'OPC 53 Grade Cement', quantity: 2500, unit: 'Bag', unit_rate: 850,
+    required_date: '2026-05-10', expected_date: '2026-05-18', order_date: '2026-05-01', delivery_date: '2026-05-18', delivered_quantity: 2500, status: 'delivered', remarks: 'Batch test certificate approved'
+  },
+  {
+    id: 'po-101-002', project_id: 'proj-101', po_number: 'PO-KTFT-102', vendor: 'Jagdamba Steels Pvt. Ltd.',
+    item: 'Fe500D TMT Rebar (32mm & 25mm)', quantity: 180, unit: 'Ton', unit_rate: 115000,
+    required_date: '2026-06-01', expected_date: '2026-06-15', order_date: '2026-05-20', delivered_quantity: 120, status: 'partially_delivered', remarks: 'Second lot delivery scheduled'
+  },
+  {
+    id: 'po-101-003', project_id: 'proj-101', po_number: 'PO-KTFT-103', vendor: 'Terai Aggregates & Crushers',
+    item: 'Graded Coarse Aggregate 20mm', quantity: 450, unit: 'm3', unit_rate: 3200,
+    required_date: '2026-06-25', expected_date: '2026-07-05', order_date: '2026-06-10', delivered_quantity: 0, status: 'ordered', remarks: 'Quarry source approval confirmed'
+  },
+  {
     id: 'po-air-001', project_id: 'proj-demo-airport', po_number: 'PO-AIR-024', vendor: 'Airport Systems Asia',
     item: 'Baggage handling conveyor package', quantity: 1, unit: 'Pkg', unit_rate: 24500000,
     required_date: '2026-10-15', expected_date: '2026-11-05', delivered_quantity: 0, status: 'ordered'
@@ -1125,6 +1154,14 @@ const DEMO_PROCUREMENT: ProcurementOrder[] = [
     item: 'Fe500 reinforcement steel', quantity: 620, unit: 'Ton', unit_rate: 112000,
     required_date: '2026-06-15', expected_date: '2026-06-20', delivered_quantity: 510, status: 'partially_delivered'
   }
+];
+
+const DEMO_VENDORS: Vendor[] = [
+  { id: 'ven-1', project_id: 'proj-101', name: 'Himalayan Cement Industries', contact_person: 'Suman Shrestha', phone: '+977-9851012345', email: 'sales@himalayancement.np', pan_vat: '302482910', address: 'Hetauda Industrial Estate, Makwanpur', category: 'Cement & Steel', status: 'active', rating: 5, notes: 'Direct manufacturer rate, 14-day payment cycle' },
+  { id: 'ven-2', project_id: 'proj-101', name: 'Jagdamba Steels Pvt. Ltd.', contact_person: 'Anil Gupta', phone: '+977-9801234567', email: 'corporate@jagdambasteel.com', pan_vat: '301294821', address: 'Simara, Bara', category: 'Cement & Steel', status: 'active', rating: 4, notes: 'TMT rebar supplier, delivery to site yard' },
+  { id: 'ven-3', project_id: 'proj-101', name: 'Terai Aggregates & Crushers', contact_person: 'Ram Kumar Tharu', phone: '+977-9845098765', email: 'terai.crushers@gmail.com', pan_vat: '601928374', address: 'Nijgadh, Bara', category: 'Aggregates & Sand', status: 'active', rating: 4, notes: 'Coarse aggregate 20mm & 40mm, river sand' },
+  { id: 'ven-4', project_id: 'proj-101', name: 'Nepal Petroleum Suppliers', contact_person: 'Dipak Acharya', phone: '+977-9851122334', email: 'orders@nepalpetroleum.np', pan_vat: '300182746', address: 'Pathlaiya, Bara', category: 'Fuel & Lubricants', status: 'active', rating: 5, notes: 'On-site tanker delivery for excavators & generators' },
+  { id: 'ven-5', project_id: 'proj-101', name: 'Sagarmatha Heavy Plant Rentals', contact_person: 'Khem Raj KC', phone: '+977-9851234890', email: 'plant@sagarmatha.np', pan_vat: '304918239', address: 'Birgunj, Parsa', category: 'Heavy Equipment', status: 'active', rating: 4, notes: 'Excavators, batching plant spares, mobile cranes' }
 ];
 
 const DEMO_STORE_ITEMS: StoreItem[] = DEMO_PROJECTS.flatMap((project, index) => [
@@ -1256,9 +1293,9 @@ const CLOUD_SYNC_KEYS = new Set([
   'bt_daily_reports', 'bt_daily_work_items', 'bt_material_logs', 'bt_budget_heads',
   'bt_subcontractors', 'bt_ipc', 'bt_ipc_payments', 'bt_qaqc', 'bt_safety', 'bt_variations_claims',
   'bt_risks', 'bt_handover', 'bt_defects', 'bt_finance_rows', 'bt_documents',
-  'bt_procurement_orders', 'bt_store_items', 'bt_contract_obligations',
+  'bt_procurement_orders', 'bt_store_items', 'bt_vendors', 'bt_contract_obligations',
   'bt_daily_expenses', 'bt_daily_resource_usage', 'bt_employee_visits', 'bt_employees',
-  'bt_uploaded_documents', 'bt_inventory_events'
+  'bt_uploaded_documents', 'bt_inventory_events', 'bt_notifications'
 ]);
 let cloudSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let cloudPullInProgress = false;
@@ -1269,10 +1306,57 @@ const CLOUD_SYNC_ORDER = [
   'bt_design_comments', 'bt_daily_reports', 'bt_daily_work_items', 'bt_material_logs',
   'bt_budget_heads', 'bt_subcontractors', 'bt_ipc', 'bt_ipc_payments', 'bt_qaqc', 'bt_safety',
   'bt_variations_claims', 'bt_risks', 'bt_handover', 'bt_defects', 'bt_finance_rows',
-  'bt_documents', 'bt_procurement_orders', 'bt_store_items', 'bt_contract_obligations',
+  'bt_documents', 'bt_procurement_orders', 'bt_store_items', 'bt_vendors', 'bt_contract_obligations',
   'bt_daily_expenses', 'bt_daily_resource_usage', 'bt_employee_visits', 'bt_employees',
-  'bt_uploaded_documents', 'bt_inventory_events'
+  'bt_uploaded_documents', 'bt_inventory_events', 'bt_notifications'
 ];
+
+const SYNC_LABELS: Record<string, { module: string; action: string }> = {
+  bt_projects_list: { module: 'Projects', action: 'Project list updated' },
+  bt_wbs: { module: 'Schedule', action: 'BOQ/WBS updated' },
+  bt_activities: { module: 'Schedule', action: 'Work programme updated' },
+  bt_dependencies: { module: 'Schedule', action: 'Relationship logic updated' },
+  bt_daily_reports: { module: 'Daily Site Reporting', action: 'Daily report saved' },
+  bt_daily_work_items: { module: 'Daily Site Reporting', action: 'Completed work updated' },
+  bt_material_logs: { module: 'Daily Site Reporting', action: 'Material log updated' },
+  bt_daily_expenses: { module: 'Finance', action: 'Daily expense updated' },
+  bt_ipc: { module: 'Finance', action: 'IPC record updated' },
+  bt_ipc_payments: { module: 'Finance', action: 'IPC payment recorded' },
+  bt_daily_resource_usage: { module: 'Resources', action: 'Resource usage updated' },
+  bt_employee_visits: { module: 'Employees', action: 'Site visit updated' },
+  bt_employees: { module: 'Employees', action: 'Employee record updated' },
+  bt_procurement_orders: { module: 'Procurement', action: 'Procurement record updated' },
+  bt_store_items: { module: 'Inventory', action: 'Store inventory updated' },
+  bt_vendors: { module: 'Procurement', action: 'Vendor register updated' },
+  bt_inventory_events: { module: 'Inventory', action: 'Inventory log updated' },
+  bt_contract_obligations: { module: 'Contracts', action: 'Contract obligation updated' },
+  bt_uploaded_documents: { module: 'Documents', action: 'Document uploaded' },
+  bt_notifications: { module: 'Notifications', action: 'Notification updated' },
+};
+
+function appendNotification(key: string) {
+  if (typeof window === 'undefined' || cloudPullInProgress || key === 'bt_notifications') return;
+  const label = SYNC_LABELS[key];
+  if (!label) return;
+  const projectId = getActiveProjectId();
+  const auth = getLocalItem<{ name?: string } | null>('bt_auth_user', null);
+  const rows = getLocalItem<AppNotification[]>('bt_notifications', []);
+  const last = rows[0];
+  const now = new Date().toISOString();
+  if (last && last.project_id === projectId && last.action === label.action && Date.now() - new Date(last.created_at).getTime() < 1500) return;
+  const next: AppNotification = {
+    id: `note-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    project_id: projectId,
+    actor: auth?.name || 'BuildTrack User',
+    action: label.action,
+    module: label.module,
+    detail: `${label.module} changed in ${storage.getProject()?.name || 'active project'}.`,
+    created_at: now,
+    read: false,
+  };
+  localStorage.setItem('bt_notifications', JSON.stringify([next, ...rows].slice(0, 200)));
+  scheduleCloudSync('bt_notifications');
+}
 
 function scheduleCloudSync(key: string) {
   if (typeof window === 'undefined' || cloudPullInProgress || !CLOUD_SYNC_KEYS.has(key) || !isSupabaseConfigured()) return;
@@ -1293,8 +1377,7 @@ function scheduleCloudSync(key: string) {
 function setLocalItem<T>(key: string, value: T): void {
   if (typeof window !== 'undefined') {
     localStorage.setItem(key, JSON.stringify(value));
-    // UX-5A: business notifications are server-authoritative. Local writes
-    // must never appear as confirmed inbox records or replay to the cloud.
+    appendNotification(key);
     scheduleCloudSync(key);
   }
 }
@@ -1360,6 +1443,7 @@ async function syncLocalKeyToCloud(key: string): Promise<CloudSyncResult> {
     bt_documents: ['document_register', 'bt_documents'],
     bt_procurement_orders: ['procurement_orders', 'bt_procurement_orders'],
     bt_store_items: ['store_items', 'bt_store_items'],
+    bt_vendors: ['vendors', 'bt_vendors'],
     bt_contract_obligations: ['contract_obligations', 'bt_contract_obligations'],
     bt_daily_expenses: ['daily_expenses', 'bt_daily_expenses'],
     bt_daily_resource_usage: ['daily_resource_usage', 'bt_daily_resource_usage'],
@@ -1367,6 +1451,7 @@ async function syncLocalKeyToCloud(key: string): Promise<CloudSyncResult> {
     bt_employees: ['employee_profiles', 'bt_employees'],
     bt_uploaded_documents: ['uploaded_documents', 'bt_uploaded_documents'],
     bt_inventory_events: ['inventory_events', 'bt_inventory_events'],
+    bt_notifications: ['app_notifications', 'bt_notifications']
   };
   if (key === 'bt_projects_list') {
     const project = getLocalItem<any[]>('bt_projects_list', []).find(item => item.id === projectId);
@@ -1403,18 +1488,6 @@ async function syncLocalKeyToCloud(key: string): Promise<CloudSyncResult> {
   return upsertCloudRows(table, rows);
 }
 
-async function syncDailyWorkMutationToCloud(mutation: DurableMutation): Promise<CloudSyncResult> {
-  const session = await storage.getAuthSession();
-  const payload = mutation.payload as { report?: Record<string, unknown>; workItems?: Array<Record<string, unknown>>; materialItems?: Array<Record<string, unknown>> };
-  if (!session?.access_token) return { ok: false, message: 'Sign in again to synchronize this daily work update.' };
-  const response = await fetch('/api/site-work', {
-    method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ projectId: mutation.projectId, operationId: mutation.id, report: payload.report, workItems: payload.workItems || [], materialItems: payload.materialItems || [] }),
-  });
-  const data = await response.json().catch(() => ({}));
-  return response.ok ? { ok: true } : { ok: false, message: String(data.error || 'Daily work cloud confirmation was not received.') };
-}
-
 function cloudPullMappings(): Array<[string, string]> {
   return [
     ['wbs_items', 'bt_wbs'],
@@ -1438,6 +1511,7 @@ function cloudPullMappings(): Array<[string, string]> {
     ['document_register', 'bt_documents'],
     ['procurement_orders', 'bt_procurement_orders'],
     ['store_items', 'bt_store_items'],
+    ['vendors', 'bt_vendors'],
     ['contract_obligations', 'bt_contract_obligations'],
     ['daily_expenses', 'bt_daily_expenses'],
     ['daily_resource_usage', 'bt_daily_resource_usage'],
@@ -1445,6 +1519,7 @@ function cloudPullMappings(): Array<[string, string]> {
     ['employee_profiles', 'bt_employees'],
     ['uploaded_documents', 'bt_uploaded_documents'],
     ['inventory_events', 'bt_inventory_events'],
+    ['app_notifications', 'bt_notifications'],
     ['site_photos', 'bt_site_photos'],
   ];
 }
@@ -1568,7 +1643,7 @@ export const storage = {
     localStorage.setItem('bt_project_memberships', JSON.stringify(memberships));
     const activeProjectId = localStorage.getItem('bt_active_project_id');
     const profile = memberships.find(item => item.project_id === activeProjectId) || memberships[0];
-    return { name: profile.name, email: profile.email, role: normalizeRole(profile.role), feature_permissions: profile.feature_permissions || null };
+    return { name: profile.name, email: profile.email, role: profile.role, feature_permissions: profile.feature_permissions || null };
   },
 
   getVerifiedLocalDemoUser,
@@ -1646,6 +1721,7 @@ export const storage = {
     const loginEmail = resolveLoginIdentifier(email);
     const client = getSupabaseClient();
     if (!client) {
+      if (process.env.NODE_ENV !== 'development') throw new Error('Cloud authentication is not configured.');
       return signInWithLocalFallback(loginEmail, password);
     }
     try {
@@ -1679,7 +1755,6 @@ export const storage = {
         session: data.session
       };
     } catch (error) {
-      if (LOCAL_DEMO_EMAILS.has(loginEmail)) return signInWithLocalFallback(loginEmail, password);
       if (error instanceof Error) throw error;
       throw new Error(isNetworkLikeError(error) ? 'The cloud workspace is temporarily unreachable.' : 'Sign-in failed.');
     }
@@ -1745,7 +1820,7 @@ export const storage = {
           .maybeSingle()
           .then(async ({ data: profile }) => {
             if (profile) {
-              callback({ name: profile.name, email: profile.email, role: normalizeRole(profile.role), feature_permissions: profile.feature_permissions || null });
+              callback({ name: profile.name, email: profile.email, role: profile.role, feature_permissions: profile.feature_permissions || null });
               return;
             }
             const { data: platformAdmin } = await client
@@ -1907,7 +1982,8 @@ export const storage = {
         email: sourceMembership.email,
         name: sourceMembership.name,
         role: sourceMembership.role,
-        feature_permissions: sourceMembership.feature_permissions || {},
+        // New-project bootstrap cannot copy authorization overrides onto oneself.
+        feature_permissions: {},
       });
       if (directoryError) {
         await client.from('projects').delete().eq('id', newProject.id);
@@ -1916,7 +1992,7 @@ export const storage = {
       const memberships = storage.getProjectMemberships();
       localStorage.setItem('bt_project_memberships', JSON.stringify([
         ...memberships,
-        { id: `${newProject.id}-${session.user.id}`, auth_user_id: session.user.id, project_id: newProject.id, ...sourceMembership },
+        { id: `${newProject.id}-${session.user.id}`, auth_user_id: session.user.id, project_id: newProject.id, ...sourceMembership, feature_permissions: {} },
       ]));
     }
     list.push(newProject);
@@ -2022,12 +2098,13 @@ export const storage = {
       }
       let sync: CloudSyncResult = { ok: true };
       if (mutation.kind === 'daily_work_update') {
-        // The protected server endpoint confirms daily work and emits its
-        // workflow event only after that confirmed mutation. Activity timing
-        // remains the existing derived local calculation and is synchronized
-        // afterwards without becoming a separate notification source.
-        sync = await syncDailyWorkMutationToCloud(mutation);
-        if (sync.ok) sync = await syncLocalKeyToCloud('bt_activities');
+        // The stable report ID and Supabase upserts make retries idempotent.
+        // Keep the mutation unacknowledged until every related row has a
+        // positive cloud response; no local state is claimed as confirmed.
+        for (const key of ['bt_daily_reports', 'bt_daily_work_items', 'bt_material_logs', 'bt_activities']) {
+          sync = await syncLocalKeyToCloud(key);
+          if (!sync.ok) break;
+        }
       } else if (mutation.kind === 'project_collection_sync') {
         const localKey = String(mutation.payload.localKey || mutation.targetId);
         sync = await syncLocalKeyToCloud(localKey);
@@ -2117,7 +2194,7 @@ export const storage = {
       'bt_daily_work_items','bt_material_logs','bt_budget_heads','bt_subcontractors','bt_ipc','bt_ipc_payments','bt_qaqc','bt_safety',
       'bt_variations_claims','bt_risks','bt_handover','bt_defects','bt_documents','bt_procurement_orders',
       'bt_store_items','bt_contract_obligations','bt_site_photos','bt_daily_expenses','bt_daily_resource_usage',
-      'bt_employee_visits','bt_employees','bt_uploaded_documents','bt_inventory_events'
+      'bt_employee_visits','bt_employees','bt_uploaded_documents','bt_inventory_events','bt_notifications'
     ].forEach(key => {
       const rows = getLocalItem<any[]>(key, []);
       if (Array.isArray(rows)) setLocalItem(key, rows.filter(row => row.project_id !== projectId));
@@ -2166,14 +2243,6 @@ export const storage = {
     const projId = getActiveProjectId();
     const list = getLocalItem('bt_wbs', MOCK_WBS);
     return list.filter(w => w.project_id === projId);
-  },
-
-  setWbsRaw: (items: WbsItem[]) => {
-    const projId = getActiveProjectId();
-    const allItems = getLocalItem<WbsItem[]>('bt_wbs', MOCK_WBS);
-    const remaining = allItems.filter(item => item.project_id !== projId);
-    const formatted = items.map(item => ({ ...item, project_id: projId }));
-    setLocalItem('bt_wbs', [...remaining, ...formatted]);
   },
 
   // 4. Activities (filtered by project)
@@ -2253,17 +2322,6 @@ export const storage = {
     return newActivity;
   },
 
-  // Bulk set WBS activities (useful for AI tender scans)
-  setActivitiesRaw: (newActs: Activity[]) => {
-    const projId = getActiveProjectId();
-    const allActs = getLocalItem('bt_activities', MOCK_ACTIVITIES);
-    // Clear items for active project and add new ones
-    const filtered = allActs.filter(a => a.project_id !== projId);
-    const formatted = newActs.map(a => ({ ...a, project_id: projId }));
-    setLocalItem('bt_activities', [...filtered, ...formatted]);
-    storage.recalculateSchedule();
-  },
-
   // 5. Dependencies (filtered by project)
   getDependencies: (): Dependency[] => {
     const projId = getActiveProjectId();
@@ -2274,6 +2332,11 @@ export const storage = {
   addDependency: (dep: any) => {
     const projId = getActiveProjectId();
     const deps = getLocalItem('bt_dependencies', MOCK_DEPENDENCIES);
+    const existingForProject = deps.filter((d: Dependency) => d.project_id === projId);
+    const check = validateDependency(existingForProject, dep);
+    if (!check.valid) {
+      throw new Error(check.reason || 'Invalid dependency relationship.');
+    }
     const newDep = { id: `dep-${Date.now()}`, project_id: projId, ...dep };
     deps.push(newDep);
     setLocalItem('bt_dependencies', deps);
@@ -2292,28 +2355,71 @@ export const storage = {
     storage.recalculateSchedule();
   },
 
-  // Bulk set dependencies (AI scans)
-  setDependenciesRaw: (newDeps: Dependency[]) => {
-    const projId = getActiveProjectId();
-    const allDeps = getLocalItem('bt_dependencies', MOCK_DEPENDENCIES);
-    const filtered = allDeps.filter(d => d.project_id !== projId);
-    const formatted = newDeps.map(d => ({ ...d, project_id: projId }));
-    setLocalItem('bt_dependencies', [...filtered, ...formatted]);
-    storage.recalculateSchedule();
-  },
+  /**
+   * Safe BOQ import boundary. It is merge-only: no missing WBS item, activity,
+   * dependency, daily report, or linked field record is ever deleted.
+   */
+  importBoqSchedule: async (input: { projectId: string; wbs: WbsItem[]; activities: Activity[]; dependencies: Dependency[] }): Promise<BoqImportResult> => {
+    const reject = (message: string): BoqImportResult => ({
+      ok: false, counts: { created: 0, updated: 0, unchanged: 0, conflicted: 0, rejected: 1 },
+      issues: [{ code: 'IMPORT_REJECTED', entity: 'activity', message }],
+      wbs: storage.getWBS(), activities: storage.getActivities(), dependencies: storage.getDependencies(),
+    });
+    const projectId = input.projectId?.trim();
+    if (!projectId || projectId !== getActiveProjectId()) return reject('The BOQ import project does not match the active project.');
+    const client = getSupabaseClient();
+    let accessToken = '';
+    let existing: { wbs: WbsItem[]; activities: Activity[]; dependencies: Dependency[] } = { wbs: storage.getWBS(), activities: storage.getActivities(), dependencies: storage.getDependencies() };
 
-  applyGeneratedSchedule: (items: WbsItem[], activities: Activity[], dependencies: Dependency[]) => {
-    const projectId = getActiveProjectId();
-    const allWbs = getLocalItem<WbsItem[]>('bt_wbs', MOCK_WBS);
-    const allActivities = getLocalItem<any[]>('bt_activities', MOCK_ACTIVITIES);
-    const allDependencies = getLocalItem<Dependency[]>('bt_dependencies', MOCK_DEPENDENCIES);
-    const merged = mergeBoqSchedule({ projectId, wbs: items as unknown as import('./boqSafety').BoqRow[], activities: activities as unknown as import('./boqSafety').BoqRow[], dependencies: dependencies as unknown as import('./boqSafety').DependencyRow[], existingWbs: allWbs.filter(row => row.project_id === projectId) as unknown as import('./boqSafety').BoqRow[], existingActivities: allActivities.filter(row => row.project_id === projectId) as import('./boqSafety').BoqRow[], existingDependencies: allDependencies.filter(row => row.project_id === projectId) as unknown as import('./boqSafety').DependencyRow[] });
-    if (!merged.ok) return merged;
-    setLocalItem('bt_wbs', [...allWbs.filter(row => row.project_id !== projectId), ...merged.wbs] as WbsItem[]);
-    setLocalItem('bt_activities', [...allActivities.filter(row => row.project_id !== projectId), ...merged.activities]);
-    setLocalItem('bt_dependencies', [...allDependencies.filter(row => row.project_id !== projectId), ...merged.dependencies] as Dependency[]);
+    if (client) {
+      const { data: { session } } = await client.auth.getSession();
+      if (!session?.user) return reject('Sign in before importing BOQ work.');
+      accessToken = session.access_token;
+      const [{ data: project, error: projectError }, { data: membership, error: membershipError }] = await Promise.all([
+        client.from('projects').select('id,organization_id').eq('id', projectId).maybeSingle(),
+        client.from('project_users').select('project_id,auth_user_id,role,feature_permissions').eq('project_id', projectId).eq('auth_user_id', session.user.id).maybeSingle(),
+      ]);
+      if (projectError || !project) return reject('The selected project is unavailable or belongs to another organization.');
+      if (membershipError || !membership || !can(membership.role, 'schedule', membership.feature_permissions as FeaturePermissions, 'write')) return reject('You are not authorized to manage BOQ and work schedule data for this project.');
+      const [wbsResult, activityResult, dependencyResult] = await Promise.all([
+        client.from('wbs_items').select('*').eq('project_id', projectId),
+        client.from('activities').select('*').eq('project_id', projectId),
+        client.from('activity_dependencies').select('*').eq('project_id', projectId),
+      ]);
+      if (wbsResult.error || activityResult.error || dependencyResult.error) return reject(`Could not validate the current BOQ schedule: ${(wbsResult.error || activityResult.error || dependencyResult.error)?.message}`);
+      existing = { wbs: (wbsResult.data || []) as WbsItem[], activities: (activityResult.data || []) as Activity[], dependencies: (dependencyResult.data || []) as Dependency[] };
+    } else {
+      // Local-only operation is intentionally limited to the active local
+      // workspace. A cloud-connected project always verifies the real actor.
+      const localUser = await storage.getVerifiedLocalDemoUser();
+      if (!localUser || !['project_director', 'project_manager', 'planning_engineer'].includes(localUser.role) || !can(localUser.role, 'schedule', undefined, 'write')) return reject('An authorized local user is required to import BOQ work.');
+    }
+
+    const plan = prepareSafeBoqImport(existing, { projectId, wbs: input.wbs, activities: input.activities, dependencies: input.dependencies });
+    if (!plan.ok) return plan;
+    if (client) {
+      // The server repeats authorization and planning against the authoritative
+      // tenant snapshot before it performs its merge-only upserts.
+      const response = await fetch('/api/boq/import', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ projectId, wbs: input.wbs, activities: input.activities, dependencies: input.dependencies }),
+      });
+      const serverPlan = await response.json().catch(() => null) as BoqImportResult | { message?: string } | null;
+      if (!response.ok || !serverPlan || !('ok' in serverPlan) || !serverPlan.ok) {
+        const message = serverPlan && 'message' in serverPlan ? serverPlan.message : undefined;
+        return { ...plan, ok: false, counts: { ...plan.counts, rejected: plan.counts.rejected + 1 }, issues: [...plan.issues, { code: 'PERSISTENCE_FAILURE', entity: 'activity', message: message || 'BOQ import could not be persisted.' }] };
+      }
+      existing = { wbs: serverPlan.wbs, activities: serverPlan.activities, dependencies: serverPlan.dependencies };
+    }
+    const committedPlan = client ? { ...plan, ...existing } : plan;
+    const allWbs: WbsItem[] = getLocalItem<WbsItem[]>('bt_wbs', MOCK_WBS).filter(item => item.project_id !== projectId);
+    const allActivities = getLocalItem<any[]>('bt_activities', MOCK_ACTIVITIES).filter(item => item.project_id !== projectId);
+    const allDependencies = getLocalItem<any[]>('bt_dependencies', MOCK_DEPENDENCIES).filter(item => item.project_id !== projectId);
+    setLocalItem('bt_wbs', [...allWbs, ...committedPlan.wbs.map(item => ({ ...item, project_id: projectId }))]);
+    setLocalItem('bt_activities', [...allActivities, ...committedPlan.activities.map(item => ({ ...item, project_id: projectId }))]);
+    setLocalItem('bt_dependencies', [...allDependencies, ...committedPlan.dependencies.map(item => ({ ...item, project_id: projectId }))]);
     storage.recalculateSchedule();
-    return merged;
+    return committedPlan;
   },
 
   // CPM auto schedule re-trigger
@@ -2443,12 +2549,8 @@ export const storage = {
     return newReport;
   },
   deleteDailyReport: async (reportId: string) => {
-    const client = getSupabaseClient();
-    const session = client ? await storage.getAuthSession() : null;
-    if (client && session) {
-      const { error } = await client.from('daily_reports').delete().eq('id', reportId);
-      if (error) throw new Error(error.message);
-    }
+    const projectId = getActiveProjectId();
+    storage.enqueueDailyReportDeletion(reportId, projectId);
     const reports = getLocalItem<any[]>('bt_daily_reports', MOCK_DAILY_REPORTS);
     const remaining = reports.filter(r => r.id !== reportId);
     setLocalItem('bt_daily_reports', remaining);
@@ -2462,6 +2564,8 @@ export const storage = {
     setLocalItem('bt_material_logs', filteredMats);
 
     storage.recalculateSchedule();
+    const sync = await storage.flushDurableMutations(projectId);
+    if (!sync.ok) throw new Error(sync.message);
   },
 
   // 8. Cost & Budget (filtered by project)
@@ -2513,7 +2617,6 @@ export const storage = {
   submitIPC: (ipc: any) => {
     const projId = getActiveProjectId();
     const ipcs = getLocalItem('bt_ipc', MOCK_IPC);
-    const claimedAmount = roundMoney(Number(ipc.claimed_amount));
     const newIpc = {
       id: ipc.id || `ipc-${Date.now()}`,
       project_id: projId,
@@ -2524,9 +2627,8 @@ export const storage = {
       certified_date: null,
       retention_deducted: 0,
       advance_recovered: 0,
-      vat_amount: claimedAmount * 0.13,
-      ...ipc,
-      claimed_amount: claimedAmount,
+      vat_amount: ipc.claimed_amount * 0.13,
+      ...ipc
     };
     ipcs.push(newIpc);
     setLocalItem('bt_ipc', ipcs);
@@ -2555,14 +2657,7 @@ export const storage = {
       const details = typeof certification === 'number'
         ? { certified_amount: certification, retention_deducted: legacyRetention, advance_recovered: legacyAdvance }
         : certification;
-      const certifiedAmount = roundMoney(Number(details.certified_amount));
-      const retentionAmount = roundMoney(Number(details.retention_deducted));
-      const advanceAmount = roundMoney(Number(details.advance_recovered));
-      if (retentionAmount + advanceAmount > certifiedAmount) throw new Error('IPC deductions cannot exceed the certified amount.');
       ipcs[idx] = { ...ipcs[idx], ...details };
-      ipcs[idx].certified_amount = certifiedAmount;
-      ipcs[idx].retention_deducted = retentionAmount;
-      ipcs[idx].advance_recovered = advanceAmount;
       ipcs[idx].status = 'certified';
       ipcs[idx].certified_date = details.certified_date || new Date().toISOString().split('T')[0];
       setLocalItem('bt_ipc', ipcs);
@@ -2575,11 +2670,8 @@ export const storage = {
     const ipcs = getLocalItem('bt_ipc', MOCK_IPC);
     const idx = ipcs.findIndex(i => i.id === id);
     if (idx !== -1) {
-      const paid = roundMoney(paidAmount);
-      const netPayable = calculateIpcNetPayable(ipcs[idx]);
-      if (paid > netPayable) throw new Error('Payment cannot exceed the net certified amount.');
-      ipcs[idx].paid_amount = paid;
-      ipcs[idx].status = paid >= netPayable ? 'paid' : 'partially_paid';
+      ipcs[idx].paid_amount = paidAmount;
+      ipcs[idx].status = paidAmount >= ipcs[idx].certified_amount ? 'paid' : 'partially_paid';
       ipcs[idx].paid_date = new Date().toISOString().split('T')[0];
       setLocalItem('bt_ipc', ipcs);
     }
@@ -2590,13 +2682,7 @@ export const storage = {
     proof?: File | null,
   ) => {
     const projectId = getActiveProjectId();
-    const amount = roundMoney(Number(payment.amount));
-    const taxDeducted = roundMoney(Number(payment.tax_deducted));
     const id = payment.id || `ipc-payment-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const ipcs = getLocalItem<IpcEntry[]>('bt_ipc', MOCK_IPC);
-    const sourceIpc = ipcs.find(item => item.id === payment.ipc_id && item.project_id === projectId);
-    if (!sourceIpc) throw new Error('IPC payment must belong to the active project.');
-    if (amount <= 0 || amount > calculateIpcOutstanding(sourceIpc)) throw new Error('Payment amount must be positive and cannot exceed the remaining net certified amount.');
     let proof_storage_path = '';
     let proof_url = '';
     if (proof) {
@@ -2612,8 +2698,6 @@ export const storage = {
     }
     const record: IpcPayment = {
       ...payment,
-      amount,
-      tax_deducted: taxDeducted,
       id,
       project_id: projectId,
       proof_storage_path,
@@ -2626,10 +2710,11 @@ export const storage = {
     else rows.push(record);
     setLocalItem('bt_ipc_payments', rows);
 
+    const ipcs = getLocalItem<IpcEntry[]>('bt_ipc', MOCK_IPC);
     const ipcIndex = ipcs.findIndex(item => item.id === payment.ipc_id);
     if (ipcIndex >= 0) {
-      const totalPaid = sumAmounts(rows.filter(item => item.ipc_id === payment.ipc_id), 'amount');
-      const netPayable = calculateIpcNetPayable(ipcs[ipcIndex]);
+      const totalPaid = rows.filter(item => item.ipc_id === payment.ipc_id).reduce((sum, item) => sum + Number(item.amount || 0), 0);
+      const netPayable = Math.max(0, Number(ipcs[ipcIndex].certified_amount || 0) - Number(ipcs[ipcIndex].retention_deducted || 0) - Number(ipcs[ipcIndex].advance_recovered || 0));
       ipcs[ipcIndex] = {
         ...ipcs[ipcIndex],
         paid_amount: totalPaid,
@@ -2834,12 +2919,12 @@ export const storage = {
 
   getProcurementOrders: (): ProcurementOrder[] => {
     const projectId = getActiveProjectId();
-    return getLocalItem<ProcurementOrder[]>('bt_procurement_orders', []).filter(item => item.project_id === projectId);
+    return getLocalItem<ProcurementOrder[]>('bt_procurement_orders', DEMO_PROCUREMENT).filter(item => item.project_id === projectId);
   },
 
   saveProcurementOrder: (order: Omit<ProcurementOrder, 'id' | 'project_id'> & { id?: string }) => {
     const projectId = getActiveProjectId();
-    const orders = getLocalItem<ProcurementOrder[]>('bt_procurement_orders', []);
+    const orders = getLocalItem<ProcurementOrder[]>('bt_procurement_orders', DEMO_PROCUREMENT);
     const record = { ...order, id: order.id || `po-${Date.now()}`, project_id: projectId } as ProcurementOrder;
     const index = orders.findIndex(item => item.id === record.id);
     if (index >= 0) orders[index] = record;
@@ -2848,20 +2933,54 @@ export const storage = {
     return record;
   },
 
+  deleteProcurementOrder: (id: string) => {
+    const orders = getLocalItem<ProcurementOrder[]>('bt_procurement_orders', DEMO_PROCUREMENT);
+    const next = orders.filter(item => item.id !== id);
+    setLocalItem('bt_procurement_orders', next);
+  },
+
   getStoreItems: (): StoreItem[] => {
     const projectId = getActiveProjectId();
-    return getLocalItem<StoreItem[]>('bt_store_items', []).filter(item => item.project_id === projectId);
+    return getLocalItem<StoreItem[]>('bt_store_items', DEMO_STORE_ITEMS).filter(item => item.project_id === projectId);
   },
 
   saveStoreItem: (item: Omit<StoreItem, 'id' | 'project_id'> & { id?: string }) => {
     const projectId = getActiveProjectId();
-    const items = getLocalItem<StoreItem[]>('bt_store_items', []);
+    const items = getLocalItem<StoreItem[]>('bt_store_items', DEMO_STORE_ITEMS);
     const record = { ...item, id: item.id || `store-${Date.now()}`, project_id: projectId } as StoreItem;
     const index = items.findIndex(existing => existing.id === record.id);
     if (index >= 0) items[index] = record;
     else items.push(record);
     setLocalItem('bt_store_items', items);
     return record;
+  },
+
+  deleteStoreItem: (id: string) => {
+    const items = getLocalItem<StoreItem[]>('bt_store_items', DEMO_STORE_ITEMS);
+    const next = items.filter(item => item.id !== id);
+    setLocalItem('bt_store_items', next);
+  },
+
+  getVendors: (): Vendor[] => {
+    const projectId = getActiveProjectId();
+    return getLocalItem<Vendor[]>('bt_vendors', DEMO_VENDORS).filter(item => !item.project_id || item.project_id === projectId);
+  },
+
+  saveVendor: (vendor: Omit<Vendor, 'id' | 'project_id'> & { id?: string }) => {
+    const projectId = getActiveProjectId();
+    const vendors = getLocalItem<Vendor[]>('bt_vendors', DEMO_VENDORS);
+    const record = { ...vendor, id: vendor.id || `ven-${Date.now()}`, project_id: projectId } as Vendor;
+    const index = vendors.findIndex(existing => existing.id === record.id);
+    if (index >= 0) vendors[index] = record;
+    else vendors.push(record);
+    setLocalItem('bt_vendors', vendors);
+    return record;
+  },
+
+  deleteVendor: (id: string) => {
+    const vendors = getLocalItem<Vendor[]>('bt_vendors', DEMO_VENDORS);
+    const next = vendors.filter(item => item.id !== id);
+    setLocalItem('bt_vendors', next);
   },
 
   getContractObligations: (): ContractObligation[] => {
@@ -2918,6 +3037,28 @@ export const storage = {
     setLocalItem('bt_daily_expenses', expenses);
     void upsertCloudRow('daily_expenses', record as unknown as Record<string, unknown>);
     return record;
+  },
+
+  getNotifications: (limit = 20): AppNotification[] => {
+    const projectId = getActiveProjectId();
+    return getLocalItem<AppNotification[]>('bt_notifications', [])
+      .filter(item => !item.project_id || item.project_id === projectId)
+      .slice(0, limit);
+  },
+
+  getAllNotifications: (limit = 50): AppNotification[] => {
+    return getLocalItem<AppNotification[]>('bt_notifications', []).slice(0, limit);
+  },
+
+  markNotificationsRead: () => {
+    const projectId = getActiveProjectId();
+    const rows = getLocalItem<AppNotification[]>('bt_notifications', []);
+    setLocalItem('bt_notifications', rows.map(item => item.project_id === projectId ? { ...item, read: true } : item));
+  },
+
+  markAllNotificationsRead: () => {
+    const rows = getLocalItem<AppNotification[]>('bt_notifications', []);
+    setLocalItem('bt_notifications', rows.map(item => ({ ...item, read: true })));
   },
 
   getUploadedDocuments: (): UploadedDocument[] => {
@@ -3086,27 +3227,10 @@ export const storage = {
   },
 
   getSitePhotosForRole: async (role: string, reportId?: string): Promise<SitePhoto[]> => {
-    if (!can(role, 'view_evidence')) return [];
+    if (role !== 'project_director') return [];
     const photos = storage.getSitePhotos(reportId);
     const client = getSupabaseClient();
     if (!client) return photos;
-    const session = await storage.getAuthSession();
-    if (session) {
-      try {
-        const response = await fetch(`/api/evidence?projectId=${encodeURIComponent(getActiveProjectId())}`, {
-          headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store',
-        });
-        const data = await response.json().catch(() => ({}));
-        if (response.ok) {
-          const cloudPhotos = (data.photos || []) as SitePhoto[];
-          storage.saveSitePhotos(cloudPhotos);
-          return reportId ? cloudPhotos.filter(photo => photo.daily_report_id === reportId) : cloudPhotos;
-        }
-        if (response.status === 401 || response.status === 403) return [];
-      } catch (error) {
-        if (!isNetworkLikeError(error)) throw error;
-      }
-    }
     return Promise.all(photos.map(async photo => {
       if (!photo.storage_path) return photo;
       if (photo.storage_path.startsWith('google-drive:')) return photo;
@@ -3127,31 +3251,11 @@ export const storage = {
       throw new Error('Choose a daily report from the active project before uploading evidence.');
     }
     if (file.size <= 0) throw new Error('Choose a non-empty image file.');
-    if (file.size > 6 * 1024 * 1024) throw new Error('Site evidence images must be 6 MB or smaller.');
+    if (file.size > 10 * 1024 * 1024) throw new Error('Site evidence images must be 10 MB or smaller.');
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
       throw new Error('Site evidence must be a JPG, PNG, or WebP image.');
     }
     const client = getSupabaseClient();
-    const session = client ? await storage.getAuthSession() : null;
-    if (client && session) {
-      try {
-        const form = new FormData();
-        form.append('projectId', projectId);
-        form.append('reportId', reportId);
-        form.append('file', file);
-        form.append('caption', caption);
-        form.append('evidenceType', evidenceType);
-        const response = await fetch('/api/evidence', { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` }, body: form });
-        const data = await response.json().catch(() => ({}));
-        if (response.ok && data.photo) {
-          storage.saveSitePhotos([data.photo]);
-          return data.photo as SitePhoto;
-        }
-        if (response.status !== 503) throw new Error(data.error || 'Evidence image could not be saved.');
-      } catch (error) {
-        if (!isNetworkLikeError(error)) throw error;
-      }
-    }
     let url = '';
     let storagePath = '';
     try {
@@ -3216,12 +3320,13 @@ export const storage = {
     return photo;
   },
 
-  syncActiveProjectToCloud: async () => {
+  syncActiveProjectToCloud: async (expectedProjectId?: string) => {
     const client = getSupabaseClient();
     if (!client) return { ok: false, message: 'Supabase is not configured.' };
     const session = await storage.getAuthSession();
     if (!session) return { ok: false, message: 'Sign in to Supabase before synchronizing.' };
     const projectId = getActiveProjectId();
+    if (expectedProjectId && expectedProjectId !== projectId) return { ok: false, message: 'Active project changed before cloud synchronization.' };
     const project = storage.getProject();
     const currentProfile = await storage.getCurrentAuthUser();
     const signedInUser = currentProfile || {
@@ -3242,7 +3347,8 @@ export const storage = {
       ['activity_dependencies', storage.getDependencies()],
       ['design_packages', designPackages],
       ['design_comments', designComments],
-      ['daily_reports', reports],
+      // Daily reports are revisioned and must travel through the server
+      // compare-and-set command, never this legacy collection synchronizer.
       ['daily_work_items', reports.flatMap((report: any) => storage.getDailyWorkItems(report.id)).map((item: any) => ({ ...item, project_id: projectId }))],
       ['material_logs', reports.flatMap((report: any) => storage.getDailyMaterialLogs(report.id)).map((item: any) => ({ ...item, project_id: projectId }))],
       ['budget_heads', storage.getBudgetHeads()],
@@ -3265,6 +3371,7 @@ export const storage = {
       ['employee_profiles', storage.getEmployees()],
       ['uploaded_documents', storage.getUploadedDocuments()],
       ['inventory_events', storage.getInventoryEvents()],
+      ['app_notifications', storage.getNotifications(200)],
       ['finance_rows', storage.getFinanceRows().map(row => ({
         id: row.id, project_id: projectId, row_key: row.id, name: row.name,
         category: row.category, monthly_values: row.values

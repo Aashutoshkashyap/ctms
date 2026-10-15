@@ -1,0 +1,4 @@
+-- Phase 1K read-only preflight. Run before supabase_phase1k_payroll.sql.
+select to_regclass('public.employee_payroll_configurations') as employee_payroll_configurations, to_regclass('public.payroll_periods') as payroll_periods, to_regclass('public.payroll_inputs') as payroll_inputs, to_regclass('public.payroll_results') as payroll_results;
+select table_name, column_name, data_type, is_nullable from information_schema.columns where table_schema='public' and table_name in ('employee_records','employee_leave_records','employee_payroll_configurations','payroll_periods','payroll_inputs','payroll_results') order by table_name, ordinal_position;
+select tablename, policyname, cmd, roles from pg_policies where schemaname='public' and tablename in ('employee_payroll_configurations','payroll_periods','payroll_inputs','payroll_results') order by tablename, policyname;

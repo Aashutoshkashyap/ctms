@@ -21,6 +21,10 @@ export const DEMO_SESSION_MAX_AGE_SECONDS = 8 * 60 * 60;
 
 const buckets = new Map<string, { count: number; resetAt: number }>();
 
+export function demoAuthEnabled() {
+  return process.env.NODE_ENV === 'development' && !process.env.NEXT_PUBLIC_SUPABASE_URL;
+}
+
 function toBase64Url(value: string | Uint8Array) {
   const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
   return Buffer.from(bytes).toString('base64url');
@@ -59,6 +63,7 @@ function constantTimeEqual(left: string, right: string) {
 }
 
 export async function createDemoSession(user: DemoSessionUser) {
+  if (!demoAuthEnabled()) throw new Error('Local demo authentication is disabled.');
   const secret = getSessionSecret();
   if (!secret) throw new Error('Demo session signing is not configured.');
   const payload: DemoSessionPayload = {
@@ -70,6 +75,7 @@ export async function createDemoSession(user: DemoSessionUser) {
 }
 
 export async function readDemoSession(value?: string | null): Promise<DemoSessionUser | null> {
+  if (!demoAuthEnabled()) return null;
   if (!value) return null;
   const secret = getSessionSecret();
   if (!secret) return null;

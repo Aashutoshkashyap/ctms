@@ -1,18 +1,22 @@
 // AI Core and OpenRouter Integration Services
 import { Activity, Dependency, addDays } from './cpm';
 import type { WbsItem } from './storage';
+import { storage } from './storage';
+import type { AiUseCase } from './aiAuthorization';
 
 export const isAICapable = () => {
   return typeof window !== 'undefined';
 };
 
 // Generic chat request through a server Route Handler so API keys never enter the browser bundle.
-async function askAI(prompt: string, systemPrompt: string = 'You are a professional construction project manager specializing in public procurement and Design & Build contracts.'): Promise<string> {
+async function askAI(prompt: string, systemPrompt: string, useCase: AiUseCase): Promise<string> {
   try {
+    const session = await storage.getAuthSession();
+    if (!session) throw new Error('Sign in to the cloud workspace to use AI.');
     const res = await fetch('/api/ai', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, systemPrompt })
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ prompt, systemPrompt, projectId: storage.getProject().id, useCase })
     });
     
     if (!res.ok) {
@@ -82,7 +86,7 @@ Output ONLY a raw valid JSON object without markdown fences, matching this TypeS
 
   if (isAICapable()) {
     try {
-      const responseText = await askAI(prompt, systemPrompt);
+      const responseText = await askAI(prompt, systemPrompt, 'daily_report');
       // Clean potential JSON fences
       const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
       return JSON.parse(cleanJson) as ParsedDailyLog;
@@ -205,7 +209,7 @@ Output ONLY a raw valid JSON object without markdown fences, matching this TypeS
 
   if (isAICapable()) {
     try {
-      const responseText = await askAI(prompt, systemPrompt);
+      const responseText = await askAI(prompt, systemPrompt, 'delay');
       const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
       return JSON.parse(cleanJson) as DelayAnalysisResult;
     } catch (e) {
@@ -295,7 +299,7 @@ Suggest a recovery plan to compress the remaining schedule. Provide concrete act
 
   if (isAICapable()) {
     try {
-      return await askAI(prompt, 'You are an expert scheduler. Suggest schedule compression (crashing/fast-tracking) techniques.');
+      return await askAI(prompt, 'You are an expert scheduler. Suggest schedule compression (crashing/fast-tracking) techniques.', 'recovery');
     } catch (e) {
       return getRecoveryPlanHeuristics(delayDays, criticalPathActivities);
     }
@@ -360,7 +364,7 @@ Include standard formal letter format:
 
   if (isAICapable()) {
     try {
-      return await askAI(prompt, 'You are a professional legal expert in FIDIC Yellow Book contract templates. Write a formal letter.');
+      return await askAI(prompt, 'You are a professional legal expert in FIDIC Yellow Book contract templates. Write a formal letter.', 'claim');
     } catch (e) {
       return draftClaimLetterHeuristics(claimRef, eventName, clauseRef, delayDays, costImpact);
     }
@@ -445,7 +449,7 @@ Provide a summary describing the project physical and financial status, the main
 
   if (isAICapable()) {
     try {
-      return await askAI(prompt, 'You are an executive writer. Summarize construction project monthly highlights.');
+      return await askAI(prompt, 'You are an executive writer. Summarize construction project monthly highlights.', 'summary');
     } catch (e) {
       return getMonthlySummaryHeuristics(projectName, plannedProgress, actualProgress, spi, cpi, activeRisksCount, delayDays);
     }
@@ -524,7 +528,7 @@ Output ONLY a raw valid JSON object without markdown fences, matching this TypeS
 
   if (isAICapable()) {
     try {
-      const responseText = await askAI(prompt, systemPrompt);
+      const responseText = await askAI(prompt, systemPrompt, 'tender');
       const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
       const parsed = JSON.parse(cleanJson) as { activities: Activity[]; dependencies: Dependency[] };
       return { ...parsed, wbsItems: deriveWbsItems(parsed.activities) };

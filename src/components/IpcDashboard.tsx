@@ -3,7 +3,7 @@ import { IpcEntry, IpcPayment, storage } from '../lib/storage';
 import BsDatePicker from './BsDatePicker';
 import { formatBsDate, todayAdDate } from '../lib/nepaliDate';
 import UploadProgress from './UploadProgress';
-import { calculateIpcFinancialSummary, calculateIpcOutstanding } from '../lib/financialMetrics';
+import { calculateProjectFinancials } from '../lib/projectMetrics';
 
 interface Props {
   ipcSubmissions: IpcEntry[];
@@ -40,7 +40,7 @@ export default function IpcDashboard({ ipcSubmissions, userRole, userName, userE
   const canSubmit = ['project_director', 'project_manager', 'qs_billing_engineer'].includes(userRole);
   const canCertify = userRole === 'project_director';
   const canPay = ['project_director', 'accountant'].includes(userRole);
-  const totals = useMemo(() => calculateIpcFinancialSummary(ipcSubmissions), [ipcSubmissions]);
+  const totals = useMemo(() => calculateProjectFinancials({ ipcSubmissions, ipcPayments: payments }), [ipcSubmissions, payments]);
 
   const submitClaim = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -88,7 +88,7 @@ export default function IpcDashboard({ ipcSubmissions, userRole, userName, userE
   };
 
   const beginPayment = (ipc: IpcEntry) => {
-    const outstanding = calculateIpcOutstanding(ipc);
+    const outstanding = calculateProjectFinancials({ ipcSubmissions: [ipc], ipcPayments: payments.filter(item => item.ipc_id === ipc.id) }).outstandingAmount;
     setPayIpc(ipc); setPayment({ payment_date: todayAdDate(), amount: outstanding, tax_deducted: 0, payment_method: 'bank_transfer', bank_reference: '', paid_by: '', received_in_account: '', remarks: '' }); setPaymentProof(null);
   };
 
@@ -106,26 +106,361 @@ export default function IpcDashboard({ ipcSubmissions, userRole, userName, userE
     finally { uploadLock.current = false; setSaving(false); }
   };
 
-  return <div className="space-y-5"><UploadProgress active={saving} label="Uploading and securing the IPC document…"/>
-    <div className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center"><div><h2 className="text-base font-bold text-slate-950">Interim Payment Certificates</h2><p className="text-sm text-slate-600">Auditable claims, certificates, partial payments, bank references and private proof files.</p></div>{canSubmit&&<button onClick={()=>setShowClaim(value=>!value)} className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-bold text-white">+ Submit IPC claim</button>}</div>
-    <div className="grid gap-3 sm:grid-cols-3"><Metric label="Claimed" value={totals.claimedAmount}/><Metric label="Certified" value={totals.certifiedAmount}/><Metric label="Payments received" value={totals.paidAmount}/></div>
-    {message&&<div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-950">{message}</div>}
+  return (
+    <div className="space-y-6">
+      <UploadProgress active={saving} label="Uploading and securing the IPC document…" />
+      
+      {/* Header bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-600 text-sm">📑</span>
+            <h2 className="text-base font-bold text-slate-900">Interim Payment Certificates</h2>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">
+            Auditable claims, certificates, partial payments, bank references and private proof files.
+          </p>
+        </div>
+        {canSubmit && (
+          <button 
+            onClick={() => setShowClaim(value => !value)} 
+            className="rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2 text-xs font-semibold text-white shadow-xs transition"
+          >
+            {showClaim ? '✕ Cancel' : '+ Submit IPC Claim'}
+          </button>
+        )}
+      </div>
 
-    {showClaim&&<form onSubmit={submitClaim} className="rounded-xl border border-blue-200 bg-white p-5 shadow-sm"><FormTitle title="Submit IPC claim" subtitle="Required fields are marked by browser validation; the claim file is mandatory."/><div className="mt-4 grid gap-3 md:grid-cols-3"><Field label="IPC number"><input required type="number" min="1" value={claim.ipc_number||''} onChange={event=>setClaim({...claim,ipc_number:Number(event.target.value)})}/></Field><Field label="Invoice / claim reference"><input required value={claim.invoice_reference} onChange={event=>setClaim({...claim,invoice_reference:event.target.value})}/></Field><Field label="Claimed amount (NPR)"><input required type="number" min="0.01" step="0.01" value={claim.claimed_amount||''} onChange={event=>setClaim({...claim,claimed_amount:Number(event.target.value)})}/></Field><Field label="Billing period start (BS)"><BsDatePicker required value={claim.billing_period_start} onChange={billing_period_start=>setClaim({...claim,billing_period_start})}/></Field><Field label="Billing period end (BS)"><BsDatePicker required value={claim.billing_period_end} onChange={billing_period_end=>setClaim({...claim,billing_period_end})}/></Field><Field label="Submitted date (BS)"><BsDatePicker required value={claim.submitted_date} onChange={submitted_date=>setClaim({...claim,submitted_date})}/></Field><Field label="IPC claim file"><input required type="file" accept="application/pdf,image/*" onChange={event=>setClaimFile(event.target.files?.[0]||null)}/></Field><Field label="Remarks"><textarea value={claim.claim_remarks} onChange={event=>setClaim({...claim,claim_remarks:event.target.value})}/></Field></div><Actions saving={saving} primary="Save claim & document" cancel={()=>setShowClaim(false)}/></form>}
+      {/* 3 Colorful Metric Cards */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Claimed</span>
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50 text-blue-600 text-sm">📋</span>
+          </div>
+          <div className="mt-2 text-xl font-extrabold text-slate-900">NPR {totals.billedAmount.toLocaleString()}</div>
+          <div className="mt-1 text-[11px] text-slate-500">Gross cumulative invoice claims</div>
+        </div>
 
-    {selectedIpc&&<form onSubmit={certify} className="rounded-xl border border-purple-200 bg-white p-5 shadow-sm"><FormTitle title={`Certify IPC #${selectedIpc.ipc_number}`} subtitle="Record the formal certificate and all commercial deductions."/><div className="mt-4 grid gap-3 md:grid-cols-3"><Field label="Gross certified amount"><input required type="number" min="0.01" value={certification.certified_amount||''} onChange={event=>setCertification({...certification,certified_amount:Number(event.target.value)})}/></Field><Field label="Retention deduction"><input type="number" min="0" value={certification.retention_deducted||''} onChange={event=>setCertification({...certification,retention_deducted:Number(event.target.value)})}/></Field><Field label="Advance recovery"><input type="number" min="0" value={certification.advance_recovered||''} onChange={event=>setCertification({...certification,advance_recovered:Number(event.target.value)})}/></Field><Field label="Certificate reference"><input required value={certification.certificate_reference} onChange={event=>setCertification({...certification,certificate_reference:event.target.value})}/></Field><Field label="Certified by"><input required value={certification.certified_by} onChange={event=>setCertification({...certification,certified_by:event.target.value})}/></Field><Field label="Certification date (BS)"><BsDatePicker required value={certification.certified_date} onChange={certified_date=>setCertification({...certification,certified_date})}/></Field><Field label="Certificate file"><input required type="file" accept="application/pdf,image/*" onChange={event=>setCertificateFile(event.target.files?.[0]||null)}/></Field><Field label="Certification remarks"><textarea value={certification.certification_remarks} onChange={event=>setCertification({...certification,certification_remarks:event.target.value})}/></Field></div><div className="mt-3 rounded-lg bg-slate-50 p-3 font-bold text-slate-800">Net payable: NPR {(certification.certified_amount-certification.retention_deducted-certification.advance_recovered).toLocaleString()}</div><Actions saving={saving} primary="Verify certificate" cancel={()=>setSelectedIpc(null)}/></form>}
+        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Certified</span>
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-50 text-amber-600 text-sm">⚖️</span>
+          </div>
+          <div className="mt-2 text-xl font-extrabold text-amber-900">NPR {totals.certifiedAmount.toLocaleString()}</div>
+          <div className="mt-1 text-[11px] text-slate-500">Approved by Client / Consultant</div>
+        </div>
 
-    {payIpc&&<form onSubmit={recordPayment} className="rounded-xl border border-emerald-200 bg-white p-5 shadow-sm"><FormTitle title={`Record IPC #${payIpc.ipc_number} payment`} subtitle="Each part-payment is preserved as a separate bank transaction."/><div className="mt-4 grid gap-3 md:grid-cols-3"><Field label="Payment date (BS)"><BsDatePicker required value={payment.payment_date} onChange={payment_date=>setPayment({...payment,payment_date})}/></Field><Field label="Amount received"><input required type="number" min="0.01" step="0.01" value={payment.amount||''} onChange={event=>setPayment({...payment,amount:Number(event.target.value)})}/></Field><Field label="Tax deducted"><input type="number" min="0" step="0.01" value={payment.tax_deducted||''} onChange={event=>setPayment({...payment,tax_deducted:Number(event.target.value)})}/></Field><Field label="Payment method"><select value={payment.payment_method} onChange={event=>setPayment({...payment,payment_method:event.target.value as IpcPayment['payment_method']})}>{['bank_transfer','cheque','cash','other'].map(value=><option key={value} value={value}>{value.replaceAll('_',' ')}</option>)}</select></Field><Field label="Bank / transaction reference"><input required value={payment.bank_reference} onChange={event=>setPayment({...payment,bank_reference:event.target.value})}/></Field><Field label="Paid by"><input required value={payment.paid_by} onChange={event=>setPayment({...payment,paid_by:event.target.value})} placeholder="Employer / Client"/></Field><Field label="Received in account"><input required value={payment.received_in_account} onChange={event=>setPayment({...payment,received_in_account:event.target.value})}/></Field><Field label="Payment proof"><input required type="file" accept="application/pdf,image/*" onChange={event=>setPaymentProof(event.target.files?.[0]||null)}/></Field><Field label="Remarks"><textarea value={payment.remarks} onChange={event=>setPayment({...payment,remarks:event.target.value})}/></Field></div><Actions saving={saving} primary="Record payment & proof" cancel={()=>setPayIpc(null)}/></form>}
+        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Payments Cleared</span>
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 text-sm">💳</span>
+          </div>
+          <div className="mt-2 text-xl font-extrabold text-emerald-700">NPR {totals.paidAmount.toLocaleString()}</div>
+          <div className="mt-1 text-[11px] text-slate-500">Received in JV bank account</div>
+        </div>
+      </div>
 
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><h3 className="font-bold text-slate-950">IPC register</h3><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[1100px] text-sm"><thead><tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-600">{['IPC','Period (BS)','Claim reference','Claimed','Certified','Retention','Advance recovery','Paid','Status','Evidence','Action'].map(value=><th key={value} className="p-2">{value}</th>)}</tr></thead><tbody>{ipcSubmissions.map(ipc=><tr key={ipc.id} className="border-b border-slate-100"><td className="p-2 font-bold text-slate-950">IPC #{ipc.ipc_number}<div className="text-xs font-normal text-slate-600">{formatBsDate(ipc.submitted_date)}</div></td><td className="p-2">{formatBsDate(ipc.billing_period_start)} → {formatBsDate(ipc.billing_period_end)}</td><td className="p-2 font-mono">{ipc.invoice_reference||'—'}</td><Money value={ipc.claimed_amount}/><Money value={ipc.certified_amount}/><Money value={ipc.retention_deducted}/><Money value={ipc.advance_recovered}/><Money value={ipc.paid_amount}/><td className="p-2"><Status value={ipc.status}/></td><td className="p-2 text-xs"><Evidence ok={Boolean(ipc.claim_document_path)} label="Claim"/><Evidence ok={Boolean(ipc.certificate_document_path)} label="Certificate"/><Evidence ok={payments.some(item=>item.ipc_id===ipc.id&&item.proof_storage_path)} label="Payment"/></td><td className="p-2"><div className="flex gap-2">{ipc.status==='pending'&&canCertify&&<button onClick={()=>beginCertification(ipc)} className="font-bold text-purple-800">Certify</button>}{['certified','partially_paid'].includes(ipc.status)&&canPay&&<button onClick={()=>beginPayment(ipc)} className="font-bold text-emerald-800">Add payment</button>}</div></td></tr>)}</tbody></table></div></div>
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><h3 className="font-bold text-slate-950">IPC payment history</h3><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[900px] text-sm"><thead><tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-600">{['Payment date (BS)','IPC','Reference','Paid by','Account','Method','Tax','Amount','Proof'].map(value=><th key={value} className="p-2">{value}</th>)}</tr></thead><tbody>{payments.map(item=><tr key={item.id} className="border-b border-slate-100"><td className="p-2">{formatBsDate(item.payment_date)}</td><td className="p-2 font-bold">#{ipcSubmissions.find(ipc=>ipc.id===item.ipc_id)?.ipc_number||'—'}</td><td className="p-2 font-mono">{item.bank_reference}</td><td className="p-2">{item.paid_by||'—'}</td><td className="p-2">{item.received_in_account||'—'}</td><td className="p-2 capitalize">{item.payment_method.replaceAll('_',' ')}</td><Money value={item.tax_deducted}/><Money value={item.amount}/><td className="p-2"><Evidence ok={Boolean(item.proof_storage_path)} label="Stored"/></td></tr>)}</tbody></table>{payments.length===0&&<div className="p-8 text-center text-slate-600">No IPC payments recorded.</div>}</div></div>
-  </div>;
+      {message && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-3.5 text-xs font-semibold text-blue-950">
+          {message}
+        </div>
+      )}
+
+      {showClaim && (
+        <form onSubmit={submitClaim} className="rounded-2xl border border-blue-200 bg-white p-5 shadow-xs space-y-4">
+          <FormTitle title="Submit IPC Claim" subtitle="Required fields are marked by browser validation; the claim file is mandatory." />
+          <div className="grid gap-3 md:grid-cols-3">
+            <Field label="IPC Number">
+              <input required type="number" min="1" value={claim.ipc_number || ''} onChange={event => setClaim({...claim, ipc_number: Number(event.target.value)})} />
+            </Field>
+            <Field label="Invoice / Claim Reference">
+              <input required value={claim.invoice_reference} onChange={event => setClaim({...claim, invoice_reference: event.target.value})} />
+            </Field>
+            <Field label="Claimed Amount (NPR)">
+              <input required type="number" min="0.01" step="0.01" value={claim.claimed_amount || ''} onChange={event => setClaim({...claim, claimed_amount: Number(event.target.value)})} />
+            </Field>
+            <Field label="Billing Period Start (BS)">
+              <BsDatePicker required value={claim.billing_period_start} onChange={billing_period_start => setClaim({...claim, billing_period_start})} />
+            </Field>
+            <Field label="Billing Period End (BS)">
+              <BsDatePicker required value={claim.billing_period_end} onChange={billing_period_end => setClaim({...claim, billing_period_end})} />
+            </Field>
+            <Field label="Submitted Date (BS)">
+              <BsDatePicker required value={claim.submitted_date} onChange={submitted_date => setClaim({...claim, submitted_date})} />
+            </Field>
+            <Field label="IPC Claim File">
+              <input required type="file" accept="application/pdf,image/*" onChange={event => setClaimFile(event.target.files?.[0] || null)} />
+            </Field>
+            <Field label="Remarks">
+              <textarea value={claim.claim_remarks} onChange={event => setClaim({...claim, claim_remarks: event.target.value})} />
+            </Field>
+          </div>
+          <Actions saving={saving} primary="Save Claim & Document" cancel={() => setShowClaim(false)} />
+        </form>
+      )}
+
+      {selectedIpc && (
+        <form onSubmit={certify} className="rounded-2xl border border-purple-200 bg-white p-5 shadow-xs space-y-4">
+          <FormTitle title={`Certify IPC #${selectedIpc.ipc_number}`} subtitle="Record the formal certificate and all commercial deductions." />
+          <div className="grid gap-3 md:grid-cols-3">
+            <Field label="Gross Certified Amount">
+              <input required type="number" min="0.01" value={certification.certified_amount || ''} onChange={event => setCertification({...certification, certified_amount: Number(event.target.value)})} />
+            </Field>
+            <Field label="Retention Deduction">
+              <input type="number" min="0" value={certification.retention_deducted || ''} onChange={event => setCertification({...certification, retention_deducted: Number(event.target.value)})} />
+            </Field>
+            <Field label="Advance Recovery">
+              <input type="number" min="0" value={certification.advance_recovered || ''} onChange={event => setCertification({...certification, advance_recovered: Number(event.target.value)})} />
+            </Field>
+            <Field label="Certificate Reference">
+              <input required value={certification.certificate_reference} onChange={event => setCertification({...certification, certificate_reference: event.target.value})} />
+            </Field>
+            <Field label="Certified By">
+              <input required value={certification.certified_by} onChange={event => setCertification({...certification, certified_by: event.target.value})} />
+            </Field>
+            <Field label="Certification Date (BS)">
+              <BsDatePicker required value={certification.certified_date} onChange={certified_date => setCertification({...certification, certified_date})} />
+            </Field>
+            <Field label="Certificate File">
+              <input required type="file" accept="application/pdf,image/*" onChange={event => setCertificateFile(event.target.files?.[0] || null)} />
+            </Field>
+            <Field label="Certification Remarks">
+              <textarea value={certification.certification_remarks} onChange={event => setCertification({...certification, certification_remarks: event.target.value})} />
+            </Field>
+          </div>
+          <div className="rounded-xl bg-slate-50 p-3 text-xs font-bold text-slate-800">
+            Net Payable: NPR {(certification.certified_amount - certification.retention_deducted - certification.advance_recovered).toLocaleString()}
+          </div>
+          <Actions saving={saving} primary="Verify Certificate" cancel={() => setSelectedIpc(null)} />
+        </form>
+      )}
+
+      {payIpc && (
+        <form onSubmit={recordPayment} className="rounded-2xl border border-emerald-200 bg-white p-5 shadow-xs space-y-4">
+          <FormTitle title={`Record IPC #${payIpc.ipc_number} Payment`} subtitle="Each part-payment is preserved as a separate bank transaction." />
+          <div className="grid gap-3 md:grid-cols-3">
+            <Field label="Payment Date (BS)">
+              <BsDatePicker required value={payment.payment_date} onChange={payment_date => setPayment({...payment, payment_date})} />
+            </Field>
+            <Field label="Amount Received">
+              <input required type="number" min="0.01" step="0.01" value={payment.amount || ''} onChange={event => setPayment({...payment, amount: Number(event.target.value)})} />
+            </Field>
+            <Field label="Tax Deducted">
+              <input type="number" min="0" step="0.01" value={payment.tax_deducted || ''} onChange={event => setPayment({...payment, tax_deducted: Number(event.target.value)})} />
+            </Field>
+            <Field label="Payment Method">
+              <select value={payment.payment_method} onChange={event => setPayment({...payment, payment_method: event.target.value as IpcPayment['payment_method']})}>
+                {['bank_transfer', 'cheque', 'cash', 'other'].map(value => (
+                  <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Bank / Transaction Reference">
+              <input required value={payment.bank_reference} onChange={event => setPayment({...payment, bank_reference: event.target.value})} />
+            </Field>
+            <Field label="Paid By">
+              <input required value={payment.paid_by} onChange={event => setPayment({...payment, paid_by: event.target.value})} placeholder="Employer / Client" />
+            </Field>
+            <Field label="Received In Account">
+              <input required value={payment.received_in_account} onChange={event => setPayment({...payment, received_in_account: event.target.value})} />
+            </Field>
+            <Field label="Payment Proof">
+              <input required type="file" accept="application/pdf,image/*" onChange={event => setPaymentProof(event.target.files?.[0] || null)} />
+            </Field>
+            <Field label="Remarks">
+              <textarea value={payment.remarks} onChange={event => setPayment({...payment, remarks: event.target.value})} />
+            </Field>
+          </div>
+          <Actions saving={saving} primary="Record Payment & Proof" cancel={() => setPayIpc(null)} />
+        </form>
+      )}
+
+      {/* IPC Register Table */}
+      <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h3 className="text-base font-bold text-slate-900">IPC Register</h3>
+            <p className="text-xs text-slate-500">Progressive interim certificates, verified valuations and bank proofs.</p>
+          </div>
+          <span className="text-xs font-semibold text-slate-500">
+            {ipcSubmissions.length} certificates
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1100px] text-xs">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-slate-600 font-semibold">
+                {['IPC', 'Period (BS)', 'Claim Reference', 'Claimed', 'Certified', 'Retention', 'Advance Recovery', 'Paid', 'Status', 'Evidence', 'Action'].map(value => (
+                  <th key={value} className="py-2.5 px-3">{value}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-slate-700">
+              {ipcSubmissions.map(ipc => (
+                <tr key={ipc.id} className="hover:bg-slate-50/70 transition-colors">
+                  <td className="py-2.5 px-3 font-bold text-slate-900">
+                    IPC #{ipc.ipc_number}
+                    <div className="text-[11px] font-normal text-slate-500">{formatBsDate(ipc.submitted_date)}</div>
+                  </td>
+                  <td className="py-2.5 px-3 text-slate-600">
+                    {formatBsDate(ipc.billing_period_start)} → {formatBsDate(ipc.billing_period_end)}
+                  </td>
+                  <td className="py-2.5 px-3 font-mono text-slate-600">{ipc.invoice_reference || '—'}</td>
+                  <Money value={ipc.claimed_amount} />
+                  <Money value={ipc.certified_amount} />
+                  <Money value={ipc.retention_deducted} />
+                  <Money value={ipc.advance_recovered} />
+                  <Money value={ipc.paid_amount} />
+                  <td className="py-2.5 px-3">
+                    <Status value={ipc.status} />
+                  </td>
+                  <td className="py-2.5 px-3 text-[11px]">
+                    <div className="flex flex-col gap-0.5">
+                      <Evidence ok={Boolean(ipc.claim_document_path)} label="Claim" />
+                      <Evidence ok={Boolean(ipc.certificate_document_path)} label="Certificate" />
+                      <Evidence ok={payments.some(item => item.ipc_id === ipc.id && item.proof_storage_path)} label="Payment" />
+                    </div>
+                  </td>
+                  <td className="py-2.5 px-3">
+                    <div className="flex gap-2">
+                      {ipc.status === 'pending' && canCertify && (
+                        <button onClick={() => beginCertification(ipc)} className="font-semibold text-purple-700 hover:text-purple-800">
+                          Certify
+                        </button>
+                      )}
+                      {['certified', 'partially_paid'].includes(ipc.status) && canPay && (
+                        <button onClick={() => beginPayment(ipc)} className="font-semibold text-emerald-700 hover:text-emerald-800">
+                          Add Payment
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {ipcSubmissions.length === 0 && (
+                <tr>
+                  <td colSpan={11} className="p-8 text-center text-slate-500">
+                    No IPC submissions recorded.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* IPC Payment History */}
+      <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h3 className="text-base font-bold text-slate-900">IPC Payment History</h3>
+            <p className="text-xs text-slate-500">Bank transaction ledger and tax deductions.</p>
+          </div>
+          <span className="text-xs font-semibold text-slate-500">
+            {payments.length} transactions
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[900px] text-xs">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-slate-600 font-semibold">
+                {['Payment Date (BS)', 'IPC', 'Reference', 'Paid By', 'Account', 'Method', 'Tax', 'Amount', 'Proof'].map(value => (
+                  <th key={value} className="py-2.5 px-3">{value}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-slate-700">
+              {payments.map(item => (
+                <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                  <td className="py-2.5 px-3 font-mono">{formatBsDate(item.payment_date)}</td>
+                  <td className="py-2.5 px-3 font-bold text-slate-900">#{ipcSubmissions.find(ipc => ipc.id === item.ipc_id)?.ipc_number || '—'}</td>
+                  <td className="py-2.5 px-3 font-mono text-slate-600">{item.bank_reference}</td>
+                  <td className="py-2.5 px-3 text-slate-700">{item.paid_by || '—'}</td>
+                  <td className="py-2.5 px-3 text-slate-700">{item.received_in_account || '—'}</td>
+                  <td className="py-2.5 px-3 capitalize text-slate-600">{item.payment_method.replaceAll('_', ' ')}</td>
+                  <Money value={item.tax_deducted} />
+                  <Money value={item.amount} />
+                  <td className="py-2.5 px-3">
+                    <Evidence ok={Boolean(item.proof_storage_path)} label="Stored" />
+                  </td>
+                </tr>
+              ))}
+              {payments.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="p-8 text-center text-slate-500">
+                    No IPC payments recorded.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
 }
 
-function Metric({label,value}:{label:string;value:number}){return <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-xs font-bold uppercase text-slate-600">{label}</div><div className="mt-1 text-xl font-extrabold text-slate-950">NPR {value.toLocaleString()}</div></div>}
-function Field({label,children}:{label:string;children:React.ReactNode}){return <label className="text-sm font-semibold text-slate-700">{label}<div className="mt-1">{children}</div></label>}
-function FormTitle({title,subtitle}:{title:string;subtitle:string}){return <div><h3 className="font-bold text-slate-950">{title}</h3><p className="text-sm text-slate-600">{subtitle}</p></div>}
-function Actions({saving,primary,cancel}:{saving:boolean;primary:string;cancel:()=>void}){return <div className="mt-4 flex gap-2"><button disabled={saving} className="rounded-lg bg-blue-700 px-4 py-2 font-bold text-white disabled:opacity-60">{saving?'Saving…':primary}</button><button type="button" onClick={cancel} className="rounded-lg border border-slate-300 px-4 py-2 font-bold text-slate-800">Cancel</button></div>}
-function Money({value}:{value:number}){return <td className="p-2 text-right font-mono font-semibold">{Number(value||0).toLocaleString()}</td>}
-function Status({value}:{value:string}){const paid=value==='paid';const pending=value==='pending';return <span className={`rounded-full px-2 py-1 text-xs font-bold capitalize ${paid?'bg-emerald-50 text-emerald-800':pending?'bg-amber-50 text-amber-800':'bg-blue-50 text-blue-800'}`}>{value.replaceAll('_',' ')}</span>}
-function Evidence({ok,label}:{ok:boolean;label:string}){return <div className={ok?'text-emerald-800':'text-rose-800'}>{ok?'✓':'Missing'} {label}</div>}
+function Field({label, children}: {label: string; children: React.ReactNode}) {
+  return (
+    <label className="text-xs font-semibold text-slate-700 space-y-1 block">
+      <span>{label}</span>
+      <div className="[&_input]:w-full [&_select]:w-full [&_textarea]:w-full [&_input]:p-2 [&_select]:p-2 [&_textarea]:p-2 [&_input]:rounded-xl [&_select]:rounded-xl [&_textarea]:rounded-xl [&_input]:border [&_select]:border [&_textarea]:border [&_input]:border-slate-300 [&_select]:border-slate-300 [&_textarea]:border-slate-300 [&_input]:bg-white [&_select]:bg-white [&_textarea]:bg-white [&_input]:text-slate-900 [&_select]:text-slate-900 [&_textarea]:text-slate-900 [&_input]:text-xs [&_select]:text-xs [&_textarea]:text-xs">
+        {children}
+      </div>
+    </label>
+  );
+}
+
+function FormTitle({title, subtitle}: {title: string; subtitle: string}) {
+  return (
+    <div>
+      <h3 className="font-bold text-slate-900 text-sm">{title}</h3>
+      <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>
+    </div>
+  );
+}
+
+function Actions({saving, primary, cancel}: {saving: boolean; primary: string; cancel: () => void}) {
+  return (
+    <div className="mt-4 flex gap-2 justify-end">
+      <button type="button" onClick={cancel} className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition">
+        Cancel
+      </button>
+      <button disabled={saving} className="rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2 text-xs font-bold text-white shadow-xs transition disabled:opacity-60">
+        {saving ? 'Saving…' : primary}
+      </button>
+    </div>
+  );
+}
+
+function Money({value}: {value: number}) {
+  return <td className="py-2.5 px-3 text-right font-mono font-medium text-slate-900">{Number(value || 0).toLocaleString()}</td>;
+}
+
+function Status({value}: {value: string}) {
+  const isPaid = value === 'paid';
+  const isCertified = value === 'certified';
+  const isPending = value === 'pending';
+  
+  let pillClass = 'status-pill-neutral';
+  if (isPaid) pillClass = 'status-pill-completed';
+  else if (isCertified) pillClass = 'status-pill-progress';
+  else if (isPending) pillClass = 'status-pill-pending';
+  
+  return (
+    <span className={`status-pill ${pillClass}`}>
+      <span className="status-pill-dot" />
+      {value.replaceAll('_', ' ').toUpperCase()}
+    </span>
+  );
+}
+
+function Evidence({ok, label}: {ok: boolean; label: string}) {
+  return (
+    <div className={`flex items-center gap-1 ${ok ? 'text-emerald-700 font-medium' : 'text-slate-400'}`}>
+      <span>{ok ? '✓' : '○'}</span>
+      <span>{label}</span>
+    </div>
+  );
+}

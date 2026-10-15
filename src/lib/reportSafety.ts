@@ -1,5 +1,5 @@
-/** Safe for application-generated reports and spreadsheet-compatible exports. */
-export function escapeReportHtml(value: unknown): string {
+/** Safe for text-node interpolation in application-generated report HTML. */
+export function escapeReportHtml(value: unknown) {
   return String(value ?? '—')
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
@@ -8,12 +8,16 @@ export function escapeReportHtml(value: unknown): string {
     .replaceAll("'", '&#39;');
 }
 
-export function csvSafeCell(value: unknown): string {
+/**
+ * Preserve ordinary numeric cells, but prevent user-controlled strings from
+ * becoming formulas in spreadsheet applications when the CSV is opened.
+ */
+export function csvSafeCell(value: unknown) {
   const text = String(value ?? '');
-  const protectedText = /^[=+\-@]/.test(text) ? `'${text}` : text;
-  return `"${protectedText.replaceAll('"', '""')}"`;
+  const neutralized = typeof value === 'string' && /^[=+\-@]/.test(text) ? `'${text}` : text;
+  return `"${neutralized.replaceAll('"', '""')}"`;
 }
 
-export function csvSafeRows(rows: unknown[][]): string {
+export function csvSafeRows(rows: unknown[][]) {
   return rows.map(row => row.map(csvSafeCell).join(',')).join('\n');
 }

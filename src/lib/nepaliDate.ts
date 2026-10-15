@@ -10,6 +10,7 @@ export const BS_MONTHS = [
   'बैशाख', 'जेठ', 'असार', 'श्रावण', 'भदौ', 'आश्विन',
   'कार्तिक', 'मंसिर', 'पुष', 'माघ', 'फाल्गुण', 'चैत्र',
 ];
+export const BS_MONTHS_EN = ['Baishakh', 'Jestha', 'Ashadh', 'Shrawan', 'Bhadra', 'Ashwin', 'Kartik', 'Mangsir', 'Poush', 'Magh', 'Falgun', 'Chaitra'];
 
 export const BS_WEEKDAYS = ['आइत', 'सोम', 'मंगल', 'बुध', 'बिही', 'शुक्र', 'शनि'];
 
@@ -37,13 +38,14 @@ export function bsToAdDate(parts: BsDateParts): string {
   return `${ad.year}-${pad(ad.month + 1)}-${pad(ad.date)}`;
 }
 
-export function formatBsDate(adDate?: string | null, options?: { long?: boolean; nepaliDigits?: boolean }) {
+export function formatBsDate(adDate?: string | null, options?: { long?: boolean; nepaliDigits?: boolean; language?: 'ne' | 'en' }) {
   const parts = adToBsParts(adDate);
   if (!parts) return adDate || '—';
+  const language = options?.language || 'ne';
   const output = options?.long
-    ? `${parts.day} ${BS_MONTHS[parts.month]} ${parts.year} BS`
+    ? `${parts.day} ${language === 'ne' ? BS_MONTHS[parts.month] : BS_MONTHS_EN[parts.month]} ${parts.year}${language === 'ne' ? '' : ' BS'}`
     : `${parts.year}-${pad(parts.month + 1)}-${pad(parts.day)} BS`;
-  return options?.nepaliDigits === false ? output : toNepaliDigits(output);
+  return language === 'ne' && options?.nepaliDigits !== false ? toNepaliDigits(output) : output;
 }
 
 export function formatBsDateTime(value?: string | null) {
@@ -97,8 +99,9 @@ export function daysInBsMonth(year: number, month: number) {
 }
 
 export function todayAdDate() {
-  const now = new Date();
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kathmandu', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const value = (type: string) => parts.find(part => part.type === type)?.value || '';
+  return `${value('year')}-${value('month')}-${value('day')}`;
 }
 
 export function addAdDays(adDate: string, days: number) {

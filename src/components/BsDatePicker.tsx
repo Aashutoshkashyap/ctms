@@ -5,6 +5,7 @@ import NepaliDate from 'nepali-date-converter';
 import {
   adToBsParts,
   BS_MONTHS,
+  BS_MONTHS_EN,
   BS_WEEKDAYS,
   bsInputValue,
   bsToAdDate,
@@ -12,6 +13,7 @@ import {
   todayAdDate,
   toNepaliDigits,
 } from '../lib/nepaliDate';
+import { useLanguage } from './LanguageProvider';
 
 type Props = {
   value: string;
@@ -40,6 +42,7 @@ export default function BsDatePicker({
   placeholder = 'YYYY-MM-DD BS',
   'aria-label': ariaLabel,
 }: Props) {
+  const { language } = useLanguage();
   const selected = adToBsParts(value || todayAdDate()) || { year: 2083, month: 0, day: 1 };
   const [open, setOpen] = useState(false);
   const [viewYear, setViewYear] = useState(selected.year);
@@ -121,8 +124,8 @@ export default function BsDatePicker({
           <div className="mb-3 flex items-center justify-between gap-2">
             <button type="button" onClick={() => changeMonth(-1)} className="rounded-lg border border-slate-200 px-3 py-1.5 font-bold text-slate-700 hover:bg-slate-50" aria-label="Previous BS month">‹</button>
             <div className="text-center">
-              <div className="font-extrabold">{BS_MONTHS[viewMonth]}</div>
-              <div className="text-xs font-semibold text-slate-600">{toNepaliDigits(viewYear)} BS</div>
+              <div className="font-extrabold">{language === 'ne' ? BS_MONTHS[viewMonth] : BS_MONTHS_EN[viewMonth]}</div>
+              <div className="text-xs font-semibold text-slate-600">{language === 'ne' ? toNepaliDigits(viewYear) : viewYear} BS</div>
             </div>
             <button type="button" onClick={() => changeMonth(1)} className="rounded-lg border border-slate-200 px-3 py-1.5 font-bold text-slate-700 hover:bg-slate-50" aria-label="Next BS month">›</button>
           </div>
@@ -141,7 +144,7 @@ export default function BsDatePicker({
                 disabled={outsideRange}
                 onClick={() => selectDay(day)}
                 className={`aspect-square rounded-lg text-sm font-semibold ${active ? 'bg-blue-700 text-white' : 'text-slate-700 hover:bg-blue-50'} disabled:cursor-not-allowed disabled:text-slate-300`}
-              >{toNepaliDigits(day)}</button>;
+              >{language === 'ne' ? toNepaliDigits(day) : day}</button>;
             })}
           </div>
           <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2 text-xs">

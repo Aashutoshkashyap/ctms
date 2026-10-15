@@ -34,7 +34,7 @@ export async function GET(request: Request) {
     .from('organizations')
     .select('id,name,contact_email,access_until,subscription_status')
     .not('access_until', 'is', null);
-  if (error) return NextResponse.json({ ok: false, message: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ ok: false, message: 'Subscription records could not be read.' }, { status: 503 });
 
   let noticesCreated = 0;
   let deliveriesQueued = 0;

@@ -1,0 +1,4 @@
+-- Phase 1M read-only preflight. Run before supabase_phase1m_ipc.sql.
+select to_regclass('public.boq_contract_rates') as boq_contract_rates,to_regclass('public.ipc_valuation_periods') as ipc_valuation_periods,to_regclass('public.ipc_valuation_lines') as ipc_valuation_lines,to_regclass('public.ipc_valuation_measurement_links') as ipc_valuation_measurement_links;
+select table_name,column_name,data_type,is_nullable from information_schema.columns where table_schema='public' and table_name in ('activities','boq_item_measurements','ipc_submissions','boq_contract_rates','ipc_valuation_periods','ipc_valuation_lines','ipc_valuation_measurement_links') order by table_name,ordinal_position;
+select tablename,policyname,cmd,roles from pg_policies where schemaname='public' and tablename in ('boq_contract_rates','ipc_valuation_periods','ipc_valuation_lines','ipc_valuation_measurement_links') order by tablename,policyname;

@@ -138,12 +138,13 @@ export function buildDefaultPermissions(role: string): FeaturePermissions {
 }
 
 export function can(role: string, feature: Feature, permissions?: FeaturePermissions | null, access: 'read' | 'write' = 'read'): boolean {
+  if (!PROJECT_ROLES.includes(role as ProjectRole)) return false;
   const normalized = normalizeRole(role);
   if (normalized === 'project_director') return true;
   const baseline = defaultPermissionLevel(normalized, feature);
   if (baseline === 'none') return false;
   const assigned = permissions?.[feature];
-  if (assigned) return assigned === 'write' && (access === 'read' || baseline === 'write') || (assigned === 'read' && access === 'read');
+  if (assigned !== undefined) return assigned === 'write' && (access === 'read' || baseline === 'write') || (assigned === 'read' && access === 'read');
   return access === 'read' || baseline === 'write';
 }
 

@@ -357,3 +357,51 @@ export function projectProgress(
     forecastFinishDate,
   };
 }
+
+/**
+ * Validate that a proposed dependency does not create a self-loop, duplicate, or circular dependency cycle.
+ */
+export function validateDependency(
+  existingDependencies: Dependency[],
+  newDep: { predecessor_id: string; successor_id: string }
+): { valid: boolean; reason?: string } {
+  if (!newDep.predecessor_id || !newDep.successor_id) {
+    return { valid: false, reason: 'Both predecessor and successor activities must be specified.' };
+  }
+  if (newDep.predecessor_id === newDep.successor_id) {
+    return { valid: false, reason: 'An activity cannot depend on itself.' };
+  }
+  const duplicate = existingDependencies.some(
+    d => d.predecessor_id === newDep.predecessor_id && d.successor_id === newDep.successor_id
+  );
+  if (duplicate) {
+    return { valid: false, reason: 'This dependency relationship already exists.' };
+  }
+
+  // Reachability check: Can successor reach predecessor through existing edges?
+  const adj = new Map<string, string[]>();
+  existingDependencies.forEach(d => {
+    if (!adj.has(d.predecessor_id)) adj.set(d.predecessor_id, []);
+    adj.get(d.predecessor_id)!.push(d.successor_id);
+  });
+
+  const visited = new Set<string>();
+  const queue = [newDep.successor_id];
+
+  while (queue.length > 0) {
+    const curr = queue.shift()!;
+    if (curr === newDep.predecessor_id) {
+      return { valid: false, reason: 'Adding this link would create an invalid circular dependency cycle in the CPM schedule.' };
+    }
+    visited.add(curr);
+    const neighbors = adj.get(curr) || [];
+    for (const next of neighbors) {
+      if (!visited.has(next)) {
+        visited.add(next);
+        queue.push(next);
+      }
+    }
+  }
+
+  return { valid: true };
+}

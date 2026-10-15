@@ -5,7 +5,6 @@ import { formatBsDate } from '../lib/nepaliDate';
 import { storage } from '../lib/storage';
 import UploadProgress from './UploadProgress';
 import { useSubmissionLock } from '../lib/useSubmissionLock';
-import { MetricCard, SectionHeader } from './ManagementUI';
 
 interface QaqcDashboardProps {
   qaqc: any[];
@@ -100,117 +99,188 @@ export default function QaqcDashboard({
   const pending = qaqc.filter(q => q.status === 'pending').length;
 
   return (
-    <div className="space-y-6"><UploadProgress active={uploading} label="Uploading and securing the test or NCR report…"/>
+    <div className="space-y-6">
+      <UploadProgress active={uploading} label="Uploading and securing the test or NCR report…" />
+
       {/* QA Grid summary cards */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Inspections" value={String(total)} /><MetricCard label="Passed" value={String(passed)} tone="green" /><MetricCard label="Failed / NCR" value={String(failed)} tone="red" /><MetricCard label="Waiting for inspection" value={String(pending)} tone="amber" /></div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-white border border-slate-200/90 p-5 rounded-2xl shadow-xs space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Total Quality Items</span>
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-600 text-sm">🧪</span>
+          </div>
+          <div className="text-2xl font-extrabold text-slate-900 font-mono">{total}</div>
+          <div className="text-[11px] text-slate-500">Registered RFIs & quality checks</div>
+        </div>
+
+        <div className="bg-white border border-slate-200/90 p-5 rounded-2xl shadow-xs space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Passed Inspections</span>
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 text-sm">✓</span>
+          </div>
+          <div className="text-2xl font-extrabold text-emerald-600 font-mono">{passed}</div>
+          <div className="text-[11px] text-slate-500">Fully compliant with specifications</div>
+        </div>
+
+        <div className="bg-white border border-slate-200/90 p-5 rounded-2xl shadow-xs space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Failed / Open NCRs</span>
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-rose-50 text-rose-600 text-sm">⚠️</span>
+          </div>
+          <div className="text-2xl font-extrabold text-rose-600 font-mono">{failed}</div>
+          <div className="text-[11px] text-slate-500">Non-conformance reports awaiting rectification</div>
+        </div>
+
+        <div className="bg-white border border-slate-200/90 p-5 rounded-2xl shadow-xs space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Pending Inspections</span>
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-600 text-sm">⏳</span>
+          </div>
+          <div className="text-2xl font-extrabold text-amber-600 font-mono">{pending}</div>
+          <div className="text-[11px] text-slate-500">Sample testing / site audit in progress</div>
+        </div>
+      </div>
 
       {/* Action Header */}
-      <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <SectionHeader title="Inspection requests" description="Request a test, record its result, and track any NCR." />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 border border-slate-200/90 rounded-2xl shadow-xs">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-600 text-sm">📋</span>
+            <h2 className="text-slate-900 text-base font-bold">Request for Inspection (RFI) Register</h2>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">Manage quality compliance, concrete tests, compaction tests, material audits and non-conformance tracking.</p>
+        </div>
         {canEdit && (
           <button 
             onClick={() => setShowAddForm(!showAddForm)}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow transition"
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl shadow-xs transition"
           >
-            📐 Raise Inspection Request
+            {showAddForm ? '✕ Close Form' : '+ Raise Inspection Request'}
           </button>
         )}
       </div>
 
       {/* Add request form */}
       {showAddForm && (
-        <form onSubmit={handleSubmit} className="max-w-md space-y-4 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm">
-          <h3 className="text-slate-200 font-bold uppercase tracking-wider">Raise Quality Inspection</h3>
+        <form onSubmit={handleSubmit} className="bg-white border border-blue-200 p-5 rounded-2xl space-y-4 max-w-lg shadow-xs text-xs">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+            <h3 className="text-slate-900 font-bold text-sm">Raise Quality Inspection Request</h3>
+            <span className="text-[10px] text-slate-400">RFI Protocol</span>
+          </div>
           <div className="space-y-3">
             <div>
-              <label className="block text-slate-400 mb-1">Inspection Item</label>
+              <label className="block text-slate-700 font-semibold mb-1">Inspection Item</label>
               <input
                 type="text"
                 placeholder="e.g. Slump test PCC bedding Pier 3 cap"
                 value={qaItem}
                 onChange={(e) => setQaItem(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
+                className="w-full bg-white border border-slate-300 p-2.5 rounded-xl text-slate-900 text-xs outline-none focus:border-blue-600"
                 required
               />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Test standard type</label>
+              <label className="block text-slate-700 font-semibold mb-1">Test Standard / Grade</label>
               <input
                 type="text"
                 placeholder="e.g. Concrete cubes compressive strength M25"
                 value={testType}
                 onChange={(e) => setTestType(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-slate-200"
+                className="w-full bg-white border border-slate-300 p-2.5 rounded-xl text-slate-900 text-xs outline-none focus:border-blue-600"
               />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Scheduled Date (BS)</label>
+              <label className="block text-slate-700 font-semibold mb-1">Scheduled Date (BS)</label>
               <BsDatePicker value={inspectDate} onChange={setInspectDate} required />
             </div>
-            <div>
-              <label className="block text-slate-400 mb-1">Sample Collection Date (BS)</label>
-              <BsDatePicker value={sampleDate} onChange={setSampleDate} />
-            </div>
-            <div>
-              <label className="block text-slate-400 mb-1">Tested Date (BS)</label>
-              <BsDatePicker value={testedDate} onChange={setTestedDate} />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-slate-700 font-semibold mb-1">Sample Collection (BS)</label>
+                <BsDatePicker value={sampleDate} onChange={setSampleDate} />
+              </div>
+              <div>
+                <label className="block text-slate-700 font-semibold mb-1">Tested Date (BS)</label>
+                <BsDatePicker value={testedDate} onChange={setTestedDate} />
+              </div>
             </div>
           </div>
-          <button type="submit" className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded shadow transition">
-            Save Inspection Request
-          </button>
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={() => setShowAddForm(false)} className="rounded-xl border border-slate-200 px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50 transition">
+              Cancel
+            </button>
+            <button type="submit" className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-xs transition">
+              Save Inspection Request
+            </button>
+          </div>
         </form>
       )}
 
       {/* Register List */}
-      <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-5 shadow-lg">
-        <h3 className="text-slate-200 text-sm font-semibold mb-4">Quality & Material Test Registry</h3>
-        <div className="overflow-x-auto">
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-xs space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-slate-900 text-sm font-bold">Quality & Material Test Registry</h3>
+            <p className="mt-1 text-xs text-slate-500">Audit verification history, test lab evidence, and NCR status tracking.</p>
+          </div>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+            {qaqc.length} Records
+          </span>
+        </div>
+
+        <div className="overflow-x-auto rounded-xl border border-slate-200">
           <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="border-b border-slate-700 text-slate-400 font-semibold">
-                <th className="pb-3">Inspection Item Details</th>
-                <th className="pb-3">Test standard</th>
-                <th className="pb-3 text-right">Inspection Date (BS)</th>
-                <th className="pb-3 text-center">Status</th>
-                <th className="pb-3 text-right">NCR Code</th>
-                <th className="pb-3 text-right">Sample / Tested</th>
-                <th className="pb-3 pl-4">Audit Result Notes</th>
-                <th className="pb-3 text-right">Test / NCR Report</th>
-                {canEdit && <th className="pb-3 text-right pr-2">Actions</th>}
+            <thead className="bg-slate-50/80 text-slate-600 font-semibold border-b border-slate-200">
+              <tr>
+                <th className="py-3 px-3">Inspection Item Details</th>
+                <th className="py-3 px-3">Test Standard</th>
+                <th className="py-3 px-3 text-right">Inspection Date</th>
+                <th className="py-3 px-3 text-center">Status</th>
+                <th className="py-3 px-3 text-right">NCR Code</th>
+                <th className="py-3 px-3 text-right">Sample / Tested</th>
+                <th className="py-3 px-3 pl-4">Audit Result Notes</th>
+                <th className="py-3 px-3 text-right">Report Evidence</th>
+                {canEdit && <th className="py-3 px-3 text-right pr-4">Actions</th>}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800 text-slate-300">
+            <tbody className="divide-y divide-slate-100 text-slate-700">
               {qaqc.map(item => (
-                <tr key={item.id} className="hover:bg-slate-800/10">
-                  <td className="py-3 font-semibold text-slate-100">{item.qa_item}</td>
-                  <td className="py-3 text-slate-400">{item.test_type || 'Standard inspection'}</td>
-                  <td className="py-3 text-right font-mono">{formatBsDate(item.inspection_date)}</td>
-                  <td className="py-3 text-center">
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                      item.status === 'passed' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                      item.status === 'failed' ? 'bg-red-500/10 text-red-400 border border-red-500/20 animate-pulse' :
-                      'bg-slate-700/30 text-slate-400'
+                <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                  <td className="py-3 px-3 font-semibold text-slate-900">{item.qa_item}</td>
+                  <td className="py-3 px-3 text-slate-500">{item.test_type || 'Standard inspection'}</td>
+                  <td className="py-3 px-3 text-right font-mono text-slate-600">{formatBsDate(item.inspection_date)}</td>
+                  <td className="py-3 px-3 text-center">
+                    <span className={`status-pill ${
+                      item.status === 'passed' ? 'status-pill-completed' :
+                      item.status === 'failed' ? 'status-pill-delayed' :
+                      'status-pill-pending'
                     }`}>
+                      <span className="status-pill-dot" />
                       {item.status.toUpperCase()}
                     </span>
                   </td>
-                  <td className={`py-3 text-right font-mono font-bold ${item.ncr_number ? 'text-red-400' : 'text-slate-500'}`}>
-                    {item.ncr_code || item.ncr_number || '-'}
+                  <td className={`py-3 px-3 text-right font-mono font-bold ${item.ncr_number ? 'text-rose-600' : 'text-slate-400'}`}>
+                    {item.ncr_code || item.ncr_number || '—'}
                   </td>
-                  <td className="py-3 text-right font-mono text-slate-500">{formatBsDate(item.sample_collection_date)}<br />{formatBsDate(item.tested_date)}</td>
-                  <td className="py-3 pl-4 text-slate-400">{item.test_result_details || 'Awaiting site audit'}</td>
-                  <td className={`py-3 text-right font-bold ${item.report_storage_path || item.report_url ? 'text-emerald-800' : 'text-rose-800'}`}>{item.report_storage_path || item.report_url ? 'Stored' : 'Required at result'}</td>
+                  <td className="py-3 px-3 text-right font-mono text-slate-500 text-[11px]">
+                    <div>{formatBsDate(item.sample_collection_date) || '—'}</div>
+                    <div className="text-slate-400">{formatBsDate(item.tested_date)}</div>
+                  </td>
+                  <td className="py-3 px-3 pl-4 text-slate-600">{item.test_result_details || 'Awaiting site audit'}</td>
+                  <td className={`py-3 px-3 text-right font-semibold text-xs ${item.report_storage_path || item.report_url ? 'text-emerald-700' : 'text-amber-700'}`}>
+                    {item.report_storage_path || item.report_url ? '✓ Stored' : 'Required'}
+                  </td>
                   {canEdit && (
-                    <td className="py-3 text-right pr-2">
+                    <td className="py-3 px-3 text-right pr-4">
                       {item.status === 'pending' ? (
                         <div className="flex min-w-52 flex-col items-end gap-2 text-[11px] font-semibold">
                           <input aria-label={`Upload report for ${item.qa_item}`} type="file" accept="application/pdf,image/*,.doc,.docx" onChange={event=>setResultFiles(files=>({...files,[item.id]:event.target.files?.[0]||null}))} className="max-w-52 text-xs" />
-                          <div className="flex gap-2"><button onClick={() => void handleUpdateStatus(item, 'passed')} className="text-emerald-700 hover:text-emerald-800">Pass</button>
-                          <button onClick={() => void handleUpdateStatus(item, 'failed')} className="text-red-700 hover:text-red-800">Fail</button></div>
+                          <div className="flex gap-2">
+                            <button onClick={() => void handleUpdateStatus(item, 'passed')} className="rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 font-bold hover:bg-emerald-100 transition">Pass</button>
+                            <button onClick={() => void handleUpdateStatus(item, 'failed')} className="rounded-lg bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 font-bold hover:bg-rose-100 transition">Fail</button>
+                          </div>
                         </div>
                       ) : (
-                        <span className="text-slate-500 font-normal">Audited</span>
+                        <span className="text-slate-400 font-normal">Audited</span>
                       )}
                     </td>
                   )}
