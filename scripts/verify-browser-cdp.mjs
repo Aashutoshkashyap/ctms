@@ -6,21 +6,24 @@ const DEV_SERVER_URL = 'http://localhost:3000';
 const CDP_PORT = 9222;
 const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
-const sleep = ms => new Promise(r => setTimeout(r, ms));
+const sleep = (/** @type {number} */ ms) => new Promise(r => setTimeout(r, ms));
 
 class CdpClient {
-  constructor(wsUrl) {
+  constructor(/** @type {string} */ wsUrl) {
     this.wsUrl = wsUrl;
+    /** @type {WebSocket | null} */
     this.ws = null;
     this.id = 1;
+    /** @type {Map<number, { resolve: (val?: any) => void, reject: (err?: any) => void }>} */
     this.pending = new Map();
+    /** @type {Array<{ type: string, text: string }>} */
     this.consoleLogs = [];
+    /** @type {any[]} */
     this.exceptions = [];
   }
 
   async connect() {
     return new Promise((resolve, reject) => {
-      // @ts-expect-error WebSocket is available globally in Node 20+
       this.ws = new WebSocket(this.wsUrl);
       this.ws.onopen = () => resolve(true);
       this.ws.onerror = err => reject(err);
@@ -28,12 +31,15 @@ class CdpClient {
         try {
           const msg = JSON.parse(event.data.toString());
           if (msg.id && this.pending.has(msg.id)) {
-            const { resolve, reject } = this.pending.get(msg.id);
-            this.pending.delete(msg.id);
-            if (msg.error) reject(new Error(msg.error.message || JSON.stringify(msg.error)));
-            else resolve(msg.result);
+            const entry = this.pending.get(msg.id);
+            if (entry) {
+              const { resolve, reject } = entry;
+              this.pending.delete(msg.id);
+              if (msg.error) reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+              else resolve(msg.result);
+            }
           } else if (msg.method === 'Runtime.consoleAPICalled') {
-            const text = (msg.params.args || []).map(a => a.value || a.description || '').join(' ');
+            const text = (msg.params.args || []).map((/** @type {any} */ a) => a.value || a.description || '').join(' ');
             this.consoleLogs.push({ type: msg.params.type, text });
           } else if (msg.method === 'Runtime.exceptionThrown') {
             this.exceptions.push(msg.params.exceptionDetails);
@@ -45,7 +51,7 @@ class CdpClient {
     });
   }
 
-  async send(method, params = {}) {
+  async send(/** @type {string} */ method, params = {}) {
     const id = this.id++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
@@ -53,7 +59,7 @@ class CdpClient {
     });
   }
 
-  async evaluate(expression) {
+  async evaluate(/** @type {string} */ expression) {
     const res = /** @type {any} */ (await this.send('Runtime.evaluate', {
       expression,
       returnByValue: true,
