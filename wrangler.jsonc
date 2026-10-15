@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ctms-one",
+  "main": "cloudflare-worker.js",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "OPENWA_BASE_URL": "https://openwa-production-b9be.up.railway.app"
+  },
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "triggers": {
+    "crons": ["0 0 * * *", "15 0 * * *"]
+  }
+}
