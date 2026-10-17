@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import BsDatePicker from './BsDatePicker';
 import { storage } from '../lib/storage';
+import RecordDetailsDialog from './RecordDetailsDialog';
 
 type RecordType = 'variation' | 'claim_cost' | 'claim_eot';
 const today = () => new Date().toISOString().slice(0, 10);
@@ -27,6 +28,8 @@ export default function CommercialControlWorkspace({
   const [typeFilter, setTypeFilter] = useState<'all' | RecordType>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedRecord, setSelectedRecord] = useState<any | null>(null);
+  const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     type: 'variation' as RecordType,
@@ -205,7 +208,8 @@ export default function CommercialControlWorkspace({
         <form
           onSubmit={event => {
             event.preventDefault();
-            void command({ action: 'create', ...form });
+            void command(editingRecordId ? { action: 'update', recordId: editingRecordId, ...form } : { action: 'create', ...form });
+            setEditingRecordId(null);
             setForm({
               ...form,
               referenceId: '',
@@ -517,6 +521,40 @@ export default function CommercialControlWorkspace({
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRecord({ ...record, action_history: history(record.id) })}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                    >
+                      View details
+                    </button>
+                    {record.workflow_status === 'draft' && canCreate && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingRecordId(record.id);
+                          setShowCreate(true);
+                          setForm({
+                            type: record.type,
+                            referenceId: record.reference_id,
+                            title: record.title,
+                            description: record.description || '',
+                            reasonBasis: record.reason_basis || '',
+                            affectedActivityId: record.affected_activity_id || '',
+                            requestedDays: String(record.time_impact_days || ''),
+                            requestedCompletionDate: record.requested_completion_date || '',
+                            costImpact: String(record.cost_impact_amount || ''),
+                            proposedQuantity: String(record.proposed_quantity || ''),
+                            proposedRate: String(record.proposed_rate || ''),
+                            eventDate: record.event_date || today(),
+                            noticeDate: record.notice_date || today(),
+                          });
+                        }}
+                        className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-xs font-bold rounded-xl transition"
+                      >
+                        Edit details
+                      </button>
+                    )}
                     {status === 'draft' && (
                       <button
                         disabled={busy}
@@ -614,6 +652,7 @@ export default function CommercialControlWorkspace({
           )}
         </div>
       </section>
+      <RecordDetailsDialog title="Commercial record" record={selectedRecord} onClose={() => setSelectedRecord(null)} />
     </section>
   );
 }

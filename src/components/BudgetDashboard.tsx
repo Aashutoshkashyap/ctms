@@ -1,9 +1,12 @@
 // Budget and Cost Dashboard Component (Page 6)
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { EVMMetrics } from '../lib/evm';
 import { sumBudgetValues } from '../lib/projectMetrics';
+import { isSupabaseConfigured, storage } from '../lib/storage';
+import RecordDetailsDialog from './RecordDetailsDialog';
 
 interface BudgetDashboardProps {
+  projectId: string;
   budgetHeads: any[];
   subcontractors: any[];
   evm: EVMMetrics;
@@ -12,33 +15,73 @@ interface BudgetDashboardProps {
 }
 
 export default function BudgetDashboard({
+  projectId,
   budgetHeads,
   subcontractors,
   evm,
   onUpdateBudget,
   userRole
 }: BudgetDashboardProps) {
+  const [cloudBudgetHeads, setCloudBudgetHeads] = useState<any[]>([]);
   const [selectedBdgId, setSelectedBdgId] = useState<string | null>(null);
   const [editActualCost, setEditActualCost] = useState(0);
+  const [selectedBudget, setSelectedBudget] = useState<any | null>(null);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'failed'>('idle');
+  const [message, setMessage] = useState('');
 
-  const selectedBdg = budgetHeads.find(b => b.id === selectedBdgId);
+  const activeBudgetHeads = isSupabaseConfigured() ? cloudBudgetHeads : budgetHeads;
   const isEditable = ['project_director', 'project_manager', 'accountant', 'qs_billing_engineer'].includes(userRole);
+  const headers = async () => ({ Authorization: `Bearer ${(await storage.getAuthSession())?.access_token || ''}`, 'Content-Type': 'application/json' });
+
+  useEffect(() => {
+    let current = true;
+    void (async () => {
+      if (!isSupabaseConfigured()) return;
+      setMessage('');
+      const response = await fetch(`/api/cost-control?projectId=${encodeURIComponent(projectId)}`, { headers: await headers(), cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!current) return;
+      if (response.ok) setCloudBudgetHeads(data.budgetHeads || []);
+      else if (response.status !== 401) setMessage(data.error || 'Cost control records are unavailable.');
+    })();
+    return () => { current = false; };
+  }, [projectId]);
 
   const handleStartEdit = (bh: any) => {
     setSelectedBdgId(bh.id);
-    setEditActualCost(bh.actual_cost);
+    setEditActualCost(Number(bh.actual_cost) || 0);
   };
 
-  const handleSaveEdit = (bh: any) => {
-    onUpdateBudget({
-      ...bh,
-      actual_cost: editActualCost
-    });
-    setSelectedBdgId(null);
-    alert('Actual cost updated successfully.');
+  const handleSaveEdit = async (bh: any) => {
+    setSaveState('saving');
+    setMessage('');
+    try {
+      if (isSupabaseConfigured()) {
+        const response = await fetch('/api/cost-control', {
+          method: 'PATCH',
+          headers: await headers(),
+          body: JSON.stringify({ projectId, budgetHeadId: bh.id, actualCost: editActualCost })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Actual cost could not be saved.');
+        setCloudBudgetHeads(rows => rows.map(row => row.id === bh.id ? data.budgetHead : row));
+      } else {
+        onUpdateBudget({
+          ...bh,
+          actual_cost: editActualCost
+        });
+      }
+      setSelectedBdgId(null);
+      setSaveState('idle');
+      setMessage('Actual cost saved.');
+    } catch (error) {
+      setSaveState('failed');
+      setMessage(error instanceof Error ? error.message : 'Actual cost could not be saved. Retry when connected.');
+    }
   };
 
-  const budgetTotals = sumBudgetValues(budgetHeads);
+  const displayedBudgetHeads = activeBudgetHeads.length ? activeBudgetHeads : budgetHeads;
+  const budgetTotals = sumBudgetValues(displayedBudgetHeads);
   const { contractValue: totalContract, internalBudget: totalBudget, actualCost: totalActual, committedCost: totalCommitted } = budgetTotals;
 
   return (
@@ -107,11 +150,11 @@ export default function BudgetDashboard({
                 <th className="py-3 px-3 text-right">Committed</th>
                 <th className="py-3 px-3 text-right">Forecast</th>
                 <th className="py-3 px-3 text-right">Margin</th>
-                {isEditable && <th className="py-3 px-3 text-right pr-4">Action</th>}
+                <th className="py-3 px-3 text-right pr-4">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
-              {budgetHeads.map(bh => {
+              {displayedBudgetHeads.map(bh => {
                 const cpi = bh.actual_cost > 0 ? (bh.contract_value * 0.35) / bh.actual_cost : 1; // Simplified item CPI
                 const forecast = cpi > 0 ? bh.internal_budget / cpi : bh.internal_budget;
                 const margin = bh.contract_value - forecast;
@@ -141,18 +184,21 @@ export default function BudgetDashboard({
                     <td className={`py-3 px-3 text-right font-mono font-bold ${margin >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                       {(margin).toLocaleString()}
                     </td>
-                    {isEditable && (
-                      <td className="py-3 px-3 text-right pr-4">
-                        {isEditing ? (
-                          <div className="flex justify-end gap-1.5 font-bold">
-                            <button onClick={() => handleSaveEdit(bh)} className="text-emerald-700 hover:text-emerald-800">Save</button>
-                            <button onClick={() => setSelectedBdgId(null)} className="text-slate-500 hover:text-slate-700">Cancel</button>
-                          </div>
-                        ) : (
-                          <button onClick={() => handleStartEdit(bh)} className="text-blue-600 hover:text-blue-800 font-semibold">Log Exp</button>
+                    <td className="py-3 px-3 text-right pr-4">
+                      <div className="flex justify-end gap-2 items-center">
+                        <button type="button" onClick={() => setSelectedBudget(bh)} className="font-semibold text-blue-600 hover:text-blue-800 text-xs">View details</button>
+                        {isEditable && (
+                          isEditing ? (
+                            <div className="flex justify-end gap-1.5 font-bold">
+                              <button type="button" disabled={saveState === 'saving'} onClick={() => void handleSaveEdit(bh)} className="text-emerald-700 hover:text-emerald-800 text-xs disabled:opacity-60">{saveState === 'saving' ? 'Saving…' : 'Save'}</button>
+                              <button type="button" onClick={() => setSelectedBdgId(null)} className="text-slate-500 hover:text-slate-700 text-xs">Cancel</button>
+                            </div>
+                          ) : (
+                            <button type="button" onClick={() => handleStartEdit(bh)} className="text-slate-600 hover:text-slate-900 font-semibold text-xs">Edit cost</button>
+                          )
                         )}
-                      </td>
-                    )}
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
@@ -223,6 +269,7 @@ export default function BudgetDashboard({
           })}
         </div>
       </div>
+      <RecordDetailsDialog title="Cost control budget head" record={selectedBudget} onClose={() => setSelectedBudget(null)} />
     </div>
   );
 }

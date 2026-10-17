@@ -1,7 +1,7 @@
 import { buildDefaultPermissions, DIRECTOR_MANAGED_FEATURES, isProjectDirector, PROJECT_ROLES } from '../../../../lib/permissions';
 import type { Feature, FeaturePermissions, PermissionLevel } from '../../../../lib/permissions';
 import { getClientIp, rateLimit, rateLimitResponse } from '../../../../lib/server/security';
-import { authorizeProjectRequest } from '../../../../lib/server/projectAuthorization';
+import { authorizeProjectRequest, authorizeProjectUser, bearerToken, tenantAdminClient } from '../../../../lib/server/projectAuthorization';
 
 export async function POST(request: Request) {
   const ip = getClientIp(request);
@@ -89,6 +89,18 @@ export async function POST(request: Request) {
     (matchingProjects || []).some(projectRow => projectRow.id === item.project_id && projectRow.organization_id === organizationId)
   );
   if (existingMembership?.auth_user_id) {
+    const target = (matchingMemberships || []).find(item => item.project_id === projectId);
+    const targetPlatform = await admin.from('platform_admins').select('auth_user_id').eq('auth_user_id', existingMembership.auth_user_id).maybeSingle();
+    const targetOrganization = await admin.from('organization_members').select('organization_id,status').eq('auth_user_id', existingMembership.auth_user_id);
+    if (targetPlatform.error || targetPlatform.data || targetOrganization.error ||
+        targetOrganization.data?.some(item => item.organization_id !== organizationId || item.status !== 'active') ||
+        existingMembership.auth_user_id === authorized.userId ||
+        (authorized.role === 'business_admin' && target && ['project_director', 'business_admin', 'super_admin'].includes(target.role))) {
+      return Response.json({ error: 'This target membership cannot be changed by this actor.' }, { status: 403 });
+    }
+    if (authorized.role === 'business_admin' && target) {
+      return Response.json({ error: 'Existing staff authorization changes require the Project Director.' }, { status: 403 });
+    }
     const { data: assigned, error: assignmentError } = await admin.from('project_users').upsert({
       id: `${projectId}-${existingMembership.auth_user_id}`,
       auth_user_id: existingMembership.auth_user_id,
@@ -113,7 +125,7 @@ export async function POST(request: Request) {
       }, { onConflict: 'organization_id,auth_user_id' });
       if (leaderError) return Response.json({ error: leaderError.message }, { status: 400 });
     }
-    return Response.json({ user: assigned, temporaryPassword: null, reusedAccount: true });
+    return Response.json({ user: assigned, temporaryPassword: null, reusedAccount: true, personId: existingMembership.auth_user_id });
   }
 
   if (usedSeats >= Number(organization.seat_limit || 0)) {
@@ -200,4 +212,30 @@ export async function PATCH(request: Request) {
   }).eq('id', target.id).select('id,auth_user_id,project_id,email,name,role,feature_permissions').single();
   if (error) return Response.json({ error: error.message }, { status: 400 });
   return Response.json({ user: data });
+}
+
+export async function DELETE(request: Request) {
+  const ip = getClientIp(request);
+  const limit = rateLimit({ key: `admin-users-remove:${ip}`, limit: 20, windowMs: 60_000 });
+  if (!limit.allowed) return rateLimitResponse(limit.resetAt);
+  const body = await request.json().catch(() => null) as { projectId?: string; membershipId?: string } | null;
+  if (!body?.projectId || !body.membershipId) return Response.json({ error: 'Project and staff assignment are required.' }, { status: 400 });
+  const token = bearerToken(request);
+  if (!token) return Response.json({ error: 'Authentication is required.' }, { status: 401 });
+  const admin = tenantAdminClient();
+  if (!admin) return Response.json({ error: 'Tenant authorization is not configured.' }, { status: 503 });
+  const verified = await admin.auth.getUser(token);
+  if (verified.error || !verified.data.user) return Response.json({ error: 'Your session could not be verified.' }, { status: 401 });
+  const actor = await authorizeProjectUser(admin, verified.data.user.id, body.projectId, 'manage_users', 'write');
+  if ('error' in actor) return Response.json({ error: actor.error }, { status: actor.status });
+  const { data: target } = await admin.from('project_users').select('id,auth_user_id,role,project_id').eq('id', body.membershipId).eq('project_id', body.projectId).maybeSingle();
+  if (!target || target.auth_user_id === verified.data.user.id || ['project_director', 'business_admin', 'super_admin'].includes(target.role)) {
+    return Response.json({ error: 'This project assignment cannot be removed by the staff access editor.' }, { status: 403 });
+  }
+  if (actor.role === 'business_admin' && ['project_director', 'business_admin', 'super_admin'].includes(target.role)) {
+    return Response.json({ error: 'A Business Admin cannot remove a privileged project assignment.' }, { status: 403 });
+  }
+  const { error } = await admin.from('project_users').delete().eq('id', target.id).eq('project_id', body.projectId);
+  if (error) return Response.json({ error: error.message }, { status: 400 });
+  return Response.json({ removedAssignmentId: target.id, personId: target.auth_user_id, projectId: body.projectId });
 }

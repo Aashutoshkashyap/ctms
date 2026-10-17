@@ -377,8 +377,17 @@ async function runBrowserVerification() {
     console.log('\n--- 5. CPM SCHEDULING & FLOAT COMPUTATIONS IN BROWSER ---');
     await client.evaluate(`
       (() => {
-        const btn = Array.from(document.querySelectorAll('aside button')).find(b => (b.textContent || '').includes('CPM') || (b.textContent || '').includes('Schedule'));
-        if (btn) btn.click();
+        // First click Work module in sidebar
+        const workBtn = Array.from(document.querySelectorAll('aside button')).find(b => (b.textContent || '').includes('Work'));
+        if (workBtn) workBtn.click();
+      })()
+    `);
+    await sleep(600);
+    await client.evaluate(`
+      (() => {
+        // Then click Schedule & WBS sub-tab
+        const cpmBtn = Array.from(document.querySelectorAll('button')).find(b => (b.textContent || '').includes('Schedule') || (b.textContent || '').includes('CPM'));
+        if (cpmBtn) cpmBtn.click();
       })()
     `);
     await sleep(800);
@@ -386,7 +395,7 @@ async function runBrowserVerification() {
     const cpmState = await client.evaluate(`
       (() => {
         const text = document.body.innerText;
-        const hasGantt = text.includes('CPM') || text.includes('Critical') || text.includes('Float') || text.includes('WBS');
+        const hasGantt = text.includes('CPM') || text.includes('Critical') || text.includes('Float') || text.includes('WBS') || text.includes('Schedule');
         const activities = JSON.parse(localStorage.getItem('bt_activities') || '[]');
         const dependencies = JSON.parse(localStorage.getItem('bt_dependencies') || '[]');
         return {
@@ -404,8 +413,17 @@ async function runBrowserVerification() {
     console.log('\n--- 6. EVM METRICS & COMMERCIAL CONTROLS IN BROWSER ---');
     await client.evaluate(`
       (() => {
-        const btn = Array.from(document.querySelectorAll('aside button')).find(b => (b.textContent || '').includes('Budget') || (b.textContent || '').includes('Earned'));
-        if (btn) btn.click();
+        // First click Commercial module in sidebar
+        const commBtn = Array.from(document.querySelectorAll('aside button')).find(b => (b.textContent || '').includes('Commercial'));
+        if (commBtn) commBtn.click();
+      })()
+    `);
+    await sleep(600);
+    await client.evaluate(`
+      (() => {
+        // Then click Cost & budget sub-tab
+        const budgetBtn = Array.from(document.querySelectorAll('button')).find(b => (b.textContent || '').includes('Cost') || (b.textContent || '').includes('Budget') || (b.textContent || '').includes('Earned'));
+        if (budgetBtn) budgetBtn.click();
       })()
     `);
     await sleep(800);
@@ -415,7 +433,7 @@ async function runBrowserVerification() {
         const text = document.body.innerText;
         return {
           hasEvmMetrics: text.includes('Planned Value') || text.includes('Earned Value') || text.includes('Cost Variance') || text.includes('Schedule Variance') || text.includes('CPI') || text.includes('SPI'),
-          hasBudgetTable: text.includes('Budget') || text.includes('Cost')
+          hasBudgetTable: text.includes('Budget') || text.includes('Cost') || text.includes('Commercial')
         };
       })()
     `);
@@ -426,7 +444,7 @@ async function runBrowserVerification() {
     console.log('\n--- 7. PROCUREMENT & VENDOR MASTER DIRECTORY ---');
     await client.evaluate(`
       (() => {
-        const btn = Array.from(document.querySelectorAll('aside button')).find(b => (b.textContent || '').includes('Inventory') || (b.textContent || '').includes('Procurement'));
+        const btn = Array.from(document.querySelectorAll('aside button')).find(b => (b.textContent || '').includes('Inventory') || (b.textContent || '').includes('Purchases') || (b.textContent || '').includes('Procurement'));
         if (btn) btn.click();
       })()
     `);

@@ -6,6 +6,7 @@ import BsDatePicker from './BsDatePicker';
 import { formatBsDate } from '../lib/nepaliDate';
 import UploadProgress from './UploadProgress';
 import { attachmentsNeedingRetry, DailySaveState, saveFailureMessage } from '../lib/dailySaveState';
+import RecordDetailsDialog from './RecordDetailsDialog';
 
 interface Props {
   projectId: string;
@@ -61,6 +62,7 @@ export default function DailyReportingDashboard({ projectId, activities, reports
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState('');
   const [hasProblem, setHasProblem] = useState(false);
+  const [selectedReport, setSelectedReport] = useState<any | null>(null);
   const isSimpleReporter = ['field_employee', 'subcontractor'].includes(userRole);
 
   const sortedReports = useMemo(() => [...reports].filter(report => !logDate || report.report_date === logDate).sort((a,b)=>b.report_date.localeCompare(a.report_date)), [reports, logDate]);
@@ -609,6 +611,9 @@ export default function DailyReportingDashboard({ projectId, activities, reports
                     <div className="text-xs text-slate-500">Submitted by {report.submitted_by}</div>
                   </div>
                   <div className="flex items-center gap-1.5">
+                    <button type="button" onClick={() => setSelectedReport({ ...report, work_items: work, material_items: mats })} className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs">
+                      View details
+                    </button>
                     {canManageReport(report) && (
                       <button onClick={() => startEditReport(report)} className="px-2.5 py-1 bg-blue-50 text-blue-700 font-bold rounded-lg text-xs">
                         Edit
@@ -650,6 +655,7 @@ export default function DailyReportingDashboard({ projectId, activities, reports
           })}
         </div>
       )}
+      <RecordDetailsDialog title="Daily report" record={selectedReport} onClose={() => setSelectedReport(null)} />
     </div>
   );
 }

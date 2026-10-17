@@ -79,9 +79,10 @@ export async function authorizeProjectUser(
     authorizeActiveOrganizationMember(admin, userId, organizationId),
     admin.from('project_users').select('role,feature_permissions').eq('project_id', projectId).eq('auth_user_id', userId).maybeSingle(),
   ]);
-  if ('error' in organization || membership.error || !membership.data) return denied;
+  if ('error' in organization || membership.error) return denied;
+  if (!membership.data && organization.role !== 'business_admin') return denied;
   if (!await hasOrganizationModuleEntitlement(admin, organizationId, FEATURE_MODULE[feature])) return { error: 'This module is not included in the organization subscription.', status: 403 };
-  const sourceRole = membership.data.role;
+  const sourceRole = membership.data?.role || organization.role;
   const role = normalizeRole(sourceRole);
   if (role === 'super_admin' || (role === 'employer_viewer' && sourceRole !== 'employer_viewer')) return denied;
   const permissions = membership.data?.feature_permissions || {};

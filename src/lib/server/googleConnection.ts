@@ -26,6 +26,8 @@ async function loadAuthorization(
   userId: string,
   projectId: string,
   allowedRoles: string[],
+  feature?: Feature,
+  access?: 'read' | 'write',
 ): Promise<GoogleProjectAuthorization | { error: string; status: number }> {
   const { data: project } = await admin.from('projects').select('id,name,organization_id').eq('id', projectId).maybeSingle();
   if (!project?.organization_id) return { error: 'Project business tenant was not found.', status: 404 };
@@ -35,6 +37,9 @@ async function loadAuthorization(
   const membership = await admin.from('project_users').select('role,feature_permissions').eq('project_id', projectId).eq('auth_user_id', userId).maybeSingle();
   const role = normalizeRole(membership.data?.role || '');
   if (membership.error || !membership.data || !allowedRoles.includes(role)) return { error: 'You are not authorized for this Google workspace action.', status: 403 };
+  if (feature && !can(membership.data.role, feature, membership.data.feature_permissions, access || 'read')) {
+    return { error: 'You are not authorized for this Google workspace action.', status: 403 };
+  }
 
   return {
     admin,
@@ -49,7 +54,13 @@ async function loadAuthorization(
   };
 }
 
-export async function authorizeGoogleRequest(request: Request, projectId: string, allowedRoles: string[]) {
+export async function authorizeGoogleRequest(
+  request: Request,
+  projectId: string,
+  allowedRoles: string[],
+  feature?: Feature,
+  access?: 'read' | 'write',
+) {
   const admin = adminClient();
   if (!admin) return { error: 'Server-side tenant storage is not configured.', status: 503 } as const;
   const authorization = request.headers.get('authorization');
@@ -57,7 +68,7 @@ export async function authorizeGoogleRequest(request: Request, projectId: string
   if (!accessToken) return { error: 'Authentication is required.', status: 401 } as const;
   const { data, error } = await admin.auth.getUser(accessToken);
   if (error || !data.user) return { error: 'Your session could not be verified.', status: 401 } as const;
-  return loadAuthorization(admin, data.user.id, projectId, allowedRoles);
+  return loadAuthorization(admin, data.user.id, projectId, allowedRoles, feature, access);
 }
 
 export async function authorizeGoogleCallbackUser(userId: string, projectId: string, allowedRoles: string[]) {

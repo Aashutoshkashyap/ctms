@@ -5,6 +5,7 @@ import BsDatePicker from './BsDatePicker';
 import { formatBsDate } from '../lib/nepaliDate';
 import { generateWbsFromTender } from '../lib/ai';
 import { activityActualProgress } from '../lib/projectMetrics';
+import RecordDetailsDialog from './RecordDetailsDialog';
 
 interface CpmTimelineDashboardProps {
   activities: Activity[];
@@ -52,6 +53,7 @@ export default function CpmTimelineDashboard({
   // Quick edit state
   const [editingActId, setEditingActId] = useState<string | null>(null);
   const [editAct, setEditAct] = useState<Partial<Activity>>({});
+  const [selectedActivity, setSelectedActivity] = useState<object | null>(null);
 
   const isEditable = ['project_director', 'project_manager', 'planning_engineer'].includes(userRole);
   const today = new Date().toISOString().slice(0, 10);
@@ -658,7 +660,10 @@ export default function CpmTimelineDashboard({
                             <button onClick={() => setEditingActId(null)} className="text-slate-500 hover:text-slate-700 font-medium">Cancel</button>
                           </div>
                         ) : (
-                          <button onClick={() => handleStartEdit(act)} className="text-blue-600 hover:text-blue-700 font-semibold">Edit</button>
+                          <div className="flex gap-2 justify-end">
+                            <button onClick={() => setSelectedActivity({ ...act, delay_management_remark: delay.remark })} className="text-slate-600 hover:text-slate-900 font-semibold">View details</button>
+                            <button onClick={() => handleStartEdit(act)} className="text-blue-600 hover:text-blue-700 font-semibold">Edit</button>
+                          </div>
                         )}
                       </td>
                     )}
@@ -669,6 +674,7 @@ export default function CpmTimelineDashboard({
           </table>
         </div>
       </div>
+      {selectedActivity && <RecordDetailsDialog title="BOQ work item" record={selectedActivity} onClose={() => setSelectedActivity(null)} />}
 
       {/* Dependencies list */}
       <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs">

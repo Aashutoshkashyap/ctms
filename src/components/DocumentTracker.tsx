@@ -108,15 +108,22 @@ export default function DocumentTracker({ userRole, projectId, userName, userEma
   }, [documents, projectId]);
 
   const headers = async () => ({ Authorization: `Bearer ${(await storage.getAuthSession())?.access_token || ''}`, 'Content-Type': 'application/json' });
-  const loadAuthoritative = async () => {
-    if (!isSupabaseConfigured()) return;
-    const response = await fetch(`/api/documents?projectId=${encodeURIComponent(projectId)}`, { headers: await headers(), cache: 'no-store' });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) { if (response.status !== 401) setMessage(payload.error || 'Cloud document register is unavailable; this device copy remains available.'); return; }
-    setDocuments(payload.documents || []);
-    setHistory((payload.history || []).reduce((grouped: Record<string, Array<Record<string, unknown>>>, row: Record<string, unknown>) => ({ ...grouped, [String(row.document_id)]: [...(grouped[String(row.document_id)] || []), row] }), {}));
-  };
-  useEffect(() => { void loadAuthoritative(); }, [projectId]);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      if (!isSupabaseConfigured()) return;
+      const response = await fetch(`/api/documents?projectId=${encodeURIComponent(projectId)}`, { headers: await headers(), cache: 'no-store' });
+      const payload = await response.json().catch(() => ({}));
+      if (!active) return;
+      if (!response.ok) {
+        if (response.status !== 401) setMessage(payload.error || 'Cloud document register is unavailable; this device copy remains available.');
+        return;
+      }
+      setDocuments(payload.documents || []);
+      setHistory((payload.history || []).reduce((grouped: Record<string, Array<Record<string, unknown>>>, row: Record<string, unknown>) => ({ ...grouped, [String(row.document_id)]: [...(grouped[String(row.document_id)] || []), row] }), {}));
+    })();
+    return () => { active = false; };
+  }, [projectId]);
   const command = async (body: Record<string, unknown>, method: 'POST' | 'PATCH') => {
     if (!isSupabaseConfigured()) return null;
     const response = await fetch('/api/documents', { method, headers: await headers(), body: JSON.stringify({ projectId, ...body }) });

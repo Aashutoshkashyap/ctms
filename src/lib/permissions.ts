@@ -138,7 +138,8 @@ export function buildDefaultPermissions(role: string): FeaturePermissions {
 }
 
 export function can(role: string, feature: Feature, permissions?: FeaturePermissions | null, access: 'read' | 'write' = 'read'): boolean {
-  if (!PROJECT_ROLES.includes(role as ProjectRole)) return false;
+  const raw = role.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (!PROJECT_ROLES.includes(raw as ProjectRole) && !(raw in ROLE_ALIASES)) return false;
   const normalized = normalizeRole(role);
   if (normalized === 'project_director') return true;
   const baseline = defaultPermissionLevel(normalized, feature);

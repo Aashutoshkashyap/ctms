@@ -39,7 +39,7 @@ function fixture(role = 'project_director', permissions = {}, options = {}) {
     platform_admins: options.platform ? [{ auth_user_id: 'u1', email: 'platform@example.test' }] : [],
     projects: [{ id: 'p1', name: 'Tenant A project', organization_id: 'a' }, { id: 'p2', name: 'Other project', organization_id: 'b' }, { id: 'p3', name: 'Same tenant, unassigned', organization_id: 'a' }],
     organizations: [{ id: 'a', name: 'A', subscription_status: 'active', access_until: '2099-01-01', seat_limit: 10 }],
-    organization_members: options.inactive ? [{ organization_id: 'a', auth_user_id: 'u1', status: 'inactive', role }] : [],
+    organization_members: options.inactive ? [{ organization_id: 'a', auth_user_id: 'u1', status: 'inactive', role }] : options.platform ? [] : [{ organization_id: 'a', auth_user_id: 'u1', status: 'active', role }],
     project_users: [{ id: 'm1', project_id: 'p1', auth_user_id: 'u1', email: 'actor@example.test', name: 'Actor', role, feature_permissions: permissions },
       { id: 'm2', project_id: 'p1', auth_user_id: 'u2', email: 'staff@example.test', name: 'Staff', role: 'site_engineer', feature_permissions: {} },
       { id: 'm3', project_id: 'p2', auth_user_id: 'u3', email: 'other@example.test', role: 'site_engineer', feature_permissions: {} }],

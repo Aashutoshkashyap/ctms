@@ -60,9 +60,9 @@ export default function AiAssistant({
       activities: wbsResult.activities.map(item => ({ ...item, id: activityIds.get(item.id)! })),
       dependencies: wbsResult.dependencies.map((item, index) => ({ ...item, id: `${prefix}-dep-${index + 1}`, predecessor_id: activityIds.get(item.predecessor_id) || item.predecessor_id, successor_id: activityIds.get(item.successor_id) || item.successor_id })),
     });
-    if (!imported.ok) return alert(imported.issues.map(issue => issue.message).join('\n') || 'The BOQ import could not be completed.');
+    if (!imported.ok) return alert(imported.issues.join('\n') || 'The BOQ import could not be completed.');
     if (onReloadData) onReloadData();
-    alert(`BOQ import complete: ${imported.counts.created} created, ${imported.counts.updated} updated, ${imported.counts.unchanged} unchanged.`);
+    alert(`BOQ import complete: ${imported.created} created, ${imported.updated} updated, ${imported.unchanged} unchanged.`);
     setWbsResult(null);
     setInputText('');
   };
