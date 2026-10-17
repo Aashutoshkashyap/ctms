@@ -2,7 +2,7 @@
 import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
 
-const DEV_SERVER_URL = 'http://localhost:3000';
+const DEV_SERVER_URL = process.argv[2] || process.env.TEST_URL || 'http://localhost:3000';
 const CDP_PORT = 9222;
 const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
